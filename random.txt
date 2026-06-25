@@ -1,0 +1,11 @@
+$env:SSH_HOST            = "52.9.243.84"
+$env:SSH_USER            = "ec2-user"
+$env:SSH_KEY             = "C:\Users\TheAl\.ssh\NatInstanceKP.pem"
+$env:SSH_PORT            = "22"
+$env:OPENVPN_UNIT        = "openvpn-server@server"
+$env:OPENVPN_STATUS_FILE = "/var/log/openvpn/status.log"
+$env:OPENVPN_SUDO        = "true"
+$env:VPN_SERVER_NAME     = "openvpn-prod-1"
+$env:BLACKWATCH_URL      = "http://localhost:8000"
+$env:BLACKWATCH_TOKEN    = "vpntoken"
+python scripts\openvpn_ssh_poller.py --once

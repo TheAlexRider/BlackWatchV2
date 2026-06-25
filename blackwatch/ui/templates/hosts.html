@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %} · Hosts{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
+{% block content %}
+<h1>EC2 hosts <span class="muted" style="font-size:12px">· auto-refreshes every 15s</span></h1>
+
+<div class="card">
+  <h2>Instances</h2>
+  {% if servers %}
+  <table>
+    <tr><th>Instance</th><th>Hostname</th><th>Agent</th><th>Region</th><th>Ports</th><th>Users</th><th>Keys</th><th>Last seen</th></tr>
+    {% for s in servers %}
+    <tr>
+      <td><a href="/ui/hosts/{{ s.instance_id }}"><code>{{ s.instance_id }}</code></a></td>
+      <td>{{ s.hostname or '-' }}</td>
+      <td>{% if s.active and not s.stale %}<span class="up">● reporting</span>{% else %}<span class="down">● stale/down</span>{% endif %}</td>
+      <td class="muted">{{ s.region or '-' }}</td>
+      <td>{{ s.port_count }}</td>
+      <td>{{ s.user_count }}</td>
+      <td>{{ s.key_count }}</td>
+      <td class="muted">{% if s.age_seconds is not none %}{{ s.age_seconds }}s ago{% if s.stale %} <span class="stale">· STALE</span>{% endif %}{% else %}-{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No hosts reporting yet. Install the agent (scripts/ec2_agent.py) and add an SQS connector with target module <code>ec2.host</code>.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Recent state changes <span class="muted" style="font-weight:400;text-transform:none">· ports / users / keys / sudoers</span></h2>
+  {% if changes %}
+  <table>
+    <tr><th>Time</th><th>Severity</th><th>Action</th><th>Host</th><th>Detail</th></tr>
+    {% for c in changes %}
+    <tr>
+      <td class="muted">{{ c.event_time|ts }}</td>
+      <td><span class="badge sev-{{ c.severity or 'unscored' }}">{{ c.severity or 'unscored' }}</span></td>
+      <td><code>{{ c.action }}</code></td>
+      <td class="muted">{{ c.target.name or c.target.id or '-' }}</td>
+      <td class="muted">
+        {%- if c.extra.port %}port {{ c.extra.proto }}/{{ c.extra.port }} on {{ c.extra.address or '-' }}{% endif -%}
+        {%- if c.extra.user and not c.extra.port and not c.extra.fingerprint %}user <b>{{ c.extra.user }}</b>{% endif -%}
+        {%- if c.extra.fingerprint %}{{ c.extra.user }} · fp <code>{{ c.extra.fingerprint[:12] }}</code>{% endif -%}
+        {%- if c.extra.path %}<code>{{ c.extra.path }}</code>{% if c.extra.change %} · {{ c.extra.change }}{% endif %}{% endif -%}
+        {%- if c.extra.unit %}<code>{{ c.extra.unit }}</code>{% endif -%}
+        {%- if c.extra.added_count is defined %}+{{ c.extra.added_count }} / −{{ c.extra.removed_count }} packages{% endif -%}
+        {%- if c.extra.changes %}{{ c.extra.changes|length }} path(s){% endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No state changes recorded yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Recent access (SSH / sudo)</h2>
+  {% if auth %}
+  <table>
+    <tr><th>Time</th><th>Result</th><th>Action</th><th>User</th><th>Source IP</th><th>Host</th></tr>
+    {% for a in auth %}
+    <tr>
+      <td class="muted">{{ a.event_time|ts }}</td>
+      <td>{% if a.outcome == 'success' %}<span class="up">success</span>{% else %}<span class="down">FAILED</span>{% endif %}</td>
+      <td><code>{{ a.action }}</code></td>
+      <td>{{ a.actor.principal or '-' }}</td>
+      <td class="muted">{{ a.actor.source_ip or '-' }}</td>
+      <td class="muted">{{ a.target.name or a.target.id or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No SSH/sudo activity captured yet.</p>{% endif %}
+</div>
+{% endblock %}

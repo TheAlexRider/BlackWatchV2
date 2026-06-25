@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %} · Services{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="20">{% endblock %}
+{% block content %}
+<h1>ECS services <span class="muted" style="font-size:12px">· auto-refreshes every 20s</span>
+  <a href="/ui/services/targets" style="font-size:12px;margin-left:14px">Manage targets →</a>
+</h1>
+
+<div class="card">
+  <h2>Per-VPC probe agents</h2>
+  {% if agents %}
+  <table>
+    <tr><th>VPC</th><th>Agent</th><th>Last report</th><th>Version</th></tr>
+    {% for a in agents %}
+    <tr>
+      <td><code>{{ a.vpc }}</code></td>
+      <td>{% if a.active %}<span class="up">● reporting</span>{% else %}<span class="down">● stale/down</span>{% endif %}</td>
+      <td class="muted">{{ a.last_report|ts }}</td>
+      <td class="muted">{{ a.agent_version or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No probe agents have reported yet. Either install one in a VPC, or add an `aws_ecs_health` connector for AWS-side reading.</p>
+  {% endif %}
+</div>
+
+{% for vpc, rows in grouped.items() %}
+<div class="card">
+  <h2>{{ vpc }} <span class="muted" style="font-size:12px">· {{ rows|length }} service(s)</span></h2>
+  <table>
+    <tr><th>Service</th><th>Tier</th><th>Status</th><th>Latency</th><th>Consec. fails</th><th>Last check</th><th>Severity</th><th>Tags</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><b>{{ r.name }}</b>{% if not r.enabled %} <span class="muted">· disabled</span>{% endif %}</td>
+      <td class="muted"><code>{{ r.tier }}</code></td>
+      <td>
+        {% if r.status == 'up' %}<span class="up">● up</span>
+        {% elif r.status == 'down' %}<span class="down">● DOWN</span>
+        {% elif r.status == 'degraded' %}<span class="stale">● degraded</span>
+        {% else %}<span class="muted">● unknown</span>{% endif %}
+      </td>
+      <td class="muted">{% if r.latency_ms %}{{ r.latency_ms }}ms{% else %}-{% endif %}</td>
+      <td class="muted">{{ r.consecutive_fails }}</td>
+      <td class="muted">{% if r.age_seconds is not none %}{{ r.age_seconds }}s ago{% if r.stale %} <span class="stale">· STALE</span>{% endif %}{% else %}-{% endif %}</td>
+      <td><span class="badge sev-{{ r.severity_when_down }}">{{ r.severity_when_down }}</span></td>
+      <td class="muted" style="font-size:11px">
+        {% for k, v in (r.tags or {}).items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card"><p class="muted">No probe targets configured yet. <a href="/ui/services/targets">Add some →</a></p></div>
+{% endfor %}
+{% endblock %}

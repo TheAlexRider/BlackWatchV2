@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: blackwatch
+      POSTGRES_PASSWORD: blackwatch
+      POSTGRES_DB: blackwatch
+    ports:
+      - "5432:5432"
+    volumes:
+      - bw_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blackwatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://blackwatch:blackwatch@db:5432/blackwatch
+      BLACKWATCH_TOKENS: devtoken:generic,vpntoken:vpn.openvpn,s3token:aws.s3
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount operator-editable config so changes only need `restart`, not rebuild.
+      - ./rules:/app/rules:ro
+      - ./notifications.yaml:/app/notifications.yaml:ro
+      # Mount your AWS credentials (read-only) for the SQS connectors (CloudTrail /
+      # EC2 host agent / OpenVPN agent — all three drain via target_module=…).
+      # Reference the profile name in Settings → Connectors. Uncomment & adjust:
+      - C:\Users\TheAl\.aws\blackwatch-credentials:/root/.aws/credentials:ro
+    extra_hosts:
+      # Lets the containerized app reach services on your host (e.g. the webhook
+      # listener) via http://host.docker.internal:<port>.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ui:
+    build: ./blackwatch-ui
+    environment:
+      # Inside compose, Next.js proxies /api/* to this URL. From the host the
+      # UI is reachable at http://localhost:3000.
+      BW_API_URL: http://app:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - app
+
+volumes:
+  bw_pgdata:

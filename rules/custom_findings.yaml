@@ -1,0 +1,27 @@
+# Findings from homegrown scanners (e.g. the ClamAV-on-ECS S3 scanner you'll
+# run instead of Macie). Demonstrates layered severity: a generic malware
+# finding is high, but the same finding in a finance bucket escalates to
+# critical because both rules match and the highest severity wins.
+
+- id: clamav-malware-detected
+  title: Malware detected by scanner
+  severity: high
+  tags: [malware, finding]
+  match:
+    field: action
+    op: equals
+    value: finding.malware.detected
+
+- id: clamav-malware-in-finance-bucket
+  title: Malware detected in a finance bucket
+  description: Escalates malware findings that land in finance-related buckets.
+  severity: critical
+  tags: [malware, finance, finding]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: finding.malware.detected
+      - field: observables.value
+        op: in
+        value: ["finance-uploads", "finance-reports"]

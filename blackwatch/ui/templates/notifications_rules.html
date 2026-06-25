@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %} · Notification rules{% endblock %}
+{% block content %}
+<h1>Notification rules <span class="muted" style="font-size:12px">· {{ rules|length }} rule(s)</span></h1>
+{% include "_notif_subnav.html" %}
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+<div class="card">
+  {% if rules %}
+  <table>
+    <tr><th>Name</th><th>Match</th><th>Channels</th><th>Throttle</th><th>State</th><th>Actions</th></tr>
+    {% for r in rules %}
+    <tr>
+      <td><b>{{ r.name }}</b></td>
+      <td><pre style="margin:0;font-size:11px;max-width:380px;white-space:pre-wrap">{{ r.match_yaml }}</pre></td>
+      <td class="muted">{{ r.channels|join(', ') or '-' }}</td>
+      <td class="muted">{% if r.throttle_seconds %}{{ r.throttle_seconds }}s{% else %}<i>channel default</i>{% endif %}</td>
+      <td>
+        {% if not r.enabled %}<span class="down">disabled</span>
+        {% elif r.silenced %}<span class="stale">silenced</span><br><span class="muted" style="font-size:11px">until {{ r.silence_until }}</span>
+        {% else %}<span class="up">active</span>{% endif %}
+      </td>
+      <td style="white-space:nowrap">
+        <form method="post" action="/ui/notifications/rules/{{ r.id }}/test" style="display:inline">
+          <button type="submit">Test</button></form>
+        <form method="post" action="/ui/notifications/rules/{{ r.id }}/toggle" style="display:inline">
+          <input type="hidden" name="enabled" value="{{ 'off' if r.enabled else 'on' }}">
+          <button type="submit">{{ 'Disable' if r.enabled else 'Enable' }}</button></form>
+        <form method="post" action="/ui/notifications/rules/{{ r.id }}/silence" style="display:inline">
+          <select name="hours">
+            <option value="1">1h</option><option value="4">4h</option>
+            <option value="24">24h</option><option value="0">clear</option>
+          </select>
+          <button type="submit">Silence</button></form>
+        <a href="/ui/notifications/rules?edit={{ r.id }}">edit</a>
+        <form method="post" action="/ui/notifications/rules/{{ r.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this rule?')">
+          <button type="submit" style="background:#6e2330">Delete</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No notification rules yet. Add one below.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>{{ 'Edit rule' if editing else 'Add notification rule' }}</h2>
+  <form method="post" action="/ui/notifications/rules/save">
+    <input type="hidden" name="rule_id" value="{{ editing.id if editing else '' }}">
+    <table>
+      <tr><th>Name</th><td>
+        <input name="name" required value="{{ editing.name if editing else '' }}" placeholder="e.g. high-severity to slack">
+      </td></tr>
+      <tr><th>Enabled</th><td>
+        <input type="checkbox" name="enabled" {{ 'checked' if (not editing) or editing.enabled else '' }}>
+      </td></tr>
+      <tr><th>Match (YAML)</th><td>
+        <textarea name="match_yaml" rows="8" style="width:520px;font-family:monospace">{{ (editing.match_yaml if editing else default_match_yaml) }}</textarea>
+        <div class="muted" style="font-size:11px">
+          Same shape as detection rules. Operators: <code>equals, not_equals, in, contains, icontains, regex, cidr, exists, startswith, endswith</code>.
+          Nest with <code>all:</code> / <code>any:</code> / <code>not:</code>. Fields: <code>severity, category, action, outcome, source.module, actor.principal, actor.source_ip, target.id, tags, observables.value, extra.*</code>.
+        </div>
+      </td></tr>
+      <tr><th>Channels</th><td>
+        {% if all_channels %}
+          {% for c in all_channels %}
+          <label style="margin-right:14px">
+            <input type="checkbox" name="channels" value="{{ c }}"
+              {{ 'checked' if editing and c in editing.channels else '' }}>
+            {{ c }}
+          </label>
+          {% endfor %}
+        {% else %}<span class="muted">No channels defined — add them in notifications.yaml.</span>{% endif %}
+      </td></tr>
+      <tr><th>Throttle (s)</th><td>
+        <input name="throttle_seconds" type="number" min="0" value="{{ editing.throttle_seconds if editing else 0 }}">
+        <span class="muted" style="font-size:11px">0 = use channel default. Applies per (rule, channel, event fingerprint).</span>
+      </td></tr>
+    </table>
+    <p>
+      <button type="submit">{{ 'Save changes' if editing else 'Add rule' }}</button>
+      {% if editing %}<a href="/ui/notifications/rules" style="margin-left:10px">cancel</a>{% endif %}
+    </p>
+  </form>
+</div>
+{% endblock %}

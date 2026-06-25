@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %} · Rules{% endblock %}
+{% block content %}
+<h1>Rules <span class="muted" style="font-size:12px">· {{ rules|length }} loaded · toggle below, or edit YAML in rules/ and restart</span></h1>
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+<div class="card">
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Action</th><th>Severity</th><th>Enabled</th><th>Tags</th><th></th></tr>
+    {% for r in rules %}
+    <tr>
+      <td><code>{{ r.id }}</code></td>
+      <td>{{ r.title }}</td>
+      <td>{{ r.action }}</td>
+      <td>{% if r.severity %}<span class="badge sev-{{ r.severity.value }}">{{ r.severity.value }}</span>{% else %}<span class="muted">-</span>{% endif %}</td>
+      <td>{% if r.enabled %}<span class="up">enabled</span>{% else %}<span class="down">disabled</span>{% endif %}</td>
+      <td class="muted">{{ r.tags|join(', ') }}</td>
+      <td>
+        <form method="post" action="/ui/rules/{{ r.id }}/toggle" style="display:inline">
+          <input type="hidden" name="enabled" value="{{ 'off' if r.enabled else 'on' }}">
+          <button type="submit">{{ 'Disable' if r.enabled else 'Enable' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Muted event types (dropped at ingest)</h2>
+  <p class="muted" style="font-size:12px">
+    Muted actions are discarded before storage — use this for high-volume, low-value
+    events (e.g. <code>auth.assume_role</code>). Note: this stops them cluttering BlackWatch
+    but does <b>not</b> reduce AWS cost — to cut cost, also drop the event from the
+    EventBridge pattern (<code>deploy/iam/</code>).
+  </p>
+  {% if muted %}
+  <table>
+    <tr><th>Action</th><th></th></tr>
+    {% for m in muted %}
+    <tr>
+      <td><code>{{ m }}</code></td>
+      <td><form method="post" action="/ui/unmute" style="display:inline">
+        <input type="hidden" name="action" value="{{ m }}">
+        <button type="submit">Unmute</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Nothing muted.</p>{% endif %}
+  <form method="post" action="/ui/mute" style="margin-top:10px">
+    <input name="action" placeholder="e.g. auth.assume_role" required>
+    <button type="submit">Mute</button>
+  </form>
+</div>
+{% endblock %}

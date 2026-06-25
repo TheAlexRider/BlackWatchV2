@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %} · Probe targets{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="20">{% endblock %}
+{% block content %}
+<h1><a href="/ui/services">Services</a> / Manage probe targets
+  <span class="muted" style="font-size:12px">· auto-refreshes every 20s so the status column stays live</span>
+</h1>
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+{# --- Add / edit form: this is the primary thing on the page ----------- #}
+{% set e = editing %}
+<div class="card">
+  <h2>{{ 'Edit target' if e else 'Add a probe target' }}
+    {% if not e %}<span class="muted" style="font-size:12px;text-transform:none">· save, then watch its row appear below with status</span>{% endif %}
+  </h2>
+  <form method="post" action="/ui/services/targets/save">
+    <input type="hidden" name="target_id" value="{{ e.id if e else '' }}">
+    <table>
+      <tr><th>Name</th><td>
+        <input name="name" required value="{{ e.name if e else '' }}" placeholder="ai-gateway-api" style="width:280px">
+      </td></tr>
+      <tr><th>VPC</th><td>
+        <input name="vpc" required value="{{ e.vpc if e else '' }}" placeholder="dev / prod" style="width:120px" list="vpc-list">
+        <datalist id="vpc-list">
+          {% for v in targets|map(attribute='vpc')|unique %}<option value="{{ v }}">{% endfor %}
+        </datalist>
+      </td></tr>
+      <tr><th>Tier</th><td>
+        <select name="tier" id="tier-picker" style="width:340px">
+          <option value="ecs_health"  {% if e and e.tier == 'ecs_health'  %}selected{% endif %}>ecs_health — read AWS healthStatus (services WITH a healthCheck block)</option>
+          <option value="ecs_running" {% if e and e.tier == 'ecs_running' %}selected{% endif %}>ecs_running — smoothed runningCount (workers / no healthCheck)</option>
+          <option value="http_alive"  {% if e and e.tier == 'http_alive'  %}selected{% endif %}>http_alive — GET / from the in-VPC probe agent (no /health required)</option>
+          <option value="tcp"         {% if e and e.tier == 'tcp'         %}selected{% endif %}>tcp — open socket from the in-VPC probe agent (DBs)</option>
+        </select>
+        <div class="muted" id="tier-help" style="font-size:12px;margin-top:4px"></div>
+      </td></tr>
+      <tr><th>Severity when down</th><td>
+        <select name="severity_when_down">
+          {% for s in ['critical','high','medium','low'] %}
+          <option value="{{ s }}" {% if e and e.severity_when_down == s %}selected{% elif not e and s == 'high' %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </td></tr>
+      <tr><th>Config (YAML)</th><td>
+        <textarea name="config_yaml" id="config-yaml" rows="6" style="width:100%;font-family:monospace;max-width:680px">{% if e %}{{ e.config|tojson(indent=2) }}{% else %}{% endif %}</textarea>
+        <div class="muted" style="font-size:11px;margin-top:4px">Tip — pick a tier above and the field is pre-filled with the right shape. You can edit before saving.</div>
+      </td></tr>
+      <tr><th>Tags (YAML)</th><td>
+        <input name="tags_yaml" value='{% if e %}{{ e.tags|tojson }}{% else %}{"env": "dev"}{% endif %}' style="width:100%;font-family:monospace;max-width:680px">
+        <div class="muted" style="font-size:11px;margin-top:4px">Used for routing rules — e.g. <code>{"env": "prod"}</code> lets the prod-critical rule promote downs to critical.</div>
+      </td></tr>
+      <tr><th>Enabled</th><td><input type="checkbox" name="enabled" {{ 'checked' if not e or e.enabled else '' }}></td></tr>
+    </table>
+    <p>
+      <button type="submit">{{ 'Save changes' if e else 'Add target' }}</button>
+      {% if e %}<a href="/ui/services/targets" style="margin-left:10px">cancel</a>{% endif %}
+    </p>
+  </form>
+</div>
+
+{# --- The list: shows what you've added with live status --------------- #}
+<div class="card">
+  <h2>Saved targets <span class="muted" style="font-size:12px">· {{ targets|length }} total</span></h2>
+  {% if targets %}
+  <table>
+    <tr><th>Name</th><th>VPC</th><th>Tier</th><th>Status</th><th>Last seen</th><th>Severity</th><th>Enabled</th><th>Tags</th><th>Actions</th></tr>
+    {% for t in targets %}
+    <tr>
+      <td><b>{{ t.name }}</b></td>
+      <td class="muted">{{ t.vpc }}</td>
+      <td class="muted"><code>{{ t.tier }}</code></td>
+      <td>
+        {% if t.status == 'up' %}<span class="up">● up</span>{% if t.latency_ms %} <span class="muted" style="font-size:11px">{{ t.latency_ms }}ms</span>{% endif %}
+        {% elif t.status == 'down' %}<span class="down">● DOWN</span>
+        {% elif t.status == 'degraded' %}<span class="stale">● degraded</span>
+        {% else %}<span class="muted">● unknown</span>{% endif %}
+      </td>
+      <td class="muted">{% if t.age_seconds is not none %}{{ t.age_seconds }}s ago{% else %}-{% endif %}</td>
+      <td><span class="badge sev-{{ t.severity_when_down }}">{{ t.severity_when_down }}</span></td>
+      <td>{% if t.enabled %}<span class="up">on</span>{% else %}<span class="muted">off</span>{% endif %}</td>
+      <td class="muted" style="font-size:11px">
+        {% for k, v in (t.tags or {}).items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+      </td>
+      <td style="white-space:nowrap">
+        <a href="/ui/services/targets?edit={{ t.id }}">edit</a>
+        <form method="post" action="/ui/services/targets/{{ t.id }}/toggle" style="display:inline">
+          <input type="hidden" name="enabled" value="{{ 'off' if t.enabled else 'on' }}">
+          <button type="submit">{{ 'Disable' if t.enabled else 'Enable' }}</button>
+        </form>
+        <form method="post" action="/ui/services/targets/{{ t.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete target {{ t.name }}?')">
+          <button type="submit" style="background:#6e2330">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No targets yet. Use the form above to add your first one — pick a tier and the config field shows you exactly what to fill in.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <p class="muted" style="font-size:12px;margin:0">
+    <b>Status freshness:</b>
+    <code>ecs_health</code> / <code>ecs_running</code> tiers update on the BlackWatch-side AWS poller's interval (default 60s; configure in <a href="/ui/settings">Settings → ECS health connector</a>).
+    <code>http_alive</code> / <code>tcp</code> tiers update on the in-VPC probe agent's interval (default 60s).
+    The page auto-refreshes every 20s so changes appear without manual reload.
+  </p>
+</div>
+
+{# --- Tier-aware config template helper ------------------------------- #}
+<script>
+  (function () {
+    const TEMPLATES = {
+      ecs_health: '{\n  "cluster": "dev-cluster",\n  "service": "internal-api-server"\n}',
+      ecs_running: '{\n  "cluster": "dev-cluster",\n  "service": "ai-gateway-worker-text"\n}',
+      http_alive: '{\n  "url": "http://ai-gateway-api.internal/",\n  "timeout_seconds": 5\n}',
+      tcp: '{\n  "host": "database-logs.internal",\n  "port": 5432,\n  "timeout_seconds": 3\n}',
+    };
+    const HELP = {
+      ecs_health: 'Reads AWS healthStatus via ecs:DescribeTasks. Requires a healthCheck block in the task definition — use this for the services that already show "Healthy" in the ECS console.',
+      ecs_running: 'Reads desired-vs-running counts, smoothed over 5 minutes by default. Use this for workers and any service without a healthCheck. Survives Fargate Spot interruptions.',
+      http_alive: 'In-VPC agent does GET <url>. Any HTTP response (200, 30x, 401, 403, 404) counts as up — no /health endpoint required. Only timeout/refused/5xx = down.',
+      tcp: 'In-VPC agent opens a socket to host:port. Up if it accepts, down otherwise. Use for databases and TCP-only services.',
+    };
+    const picker = document.getElementById('tier-picker');
+    const ta = document.getElementById('config-yaml');
+    const help = document.getElementById('tier-help');
+    if (!picker || !ta) return;
+    function update() {
+      const tier = picker.value;
+      help.textContent = HELP[tier] || '';
+      // Only auto-fill the config when it's empty — never clobber what the user typed.
+      if (!ta.value.trim()) ta.value = TEMPLATES[tier] || '';
+    }
+    picker.addEventListener('change', function () {
+      // On manual tier change, reset config to the new template (user just
+      // switched tiers — old config is wrong shape).
+      ta.value = TEMPLATES[picker.value] || '';
+      help.textContent = HELP[picker.value] || '';
+    });
+    update();
+  })();
+</script>
+{% endblock %}

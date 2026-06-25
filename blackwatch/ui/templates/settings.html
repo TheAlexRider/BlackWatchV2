@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %} · Settings{% endblock %}
+{% block content %}
+<h1>Settings · Connectors</h1>
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+<div class="card">
+  <h2>Connectors</h2>
+  {% if connectors %}
+  <table>
+    <tr><th>Name</th><th>Type</th><th>Details</th><th>Verified</th><th>Scheduling</th><th>Last run</th><th>Status</th><th>Actions</th></tr>
+    {% for c in connectors %}
+    <tr>
+      <td>{{ c.name }}</td>
+      <td class="muted">{{ c.type }}</td>
+      <td class="muted">
+        {% if c.type == 'aws_cloudtrail_sqs' %}{{ c.config.aws_region }} · {{ c.config.target_module or 'aws.cloudtrail' }}
+        {% elif c.type == 'aws_ecs_health' %}{{ c.config.aws_region }} · vpc={{ c.config.vpc }}
+        {% elif c.type == 'aws_s3_drift' %}all regions · profile={{ c.config.aws_profile or '(default)' }}
+        {% elif c.type == 'aws_posture_drift' %}{{ c.config.regions|join(',') or 'all regions' }} · profile={{ c.config.aws_profile or '(default)' }}
+        {% else %}-{% endif %}
+      </td>
+      <td>{% if c.verified %}<span class="up">verified</span>{% else %}<span class="muted">not tested</span>{% endif %}</td>
+      <td>
+        {% if c.enabled %}<span class="up">on</span>{% else %}<span class="muted">off</span>{% endif %}
+        <span class="muted">· every {{ c.config.interval_seconds }}s</span>
+      </td>
+      <td class="muted">{{ c.last_run_at|ts }}</td>
+      <td>
+        {% if c.last_status == 'ok' %}<span class="up">ok</span>
+        {% elif c.last_status == 'error' %}<span class="down" title="{{ c.last_error }}">error</span>
+        {% else %}<span class="muted">never</span>{% endif %}
+      </td>
+      <td style="white-space:nowrap">
+        <form method="post" action="/ui/connectors/{{ c.id }}/test" style="display:inline">
+          <button type="submit">Test</button></form>
+        {% if c.verified %}
+        <form method="post" action="/ui/connectors/{{ c.id }}/run" style="display:inline">
+          <button type="submit" title="Run once now">Run now</button></form>
+        <form method="post" action="/ui/connectors/{{ c.id }}/toggle" style="display:inline">
+          <input type="hidden" name="enabled" value="{{ 'off' if c.enabled else 'on' }}">
+          <button type="submit">{{ 'Disable' if c.enabled else 'Enable' }}</button></form>
+        {% else %}
+        <button type="button" disabled title="Test successfully first">Run now</button>
+        <button type="button" disabled title="Test successfully first">Enable</button>
+        {% endif %}
+        <a href="/ui/settings?edit={{ c.id }}">edit</a>
+        <form method="post" action="/ui/connectors/{{ c.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this connector?')">
+          <button type="submit" style="background:#6e2330">Delete</button></form>
+      </td>
+    </tr>
+    {% if c.last_status == 'error' and c.last_error %}
+    <tr><td colspan="8" class="down" style="font-size:12px">last error: {{ c.last_error }}</td></tr>
+    {% endif %}
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No connectors yet. Add one below.</p>{% endif %}
+</div>
+
+{% set editing_aws = editing and editing.type == 'aws_cloudtrail_sqs' %}
+{% set editing_ecs = editing and editing.type == 'aws_ecs_health' %}
+{% set editing_s3  = editing and editing.type == 'aws_s3_drift' %}
+{% set editing_post = editing and editing.type == 'aws_posture_drift' %}
+
+{% if (not editing) or editing_aws %}
+{% set a = editing.config if editing_aws else None %}
+<div class="card">
+  <h2>{{ 'Edit SQS connector' if editing_aws else 'Add SQS connector (CloudTrail / EC2 / VPN agents)' }}</h2>
+  <form method="post" action="/ui/connectors/save_aws">
+    <input type="hidden" name="connector_id" value="{{ editing.id if editing_aws else '' }}">
+    <table>
+      <tr><th>Name</th><td><input name="name" required value="{{ editing.name if editing_aws else '' }}" placeholder="aws iam events / ec2 agents"></td></tr>
+      <tr><th>Target module</th><td>
+        <select name="target_module">
+          <option value="aws.cloudtrail" {% if not a or a.target_module == 'aws.cloudtrail' %}selected{% endif %}>aws.cloudtrail (IAM/CloudTrail)</option>
+          <option value="ec2.host" {% if a and a.target_module == 'ec2.host' %}selected{% endif %}>ec2.host (EC2 agents)</option>
+          <option value="vpn.openvpn" {% if a and a.target_module == 'vpn.openvpn' %}selected{% endif %}>vpn.openvpn (OpenVPN agent)</option>
+        </select></td></tr>
+      <tr><th>SQS queue URL</th><td><input name="queue_url" required value="{{ a.queue_url if a else '' }}" placeholder="https://sqs.us-west-1.amazonaws.com/123/blackwatch-..."></td></tr>
+      <tr><th>AWS region</th><td><input name="aws_region" value="{{ a.aws_region if a else 'us-west-1' }}"></td></tr>
+      <tr><th>AWS profile (in mounted ~/.aws)</th><td><input name="aws_profile" value="{{ a.aws_profile if a and a.aws_profile else 'blackwatch' }}"></td></tr>
+      <tr><th>Poll interval (s)</th><td><input name="interval_seconds" type="number" value="{{ a.interval_seconds if a else 60 }}"></td></tr>
+    </table>
+    <p><button type="submit">{{ 'Save changes' if editing_aws else 'Add connector' }}</button>
+    {% if editing_aws %}<a href="/ui/settings" style="margin-left:10px">cancel</a>{% endif %}</p>
+  </form>
+  <p class="muted" style="font-size:12px">
+    Mount your AWS credentials read-only (<code>~/.aws</code>) into the container and put the
+    profile name above. Creds are never stored by BlackWatch. The queue is filled by the
+    EventBridge → Lambda forwarder (see <code>deploy/iam/</code>). After saving, click <b>Test</b>.
+  </p>
+</div>
+{% endif %}
+
+{% if (not editing) or editing_ecs %}
+{% set ec = editing.config if editing_ecs else None %}
+<div class="card">
+  <h2>{{ 'Edit ECS health connector' if editing_ecs else 'Add ECS health connector (read AWS healthStatus per VPC)' }}</h2>
+  <form method="post" action="/ui/connectors/save_aws_ecs">
+    <input type="hidden" name="connector_id" value="{{ editing.id if editing_ecs else '' }}">
+    <table>
+      <tr><th>Name</th><td><input name="name" required value="{{ editing.name if editing_ecs else '' }}" placeholder="ecs dev cluster"></td></tr>
+      <tr><th>VPC label</th><td><input name="vpc" required value="{{ ec.vpc if ec else '' }}" placeholder="dev / prod"></td></tr>
+      <tr><th>AWS region</th><td><input name="aws_region" value="{{ ec.aws_region if ec else 'us-west-1' }}"></td></tr>
+      <tr><th>AWS profile</th><td><input name="aws_profile" value="{{ ec.aws_profile if ec and ec.aws_profile else 'blackwatch' }}"></td></tr>
+      <tr><th>Poll interval (s)</th><td><input name="interval_seconds" type="number" value="{{ ec.interval_seconds if ec else 60 }}"></td></tr>
+      <tr><th>runningCount smoothing (min)</th><td><input name="running_smoothing_minutes" type="number" value="{{ ec.running_smoothing_minutes if ec else 5 }}"></td></tr>
+    </table>
+    <p><button type="submit">{{ 'Save changes' if editing_ecs else 'Add connector' }}</button>
+    {% if editing_ecs %}<a href="/ui/settings" style="margin-left:10px">cancel</a>{% endif %}</p>
+  </form>
+  <p class="muted" style="font-size:12px">
+    Iterates probe_targets in this VPC with tier <code>ecs_health</code> or <code>ecs_running</code>
+    and reads AWS's view of each service's health. No in-VPC presence needed — control plane only.
+  </p>
+</div>
+{% endif %}
+
+{% if (not editing) or editing_s3 %}
+{% set s3 = editing.config if editing_s3 else None %}
+<div class="card">
+  <h2>{{ 'Edit S3 drift connector' if editing_s3 else 'Add S3 drift connector (scan all buckets for posture)' }}</h2>
+  <form method="post" action="/ui/connectors/save_aws_s3">
+    <input type="hidden" name="connector_id" value="{{ editing.id if editing_s3 else '' }}">
+    <table>
+      <tr><th>Name</th><td><input name="name" required value="{{ editing.name if editing_s3 else '' }}" placeholder="s3 inventory"></td></tr>
+      <tr><th>AWS profile</th><td><input name="aws_profile" value="{{ s3.aws_profile if s3 and s3.aws_profile else 'blackwatch' }}"></td></tr>
+      <tr><th>Scan interval (s)</th><td><input name="interval_seconds" type="number" value="{{ s3.interval_seconds if s3 else 3600 }}"></td></tr>
+    </table>
+    <p><button type="submit">{{ 'Save changes' if editing_s3 else 'Add connector' }}</button>
+    {% if editing_s3 %}<a href="/ui/settings" style="margin-left:10px">cancel</a>{% endif %}</p>
+  </form>
+  <p class="muted" style="font-size:12px">
+    Lists every S3 bucket in the account (via <code>ListBuckets</code> — global) and reads its
+    posture (ACL, policy, BPA, encryption, versioning, logging). Default interval is 1h —
+    these settings don't change minute-by-minute. For the very first scan, you can also run
+    <code>scripts/s3_bucket_inventory.py</code> directly from your local machine.
+  </p>
+</div>
+{% endif %}
+
+{% if (not editing) or editing_post %}
+{% set po = editing.config if editing_post else None %}
+<div class="card">
+  <h2>{{ 'Edit AWS posture connector' if editing_post else 'Add AWS posture drift connector' }}</h2>
+  <form method="post" action="/ui/connectors/save_aws_posture">
+    <input type="hidden" name="connector_id" value="{{ editing.id if editing_post else '' }}">
+    <table>
+      <tr><th>Name</th><td><input name="name" required value="{{ editing.name if editing_post else '' }}" placeholder="aws posture"></td></tr>
+      <tr><th>AWS profile</th><td><input name="aws_profile" value="{{ po.aws_profile if po and po.aws_profile else 'blackwatch' }}"></td></tr>
+      <tr><th>Regions (comma-separated; blank = all enabled)</th>
+          <td><input name="regions" value="{{ po.regions|join(',') if po and po.regions else '' }}" placeholder="us-west-1,us-east-1"></td></tr>
+      <tr><th>Scan interval (s)</th><td><input name="interval_seconds" type="number" value="{{ po.interval_seconds if po else 3600 }}"></td></tr>
+      <tr><th>Phase 2a — infrastructure</th><td style="font-size:12px">
+        <label><input type="checkbox" name="check_sg_public_ingress" {{ 'checked' if not po or po.check_sg_public_ingress else '' }}> Security groups: public ingress</label><br>
+        <label><input type="checkbox" name="check_ebs_encryption" {{ 'checked' if not po or po.check_ebs_encryption else '' }}> EBS volumes: encryption</label><br>
+        <label><input type="checkbox" name="check_ebs_snapshot_public" {{ 'checked' if not po or po.check_ebs_snapshot_public else '' }}> EBS snapshots: shared publicly</label><br>
+        <label><input type="checkbox" name="check_ec2_imdsv2" {{ 'checked' if not po or po.check_ec2_imdsv2 else '' }}> EC2 instances: IMDSv2 required</label><br>
+        <label><input type="checkbox" name="check_ami_public" {{ 'checked' if not po or po.check_ami_public else '' }}> AMIs (yours): public</label>
+      </td></tr>
+      <tr><th>Phase 2b — IAM hygiene</th><td style="font-size:12px">
+        <label><input type="checkbox" name="check_iam_user_no_mfa" {{ 'checked' if not po or po.check_iam_user_no_mfa else '' }}> IAM users with console password but no MFA</label><br>
+        <label><input type="checkbox" name="check_iam_key_age" {{ 'checked' if not po or po.check_iam_key_age else '' }}> Access keys older than rotation threshold</label><br>
+        <label><input type="checkbox" name="check_iam_key_unused" {{ 'checked' if not po or po.check_iam_key_unused else '' }}> Access keys not used recently / never used</label><br>
+        <label><input type="checkbox" name="check_iam_role_wildcard_trust" {{ 'checked' if not po or po.check_iam_role_wildcard_trust else '' }}> Roles assumable by Principal=* (no Condition)</label>
+      </td></tr>
+      <tr><th>Phase 2b — thresholds</th><td style="font-size:12px">
+        Key rotation threshold (days): <input name="iam_key_max_age_days" type="number" value="{{ po.iam_key_max_age_days if po else 90 }}" style="width:80px"><br>
+        Key unused threshold (days): <input name="iam_key_unused_threshold_days" type="number" value="{{ po.iam_key_unused_threshold_days if po else 90 }}" style="width:80px">
+      </td></tr>
+      <tr><th>Phase 2b — KMS &amp; audit</th><td style="font-size:12px">
+        <label><input type="checkbox" name="check_kms_rotation" {{ 'checked' if not po or po.check_kms_rotation else '' }}> KMS keys: rotation enabled (CMKs only)</label><br>
+        <label><input type="checkbox" name="check_kms_policy_wildcard" {{ 'checked' if not po or po.check_kms_policy_wildcard else '' }}> KMS keys: wildcard principal in key policy</label><br>
+        <label><input type="checkbox" name="check_cloudtrail_validation" {{ 'checked' if not po or po.check_cloudtrail_validation else '' }}> CloudTrail: multi-region enabled + log validation on</label>
+      </td></tr>
+    </table>
+    <p><button type="submit">{{ 'Save changes' if editing_post else 'Add connector' }}</button>
+    {% if editing_post %}<a href="/ui/settings" style="margin-left:10px">cancel</a>{% endif %}</p>
+  </form>
+  <p class="muted" style="font-size:12px">
+    Scans current state of AWS resources for posture problems. Findings appear at
+    <a href="/ui/aws-posture">/ui/aws-posture</a>. CloudTrail rules in
+    <code>aws_posture.yaml</code> already fire on change events; this connector
+    catches the &quot;already bad before BW existed&quot; case.
+  </p>
+</div>
+{% endif %}
+{% endblock %}

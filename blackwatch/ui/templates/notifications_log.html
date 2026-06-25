@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %} · Notification log{% endblock %}
+{% block content %}
+<h1>Notification log <span class="muted" style="font-size:12px">· last {{ entries|length }} entries</span></h1>
+{% include "_notif_subnav.html" %}
+
+<form method="get" action="/ui/notifications/log" class="filters">
+  <select name="status">
+    <option value="">any status</option>
+    {% for s in ['sent','failed','rate_limited','acked','digested','throttled'] %}
+    <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="channel" placeholder="channel" value="{{ filters.channel }}">
+  <input type="text" name="rule" placeholder="rule" value="{{ filters.rule }}">
+  <button type="submit">Filter</button>
+  <a href="/ui/notifications/log" style="align-self:center">reset</a>
+</form>
+
+<div class="card">
+  {% if entries %}
+  <table>
+    <tr><th>Time</th><th>Status</th><th>Channel</th><th>Rule</th><th>Event</th><th>Retries</th><th>Preview / error</th></tr>
+    {% for e in entries %}
+    <tr>
+      <td class="muted">{{ e.ts|ts }}</td>
+      <td>
+        {% if e.status == 'sent' %}<span class="up">sent</span>
+        {% elif e.status == 'failed' %}<span class="down">failed</span>
+        {% elif e.status == 'rate_limited' %}<span class="stale">rate_limited</span>
+        {% else %}<span class="muted">{{ e.status }}</span>{% endif %}
+      </td>
+      <td>{{ e.channel_name or '-' }}</td>
+      <td class="muted">{{ e.rule_name or '-' }}</td>
+      <td class="muted">
+        {% if e.event_id %}<a href="/ui/events/{{ e.event_id }}"><code>{{ e.event_action or '-' }}</code></a>
+        {% else %}<code>{{ e.event_action or '-' }}</code>{% endif %}
+        {% if e.event_severity %}<span class="badge sev-{{ e.event_severity }}" style="margin-left:6px">{{ e.event_severity }}</span>{% endif %}
+      </td>
+      <td class="muted">{{ e.retries_used }}</td>
+      <td class="muted" style="max-width:480px"><pre style="margin:0;font-size:11px;white-space:pre-wrap">{{ e.error_message or e.body_preview or '' }}</pre></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No log entries yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %} · Dashboard{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
+{% block content %}
+<h1>Dashboard <span class="muted" style="font-size:12px">· auto-refreshes every 15s</span></h1>
+
+<div class="card">
+  <h2>Events by severity ({{ total }} total)</h2>
+  <div class="grid">
+    {% for sev, n in counts %}
+    <a class="stat" href="/ui/events?severity={{ sev if sev != 'unscored' else '' }}" style="text-decoration:none">
+      <div class="num">{{ n }}</div>
+      <div class="lbl"><span class="badge sev-{{ sev }}">{{ sev }}</span></div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Volume / usage <span class="muted" style="font-weight:400;text-transform:none">· last 24h: {{ volume_24h }} events · 7d: {{ volume_7d }}</span></h2>
+  <p class="muted" style="font-size:12px">For AWS sources, ~1 event = 1 Lambda invocation = 1 SQS message — so this is your cost/usage proxy. Mute noisy actions on the <a href="/ui/rules">Rules</a> page.</p>
+  {% if top_actions %}
+  <table>
+    <tr><th>Action (top, last 24h)</th><th>Count</th></tr>
+    {% for a in top_actions %}
+    <tr><td><code>{{ a.action }}</code></td><td>{{ a.count }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No events in the last 24h.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>VPN servers</h2>
+  {% if vpn %}
+  <table>
+    <tr><th>Server</th><th>Service</th><th>Connected</th><th>Last update</th></tr>
+    {% for s in vpn %}
+    <tr>
+      <td><a href="/ui/vpn">{{ s.server }}</a></td>
+      <td>{% if s.active %}<span class="up">● active</span>{% else %}<span class="down">● down</span>{% endif %}</td>
+      <td>{{ s.client_count }}</td>
+      <td>{{ s.age }}s ago {% if s.stale %}<span class="stale">· STALE</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No VPN data yet — run the collector/poller.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Notable (high &amp; critical)</h2>
+  {% if notable %}{% set events = notable %}{% include "_event_rows.html" %}
+  {% else %}<p class="muted">Nothing high or critical. Quiet is good.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Recent events</h2>
+  {% set events = recent %}{% include "_event_rows.html" %}
+</div>
+{% endblock %}

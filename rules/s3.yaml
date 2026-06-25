@@ -1,0 +1,159 @@
+# S3 detections — most fire on CloudTrail events that the aws.cloudtrail
+# adapter already normalizes. The adapter also flags specific SIGNALS into
+# extra (public_acl, public_policy, bpa_weakened, versioning_suspended, …)
+# so rules can match on the meaning rather than just the API call name.
+
+# === Public access ============================================================
+
+- id: s3-bucket-acl-made-public
+  title: S3 bucket ACL grants public access
+  description: |
+    PutBucketAcl included a grant to AllUsers / AuthenticatedUsers (canned
+    `public-read` / `public-read-write` / explicit URI grantee). Classic S3 data leak path.
+  severity: critical
+  tags: [s3, public-exposure, data-leak]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.acl.put}
+      - {field: extra.public_acl, op: equals, value: true}
+
+- id: s3-bucket-policy-made-public
+  title: S3 bucket policy allows public access
+  description: |
+    PutBucketPolicy contains a statement with Effect=Allow and Principal=* (or AWS=*)
+    with no scoping Condition. The more common public-leak route than ACLs.
+  severity: critical
+  tags: [s3, public-exposure, data-leak]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.policy.put}
+      - {field: extra.public_policy, op: equals, value: true}
+
+- id: s3-public-access-block-weakened
+  title: S3 Block Public Access weakened
+  description: |
+    PutPublicAccessBlock set at least one of the 4 booleans to False — moving
+    the bucket out of the locked-down posture. Typically the pre-step to a leak.
+  severity: high
+  tags: [s3, public-exposure, configuration]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.bpa.put}
+      - {field: extra.bpa_weakened, op: equals, value: true}
+
+- id: s3-public-access-block-removed
+  title: S3 Block Public Access configuration deleted
+  description: DeletePublicAccessBlock removed all 4 protections from the bucket. Strong leak precursor.
+  severity: high
+  tags: [s3, public-exposure, configuration]
+  match: {field: action, op: equals, value: s3.bucket.bpa.delete}
+
+# === Encryption ==============================================================
+
+- id: s3-encryption-disabled
+  title: S3 bucket encryption removed
+  description: DeleteBucketEncryption stripped the default-SSE configuration.
+  severity: high
+  tags: [s3, encryption, compliance]
+  match: {field: action, op: equals, value: s3.bucket.encryption.delete}
+
+# === Versioning + MFA Delete =================================================
+
+- id: s3-versioning-suspended
+  title: S3 versioning suspended
+  description: |
+    PutBucketVersioning with Status=Suspended disables undo. Often the move before
+    a destructive cleanup — versioning lets you recover from object deletion.
+  severity: high
+  tags: [s3, integrity, anti-forensics]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.versioning.put}
+      - {field: extra.versioning_suspended, op: equals, value: true}
+
+- id: s3-mfa-delete-disabled
+  title: S3 MFA Delete disabled
+  description: PutBucketVersioning turned off MFADelete (where it was previously required).
+  severity: high
+  tags: [s3, integrity, anti-forensics]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.versioning.put}
+      - {field: extra.mfa_delete_disabled, op: equals, value: true}
+
+# === Audit + logging =========================================================
+
+- id: s3-bucket-logging-disabled
+  title: S3 bucket server access logging disabled
+  description: PutBucketLogging with no LoggingEnabled target — forensic trail lost.
+  severity: medium
+  tags: [s3, audit, anti-forensics]
+  match:
+    all:
+      - {field: action, op: equals, value: s3.bucket.logging.put}
+      - {field: extra.logging_disabled, op: equals, value: true}
+
+# === Lifecycle changes =======================================================
+
+- id: s3-bucket-deleted
+  title: S3 bucket deleted
+  description: DeleteBucket fired. Sanity-check who/why immediately.
+  severity: critical
+  tags: [s3, integrity, destruction]
+  match: {field: action, op: equals, value: s3.bucket.delete}
+
+- id: s3-bucket-created
+  title: S3 bucket created
+  description: |
+    CreateBucket fired. Low severity on its own — but pair with the drift scan to ensure
+    Block Public Access gets enabled on the new bucket promptly.
+  severity: low
+  tags: [s3, inventory]
+  match: {field: action, op: equals, value: s3.bucket.create}
+
+# === Drift-detection events (emitted by the aws_s3_drift connector below) ====
+
+- id: s3-bucket-discovered-public
+  title: S3 bucket is currently public (drift detection)
+  description: |
+    Drift scan found a bucket that's currently public — could be a freshly-created
+    one or one that was already public before BlackWatch existed. Either way,
+    immediate review.
+  severity: critical
+  tags: [s3, drift, public-exposure]
+  match: {field: action, op: equals, value: s3.bucket.public}
+
+- id: s3-bucket-no-longer-public
+  title: S3 bucket no longer public
+  description: A previously-public bucket now passes the public-access checks.
+  severity: informational
+  tags: [s3, drift]
+  match: {field: action, op: equals, value: s3.bucket.public_removed}
+
+- id: s3-bucket-unencrypted-found
+  title: S3 bucket has no encryption configured
+  description: Drift scan found a bucket without default-SSE.
+  severity: high
+  tags: [s3, drift, encryption]
+  match: {field: action, op: equals, value: s3.bucket.unencrypted}
+
+- id: s3-bucket-versioning-off-found
+  title: S3 bucket has versioning off
+  description: Drift scan found a bucket with versioning never enabled or suspended.
+  severity: medium
+  tags: [s3, drift, integrity]
+  match: {field: action, op: equals, value: s3.bucket.versioning_off}
+
+- id: s3-bucket-first-seen
+  title: S3 bucket discovered by BlackWatch
+  description: A bucket BW had not previously scanned just appeared.
+  severity: informational
+  tags: [s3, inventory]
+  match: {field: action, op: equals, value: s3.bucket.first_seen}
+
+- id: s3-bucket-disappeared
+  title: S3 bucket vanished from inventory
+  description: A bucket BW had previously scanned no longer appears in ListBuckets. Was it deleted intentionally?
+  severity: high
+  tags: [s3, inventory, integrity]
+  match: {field: action, op: equals, value: s3.bucket.disappeared}

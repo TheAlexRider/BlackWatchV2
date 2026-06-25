@@ -1,0 +1,25 @@
+# Suppression / allowlist rules. action: suppress forces severity to
+# informational and tags the event "suppressed" — it stays searchable but does
+# not alert. Suppress rules win over alert rules. Scope them tightly so a
+# compromised automation identity is not blanket-allowed.
+
+- id: suppress-terraform-ci-expected-changes
+  title: Expected Terraform CI automation
+  description: >
+    The Terraform CI role legitimately makes IAM/network changes during deploys.
+    Scoped to the specific change actions it performs, not all of its activity.
+  action: suppress
+  enabled: true
+  tags: [expected-automation]
+  match:
+    all:
+      - field: actor.principal
+        op: endswith
+        value: ":role/terraform-ci"
+      - field: action
+        op: in
+        value:
+          - iam.policy.attach
+          - iam.user.create
+          - network.sg.authorize_ingress
+          - storage.s3.policy.put

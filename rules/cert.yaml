@@ -1,0 +1,109 @@
+# TLS cert expiry detections (from the cert_probe connector).
+#
+# Adapter emits actions based on days_remaining bands. These rules just
+# score severity — same shape as host.yaml and the rest of the rule corpus.
+#
+# Healthy certs (>=30 days remaining) produce NO event — silence is golden.
+# Operator confirms the connector is alive via its last_run_at / ok status.
+
+- id: cert-expired
+  title: TLS cert expired
+  description: The cert is past its notAfter date. Clients will refuse the connection (or, with verification off, warn loudly).
+  severity: critical
+  tags: [cert, availability, tls]
+  match:
+    field: action
+    op: equals
+    value: cert.expired
+
+- id: cert-expiring-critical
+  title: TLS cert expires within 7 days
+  description: Renew immediately — even Let's Encrypt's auto-renew normally fires 30d before expiry; getting under 7d means the auto-renewal broke.
+  severity: critical
+  tags: [cert, tls]
+  match:
+    field: action
+    op: equals
+    value: cert.expiring.critical
+
+- id: cert-expiring-high
+  title: TLS cert expires within 14 days
+  description: Investigate the auto-renew path. Most ACME-managed certs should never reach this band.
+  severity: high
+  tags: [cert, tls]
+  match:
+    field: action
+    op: equals
+    value: cert.expiring.high
+
+- id: cert-expiring-warning
+  title: TLS cert expires within 30 days
+  description: Heads-up. If renewal is automated, this is normal noise — silence the rule per channel if it's not actionable for you.
+  severity: medium
+  tags: [cert, tls]
+  match:
+    field: action
+    op: equals
+    value: cert.expiring.warning
+
+- id: cert-probe-failed
+  title: TLS cert probe failed
+  description: The connector couldn't read the cert from this endpoint. Either the host is down or it doesn't speak TLS where expected.
+  severity: medium
+  tags: [cert, availability, tls]
+  match:
+    field: action
+    op: equals
+    value: cert.probe.failed
+
+# --- VPN cert inventory (ships from the on-box OpenVPN agent) -------------
+
+- id: vpn-cert-expired
+  title: VPN cert expired
+  description: A cert in the OpenVPN PKI (CA / server / client / CRL) is past its notAfter. CA or server = outage; client = that user can't connect; CRL = revocation list isn't being honored cleanly.
+  severity: critical
+  tags: [cert, vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.cert.expired
+
+- id: vpn-cert-expiring-critical
+  title: VPN cert expires within 7 days
+  description: Renew or rotate now. Server / CA expiry will take the VPN down.
+  severity: critical
+  tags: [cert, vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.cert.expiring.critical
+
+- id: vpn-cert-expiring-high
+  title: VPN cert expires within 14 days
+  description: Plan the rotation. Same window where renewal automation should have kicked in.
+  severity: high
+  tags: [cert, vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.cert.expiring.high
+
+- id: vpn-cert-expiring-warning
+  title: VPN cert expires within 30 days
+  description: Heads-up. For client certs this is the normal renewal lead; silence the rule if it's not actionable.
+  severity: medium
+  tags: [cert, vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.cert.expiring.warning
+
+- id: vpn-cert-probe-failed
+  title: VPN cert probe failed
+  description: The agent couldn't read or parse a cert in the OpenVPN PKI. Permissions or a missing/corrupt file.
+  severity: medium
+  tags: [cert, vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.cert.probe.failed

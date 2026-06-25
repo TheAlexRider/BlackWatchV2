@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %} · Notification acks{% endblock %}
+{% block content %}
+<h1>Notification acks <span class="muted" style="font-size:12px">· "I'm investigating, stop paging me"</span></h1>
+{% include "_notif_subnav.html" %}
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+<div class="card">
+  {% if acks %}
+  <table>
+    <tr><th>Fingerprint</th><th>Until</th><th>Reason</th><th>Created</th><th></th></tr>
+    {% for a in acks %}
+    <tr>
+      <td><code>{{ a.fingerprint[:24] }}…</code></td>
+      <td class="muted">{{ a.ack_until|ts }}</td>
+      <td>{{ a.reason or '-' }}</td>
+      <td class="muted">{{ a.created_at|ts }}</td>
+      <td>
+        <form method="post" action="/ui/notifications/ack" style="display:inline">
+          <input type="hidden" name="fingerprint" value="{{ a.fingerprint }}">
+          <input type="hidden" name="hours" value="0">
+          <button type="submit">Clear</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No active acks.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Add an ack manually</h2>
+  <form method="post" action="/ui/notifications/ack">
+    <table>
+      <tr><th>Fingerprint</th><td><input name="fingerprint" required style="width:480px;font-family:monospace" placeholder="event.dedup_fingerprint (see event detail page)"></td></tr>
+      <tr><th>Hours</th><td><input name="hours" type="number" min="0" value="4"> <span class="muted" style="font-size:11px">0 = clear</span></td></tr>
+      <tr><th>Reason</th><td><input name="reason" placeholder="(optional) investigating Y"></td></tr>
+    </table>
+    <p><button type="submit">Ack</button></p>
+  </form>
+  <p class="muted" style="font-size:12px">Tip: use the <b>Ack</b> button on any event detail page to ack its fingerprint without typing it.</p>
+</div>
+{% endblock %}

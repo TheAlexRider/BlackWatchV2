@@ -1,0 +1,368 @@
+# EC2 host detections (from the on-host reporter agent). Brute-force
+# thresholding (N failures/window) is stateful and arrives in a later phase;
+# these are the per-event detections.
+
+- id: host-agent-stale
+  title: Host agent stopped reporting
+  description: An EC2 agent went quiet past the staleness window — host down or agent killed (possible tamper).
+  severity: high
+  tags: [host, availability, tamper]
+  match:
+    field: action
+    op: equals
+    value: host.agent.stale
+
+- id: host-agent-recovered
+  title: Host agent recovered
+  description: A previously-stale host is reporting again. Informational; pairs with host.agent.stale.
+  severity: informational
+  tags: [host, availability]
+  match:
+    field: action
+    op: equals
+    value: host.agent.recovered
+
+- id: host-first-seen
+  title: New host first seen
+  description: A new instance reported in for the first time. Informational; verify it's expected.
+  severity: informational
+  tags: [host, inventory]
+  match:
+    field: action
+    op: equals
+    value: host.first_seen
+
+- id: host-ssh-root-login
+  title: Direct root SSH login
+  description: A successful SSH login as root — should normally be disabled.
+  severity: high
+  tags: [host, auth]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: host.auth.ssh.success
+      - field: actor.principal
+        op: equals
+        value: root
+
+- id: host-ssh-login-failed
+  title: Failed SSH login
+  description: A single failed SSH login. The brute-force rule below fires when N of these arrive from the same IP within the window.
+  severity: low
+  tags: [host, auth]
+  match:
+    field: action
+    op: equals
+    value: host.auth.ssh.failure
+
+- id: host-ssh-brute-force
+  title: SSH brute-force
+  description: 5+ failed SSH logins from the same source IP within 5 minutes. Emitted once per IP per window.
+  severity: high
+  tags: [host, auth, brute-force]
+  match:
+    field: action
+    op: equals
+    value: host.bruteforce
+
+- id: host-ssh-brute-force-user
+  title: SSH credential stuffing (per-user)
+  description: |
+    5+ failed SSH logins targeting the same username within 5 minutes, regardless of
+    source IP. Catches credential-stuffing / distributed attacks where each IP only
+    contributes 1-2 failures (so host-ssh-brute-force never crosses its per-IP threshold).
+    Emitted once per username per window.
+  severity: high
+  tags: [host, auth, brute-force, credential-stuffing]
+  match:
+    field: action
+    op: equals
+    value: host.bruteforce.user
+
+- id: host-sudo-failure
+  title: sudo failure
+  description: A failed sudo attempt — wrong password or not permitted.
+  severity: medium
+  tags: [host, privilege]
+  match:
+    field: action
+    op: equals
+    value: host.sudo.failure
+
+- id: host-ssh-login-success
+  title: SSH login
+  severity: informational
+  tags: [host, auth]
+  match:
+    field: action
+    op: equals
+    value: host.auth.ssh.success
+
+# --- Phase B: state-diff detections (derived from snapshot changes) -----------
+
+- id: host-new-authorized-key
+  title: New SSH authorized_key added
+  description: A new public key was added to a user's authorized_keys — possible backdoor / persistence.
+  severity: high
+  tags: [host, persistence, ssh]
+  match:
+    field: action
+    op: equals
+    value: host.authorized_key.added
+
+- id: host-new-user
+  title: New OS user created
+  description: A new local user account appeared.
+  severity: medium
+  tags: [host, persistence]
+  match:
+    field: action
+    op: equals
+    value: host.user.added
+
+- id: host-new-listening-port
+  title: New listening port opened
+  description: A new TCP port started listening on the host.
+  severity: medium
+  tags: [host, network]
+  match:
+    field: action
+    op: equals
+    value: host.port.opened
+
+- id: host-sudoers-changed
+  title: sudoers configuration changed
+  description: /etc/sudoers or /etc/sudoers.d was modified — possible privilege escalation.
+  severity: high
+  tags: [host, privilege, persistence]
+  match:
+    field: action
+    op: equals
+    value: host.sudoers.changed
+
+# --- Phase C: FIM + persistence + packages -----------------------------------
+
+- id: host-fim-critical-file
+  title: Critical file changed
+  description: A monitored config/sensitive file changed (sshd_config, passwd, shadow, PAM, …).
+  severity: high
+  tags: [host, integrity]
+  match:
+    field: action
+    op: equals
+    value: host.file.changed
+
+- id: host-cron-changed
+  title: Cron job added or changed
+  description: A cron file was added, changed, or removed — classic persistence.
+  severity: high
+  tags: [host, persistence]
+  match:
+    field: action
+    op: equals
+    value: host.cron.changed
+
+- id: host-new-systemd-service
+  title: New systemd unit enabled
+  description: A new service or timer is now enabled at boot — possible persistence.
+  severity: medium
+  tags: [host, persistence]
+  match:
+    field: action
+    op: equals
+    value: host.service.added
+
+- id: host-new-suid
+  title: New SUID binary appeared
+  description: A new setuid binary on the host — strong privilege-escalation signal.
+  severity: high
+  tags: [host, privilege-escalation]
+  match:
+    field: action
+    op: equals
+    value: host.suid.added
+
+- id: host-packages-changed
+  title: Package(s) installed or removed
+  description: Installed-package inventory changed (yum/dnf/dpkg) — attacker tooling installed, or security tooling removed.
+  severity: medium
+  tags: [host, software]
+  match:
+    field: action
+    op: equals
+    value: host.packages.changed
+
+# --- Phase 1.0 production additions ------------------------------------------
+
+- id: host-disk-critical
+  title: Disk usage critical (>= 95%)
+  description: A mounted volume crossed 95% used. Imminent disk-full — services start failing, logs stop, monitoring breaks.
+  severity: critical
+  tags: [host, capacity]
+  match:
+    field: action
+    op: equals
+    value: host.disk.critical
+
+- id: host-disk-warn
+  title: Disk usage warning (>= 90%)
+  description: A mounted volume crossed 90% used. Recovers automatically below 85% (hysteresis).
+  severity: high
+  tags: [host, capacity]
+  match:
+    field: action
+    op: equals
+    value: host.disk.warn
+
+- id: host-disk-recovered
+  title: Disk usage recovered
+  description: A volume that was warn/critical fell back below 85%.
+  severity: informational
+  tags: [host, capacity]
+  match:
+    field: action
+    op: equals
+    value: host.disk.recovered
+
+- id: host-kernel-module-added
+  title: Kernel module loaded
+  description: A new kernel module was loaded — legitimate during package installs; primary rootkit primitive otherwise. Worth eyeballing every time on prod.
+  severity: high
+  tags: [host, kernel, rootkit]
+  match:
+    field: action
+    op: equals
+    value: host.kernel.module.added
+
+- id: host-kernel-module-removed
+  title: Kernel module unloaded
+  description: A previously-loaded kernel module is gone.
+  severity: medium
+  tags: [host, kernel]
+  match:
+    field: action
+    op: equals
+    value: host.kernel.module.removed
+
+- id: host-process-first-seen
+  title: New process executable first seen on host
+  description: |
+    A process whose command name has never been observed on this host before
+    is now running. Per-host learning baseline. Suppression-friendly — a
+    legitimate new tool produces ONE event, ever.
+  severity: medium
+  tags: [host, anomaly]
+  match:
+    field: action
+    op: equals
+    value: host.process.first_seen
+
+# --- v1.1 agent additions ----------------------------------------------------
+# Memory, CPU baseline anomaly, OOM, rpm-DB health, collector stall watchdog.
+
+- id: host-oom-kill
+  title: OOM-killer fired on host
+  description: |
+    The kernel out-of-memory killer terminated a process. Real signal — tells
+    you both an ops problem (something ate memory) and a potential security
+    incident (an attacker DoS, a runaway compromised process). Each kernel-log
+    OOM line produces one event, deduped by journal cursor.
+  severity: high
+  tags: [host, memory, kernel]
+  match:
+    field: action
+    op: equals
+    value: host.oom_kill
+
+- id: host-memory-exhausted
+  title: Host memory >= 95% used
+  description: |
+    Memory used crossed 95%. Hysteresis: clears at <90% with a `recovered`
+    event. Catches the slow-burn precursor that often leads to an OOM kill or
+    a hung application.
+  severity: high
+  tags: [host, memory, capacity]
+  match:
+    field: action
+    op: equals
+    value: host.memory.exhausted
+
+- id: host-memory-recovered
+  title: Host memory back below 90%
+  severity: informational
+  tags: [host, memory]
+  match:
+    field: action
+    op: equals
+    value: host.memory.recovered
+
+- id: host-cpu-anomaly
+  title: Host CPU sustained outside its own baseline
+  description: |
+    Normalized load (load_1min / cpu_count) exceeded the per-host rolling
+    baseline by 3 standard deviations for 10 consecutive minutes, AND was
+    above 0.5 in absolute terms. Catches cryptominers and runaway processes
+    WITHOUT firing on legit Friday-deploy CPU spikes (which fall under the
+    baseline tail). Per-host baseline persists in host_status.extra.
+  severity: high
+  tags: [host, anomaly, cpu]
+  match:
+    field: action
+    op: equals
+    value: host.cpu.anomaly
+
+- id: host-cpu-normal
+  title: Host CPU returned to baseline
+  severity: informational
+  tags: [host, anomaly, cpu]
+  match:
+    field: action
+    op: equals
+    value: host.cpu.normal
+
+- id: host-package-db-corrupted
+  title: Host rpm/yum DB is corrupted
+  description: |
+    Lock files (`/var/lib/rpm/__db.*`) present without a live rpm/yum/dnf
+    process. The DB is wedged — every package query/install will fail until
+    rebuilt. The fix is `rm -f /var/lib/rpm/__db.* && rpm --rebuilddb`. Long
+    term: upgrade to Amazon Linux 2023 (sqlite-backed rpm).
+  severity: medium
+  tags: [host, ops, packages]
+  match:
+    field: action
+    op: equals
+    value: host.package_db.corrupted
+
+- id: host-package-db-recovered
+  title: Host rpm/yum DB is healthy again
+  severity: informational
+  tags: [host, ops, packages]
+  match:
+    field: action
+    op: equals
+    value: host.package_db.recovered
+
+- id: host-collector-stalled
+  title: Host agent collector stopped returning data
+  description: |
+    A specific collector (e.g. packages, suid) hasn't returned a value in
+    3× its interval despite previously working. Tells you within minutes when
+    something on the box broke a collector — instead of silently shipping
+    stale data until someone notices.
+  severity: medium
+  tags: [host, agent, meta]
+  match:
+    field: action
+    op: equals
+    value: host.collector.stalled
+
+- id: host-collector-recovered
+  title: Host agent collector working again
+  severity: informational
+  tags: [host, agent, meta]
+  match:
+    field: action
+    op: equals
+    value: host.collector.recovered

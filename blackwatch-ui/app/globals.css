@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   Design tokens — see docs/ui-design.md §2 for rationale.
+   These tokens generate Tailwind utilities via Tailwind v4's @theme.
+   Examples: bg-canvas, bg-surface-1, text-fg, text-fg-muted,
+             border-line, border-line-soft, text-signal, text-sev-critical
+   ========================================================================= */
+
+@theme {
+  /* surfaces */
+  --color-canvas:        #0A0B0F;
+  --color-surface-1:     #101218;
+  --color-surface-2:     #181B22;
+
+  /* lines (hairline borders are the structural language) */
+  --color-line:          rgba(255, 255, 255, 0.12);
+  --color-line-soft:     rgba(255, 255, 255, 0.06);
+
+  /* text */
+  --color-fg:            #E4E4E7;
+  --color-fg-muted:      #9CA3AF;
+  --color-fg-subtle:     #6B7280;
+  --color-fg-disabled:   #4B5563;
+
+  /* brand — the ONE saturated color outside severity */
+  --color-signal:        oklch(0.72 0.14 195);
+  --color-signal-glow:   oklch(0.72 0.14 195 / 0.15);
+
+  /* severity — accent-only; never used as background fill */
+  --color-sev-critical:  #F43F5E;
+  --color-sev-high:      #FB923C;
+  --color-sev-medium:    #FACC15;
+  --color-sev-low:       #60A5FA;
+  --color-sev-resolved:  #34D399;
+
+  /* typography */
+  --font-sans:           var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:           var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  /* motion */
+  --animate-signal-pulse: signal-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes signal-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* =========================================================================
+   Base layer — minimal global resets and defaults.
+   ========================================================================= */
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Default mono everywhere a developer would expect it */
+  code, pre, kbd, samp, .mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Selection uses the brand color */
+  ::selection {
+    background: var(--color-signal);
+    color: var(--color-canvas);
+  }
+
+  /* Hide scrollbar chrome on Windows/Linux Chromium — the design relies on quiet edges */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border: 2px solid var(--color-canvas);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-line);
+    opacity: 0.7;
+  }
+}

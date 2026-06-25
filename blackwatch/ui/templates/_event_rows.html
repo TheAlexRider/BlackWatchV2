@@ -1,0 +1,15 @@
+<table>
+  <tr><th>Time</th><th>Severity</th><th>Module</th><th>Action</th><th>Actor</th><th>Target</th><th>Rules</th></tr>
+  {% for ev in events %}
+  <tr>
+    <td class="muted">{{ ev.event_time|ts }}</td>
+    <td><span class="badge sev-{{ ev.severity or 'unscored' }}">{{ ev.severity or 'unscored' }}</span></td>
+    <td>{{ ev.source.module }}</td>
+    <td><a href="/ui/events/{{ ev.event_id }}"><code>{{ ev.action }}</code></a></td>
+    <td>{{ ev.actor.principal or '-' }}</td>
+    <td class="muted">{{ ev.target.id or ev.target.name or '-' }}</td>
+    <td class="muted">{{ ev.rule_matches|join(', ') or '-' }}</td>
+  </tr>
+  {% endfor %}
+  {% if not events %}<tr><td colspan="7" class="muted">No events.</td></tr>{% endif %}
+</table>

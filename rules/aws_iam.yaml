@@ -1,0 +1,90 @@
+# AWS IAM detections. Matched on normalized `action` verbs that the AWS
+# CloudTrail module (Phase 1, next) will emit. They also fire today on events
+# injected via the generic adapter using the same action vocabulary.
+
+- id: aws-admin-policy-attached
+  title: Administrator-level policy attached
+  description: An admin or wildcard IAM policy was attached to a principal.
+  severity: high
+  tags: [iam, privilege-escalation, aws]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: iam.policy.attach
+      - field: target.id
+        op: icontains
+        value: AdministratorAccess
+
+- id: aws-access-key-created
+  title: IAM access key created
+  description: A long-lived access key was created; review whether it is needed.
+  severity: medium
+  tags: [iam, credentials, aws]
+  match:
+    field: action
+    op: equals
+    value: iam.access_key.create
+
+- id: aws-iam-user-created
+  title: IAM user created
+  severity: low
+  tags: [iam, aws]
+  match:
+    field: action
+    op: equals
+    value: iam.user.create
+
+- id: aws-login-profile-created
+  title: Console login profile created
+  description: A console password was set for an IAM user — possible persistence.
+  severity: medium
+  tags: [iam, persistence, aws]
+  match:
+    field: action
+    op: equals
+    value: iam.login_profile.create
+
+- id: aws-inline-wildcard-policy
+  title: Inline policy granting wildcard permissions
+  description: An inline policy with Action/Resource "*" was attached to a principal.
+  severity: high
+  tags: [iam, privilege-escalation, aws]
+  match:
+    all:
+      - field: action
+        op: in
+        value: [iam.policy.put_inline, iam.policy.create_version]
+      - field: extra.wildcard_policy
+        op: equals
+        value: true
+
+- id: aws-role-trust-modified
+  title: Role trust policy modified
+  description: An assume-role trust policy was changed — possible backdoor / cross-account access.
+  severity: high
+  tags: [iam, privilege-escalation, persistence, aws]
+  match:
+    field: action
+    op: equals
+    value: iam.role.update_trust
+
+- id: aws-mfa-removed
+  title: MFA device removed
+  description: An MFA device was deactivated or deleted — weakens an identity.
+  severity: high
+  tags: [iam, mfa, aws]
+  match:
+    field: action
+    op: in
+    value: [iam.mfa.deactivate, iam.mfa.delete]
+
+- id: aws-cloudtrail-tampering
+  title: CloudTrail logging tampered with
+  description: CloudTrail was stopped, deleted, or modified — likely anti-forensics.
+  severity: critical
+  tags: [audit, anti-forensics, aws]
+  match:
+    field: action
+    op: in
+    value: [cloudtrail.logging.stop, cloudtrail.trail.delete, cloudtrail.trail.update]

@@ -1,0 +1,23 @@
+{
+  "version": "0",
+  "id": "synthetic-test-001",
+  "detail-type": "AWS API Call via CloudTrail",
+  "source": "aws.iam",
+  "account": "095899260107",
+  "time": "2026-06-11T11:00:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "eventSource": "iam.amazonaws.com",
+    "eventName": "CreateUser",
+    "userIdentity": {
+      "type": "IAMUser",
+      "userName": "alice",
+      "arn": "arn:aws:iam::095899260107:user/alice"
+    },
+    "requestParameters": { "userName": "bw-synthetic-user" },
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "203.0.113.1",
+    "eventTime": "2026-06-11T11:00:00Z"
+  }
+}

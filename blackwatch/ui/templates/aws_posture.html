@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %} · AWS posture{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="60">{% endblock %}
+{% block content %}
+<h1>AWS posture <span class="muted" style="font-size:12px">· current state, drift-detected · {{ findings|length }} open</span></h1>
+
+<div class="grid">
+  <div class="stat"><div class="num" style="color:{{ '#f85149' if counts.critical > 0 else '#3fb950' }}">{{ counts.critical }}</div><div class="lbl">Critical</div></div>
+  <div class="stat"><div class="num" style="color:{{ '#e65100' if counts.high > 0 else '#3fb950' }}">{{ counts.high }}</div><div class="lbl">High</div></div>
+  <div class="stat"><div class="num" style="color:{{ '#b8860b' if counts.medium > 0 else '#3fb950' }}">{{ counts.medium }}</div><div class="lbl">Medium</div></div>
+  <div class="stat"><div class="num">{{ counts.low + counts.informational }}</div><div class="lbl">Low / info</div></div>
+</div>
+
+{% for rtype, group in by_type.items() %}
+<div class="card" style="margin-top:14px">
+  <h2>{{ rtype }} <span class="muted" style="font-size:12px">· {{ group|length }} finding(s)</span></h2>
+  <table>
+    <tr><th>Severity</th><th>Resource</th><th>Finding</th><th>Region</th><th>Evidence</th><th>First seen</th><th>Last seen</th></tr>
+    {% for f in group %}
+    <tr>
+      <td><span class="badge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+      <td><code>{{ f.resource_id }}</code></td>
+      <td><b>{{ f.finding_type }}</b></td>
+      <td class="muted">{{ f.region or '-' }}</td>
+      <td class="muted" style="font-size:11px;font-family:monospace;max-width:380px;word-break:break-all">
+        {% for k, v in (f.evidence or {}).items() %}{{ k }}={{ v }}<br>{% endfor %}
+      </td>
+      <td class="muted">{{ f.first_seen|ts }}</td>
+      <td class="muted">{{ f.last_seen|ts }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card" style="margin-top:14px">
+  <p class="muted">No open findings.
+  {% if not have_connector %}
+  Set up an <b>AWS posture drift connector</b> in <a href="/ui/settings">Settings</a> to start scanning.
+  {% else %}
+  Either nothing's wrong, or the connector hasn't run yet — try <b>Run now</b> on the connector in Settings.
+  {% endif %}
+  </p>
+</div>
+{% endfor %}
+{% endblock %}

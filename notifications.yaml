@@ -1,0 +1,33 @@
+# BlackWatch notification config — channels + routes in one place.
+# Edit and restart the app to reload.
+
+channels:
+  # Local listener for testing (run scripts/webhook_listener.py). Receives the
+  # full normalized event as JSON.
+  - name: local-webhook
+    type: webhook
+    # When the app runs in Docker, the host's webhook listener is reachable at
+    # host.docker.internal. If you run the app directly (not Docker), change
+    # this to http://localhost:9000/hook.
+    url: http://host.docker.internal:9000/hook
+    enabled: true
+    dedup_window_seconds: 300
+
+  # Real Slack alerting. Paste your Incoming Webhook URL and flip enabled.
+  - name: slack-security
+    type: slack
+    url: https://hooks.slack.com/services/REPLACE/ME/PLEASE
+    enabled: false
+
+routes:
+  # High and critical anything -> notify.
+  - name: high-severity-to-webhook
+    enabled: true
+    min_severity: high
+    channels: [local-webhook]
+
+  # Every scanner finding (e.g. ClamAV) -> notify, regardless of severity.
+  - name: findings-to-webhook
+    enabled: true
+    categories: [finding]
+    channels: [local-webhook]

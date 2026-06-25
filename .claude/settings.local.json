@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m pip install -q --disable-pip-version-check -r requirements.txt)",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.main import app; from blackwatch import api, storage, db; from blackwatch.modules import registry; registry.register_builtins\\(\\); print\\('import OK; routes:', sorted\\({r.path for r in app.routes if hasattr\\(r,'path'\\)}\\)\\); print\\('adapters:', registry.registered_modules\\(\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pip install -q --disable-pip-version-check \"pyyaml>=6.0\")",
+      "Bash(.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m pip install -q --disable-pip-version-check \"python-multipart>=0.0.9\")",
+      "Bash(.venv/Scripts/python.exe -m py_compile scripts/ec2_agent.py)",
+      "Bash(python -m pytest tests/test_vpn.py -q)",
+      "Bash(pip install *)",
+      "Bash(python -m pytest -q)",
+      "Bash(npx tsc *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/api.py'\\).read\\(\\)\\); ast.parse\\(open\\('blackwatch/storage.py'\\).read\\(\\)\\); ast.parse\\(open\\('blackwatch/pipeline.py'\\).read\\(\\)\\); ast.parse\\(open\\('blackwatch/notify/channels.py'\\).read\\(\\)\\); print\\('ok'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(cat next.config.*)",
+      "Bash(ls app/api/notifications)",
+      "Bash(cat middleware.*)",
+      "Bash(docker compose *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/api.py', encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")",
+      "Bash(bash -n C:/Users/TheAl/Documents/GitHub/BlackWatchV2/deploy/ec2/install-agent.sh)",
+      "Bash(bash -n C:/Users/TheAl/Documents/GitHub/BlackWatchV2/deploy/vpn/install-vpn-agent.sh)"
+    ]
+  }
+}

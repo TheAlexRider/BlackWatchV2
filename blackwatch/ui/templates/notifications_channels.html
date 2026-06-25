@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %} · Notification channels{% endblock %}
+{% block content %}
+<h1>Notification channels <span class="muted" style="font-size:12px">· {{ channels|length }} channel(s)</span></h1>
+{% include "_notif_subnav.html" %}
+{% if msg %}<div class="card" style="border-color:#2f81f7"><b>·</b> {{ msg }}</div>{% endif %}
+
+<div class="card">
+  {% if channels %}
+  <table>
+    <tr><th>Name</th><th>Type</th><th>Enabled</th><th>Retries</th><th>Rate / min</th><th>Digest</th><th>Last status</th><th>Last sent</th><th>Actions</th></tr>
+    {% for c in channels %}
+    <tr>
+      <td><b>{{ c.name }}</b></td>
+      <td class="muted">{{ c.type }}</td>
+      <td>{% if c.enabled %}<span class="up">on</span>{% else %}<span class="muted">off</span>{% endif %}</td>
+      <td class="muted">{{ c.retries }} · backoff {{ c.retry_backoff_seconds }}s</td>
+      <td class="muted">{{ c.rate_limit_per_min if c.rate_limit_per_min else '∞' }}</td>
+      <td class="muted">{% if c.digest_window_seconds %}{{ c.digest_window_seconds }}s{% else %}<i>off</i>{% endif %}</td>
+      <td class="muted">
+        {% if c.last_status == 'ok' %}<span class="up">ok</span>
+        {% elif c.last_status %}<span class="down" title="{{ c.last_error }}">{{ c.last_status }}</span>
+        {% else %}<span class="muted">never</span>{% endif %}
+      </td>
+      <td class="muted">{{ c.last_sent_at|ts }}</td>
+      <td style="white-space:nowrap">
+        <form method="post" action="/ui/notifications/channels/{{ c.id }}/test" style="display:inline">
+          <button type="submit">Test</button></form>
+        <form method="post" action="/ui/notifications/channels/{{ c.id }}/toggle" style="display:inline">
+          <input type="hidden" name="enabled" value="{{ 'off' if c.enabled else 'on' }}">
+          <button type="submit">{{ 'Disable' if c.enabled else 'Enable' }}</button></form>
+        <a href="/ui/notifications/channels?edit={{ c.id }}">edit</a>
+        <form method="post" action="/ui/notifications/channels/{{ c.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this channel?')">
+          <button type="submit" style="background:#6e2330">Delete</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No channels yet. Add one below.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>{{ 'Edit channel' if editing else 'Add channel' }}</h2>
+  <form method="post" action="/ui/notifications/channels/save">
+    <input type="hidden" name="channel_id" value="{{ editing.id if editing else '' }}">
+    <table>
+      <tr><th>Name</th><td><input name="name" required value="{{ editing.name if editing else '' }}" placeholder="e.g. ops-slack"></td></tr>
+      <tr><th>Type</th><td>
+        <select name="type">
+          {% for t in channel_types %}
+          <option value="{{ t }}" {% if editing and editing.type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </td></tr>
+      <tr><th>Enabled</th><td>
+        <input type="checkbox" name="enabled" {{ 'checked' if (not editing) or editing.enabled else '' }}>
+      </td></tr>
+      <tr><th>Config (YAML)</th><td>
+        <textarea name="config_yaml" rows="8" style="width:520px;font-family:monospace">{{ (editing.config_yaml if editing else default_config_yaml) }}</textarea>
+        <div class="muted" style="font-size:11px">
+          Per-type fields. Secrets are NEVER stored — reference env vars:
+          <code>password_env</code> (email), <code>routing_key_env</code> (pagerduty).
+          Set those env vars in <code>docker-compose.yml</code> on the app service.
+        </div>
+      </td></tr>
+      <tr><th>Message template</th><td>
+        <textarea name="message_template" rows="3" style="width:520px;font-family:monospace" placeholder="(blank = per-type default — see hint below)">{{ editing.message_template if editing and editing.message_template else '' }}</textarea>
+        <div class="muted" style="font-size:11px">
+          Jinja2 template. Available vars: <code>event</code> (full normalized envelope) and <code>channel_name</code>.
+          Example: <code>{% raw %}[{{ event.severity }}] {{ event.action }} by {{ event.actor.principal }}{% endraw %}</code>
+        </div>
+      </td></tr>
+      <tr><th>Retries</th><td>
+        <input name="retries" type="number" min="0" value="{{ editing.retries if editing else 3 }}"> ·
+        backoff seconds: <input name="retry_backoff_seconds" type="number" min="1" value="{{ editing.retry_backoff_seconds if editing else 5 }}">
+      </td></tr>
+      <tr><th>Rate limit (per minute)</th><td>
+        <input name="rate_limit_per_min" type="number" min="0" value="{{ editing.rate_limit_per_min if editing else 0 }}">
+        <span class="muted" style="font-size:11px">0 = unlimited</span>
+      </td></tr>
+      <tr><th>Dedup window (s)</th><td>
+        <input name="dedup_window_seconds" type="number" min="0" value="{{ editing.dedup_window_seconds if editing else 300 }}">
+        <span class="muted" style="font-size:11px">per (rule, channel, fingerprint) — same-event flood control</span>
+      </td></tr>
+      <tr><th>Digest window (s)</th><td>
+        <input name="digest_window_seconds" type="number" min="0" value="{{ editing.digest_window_seconds if editing else 0 }}">
+        <span class="muted" style="font-size:11px">0 = off; otherwise batch all messages into one summary every N seconds</span>
+      </td></tr>
+    </table>
+    <p>
+      <button type="submit">{{ 'Save changes' if editing else 'Add channel' }}</button>
+      {% if editing %}<a href="/ui/notifications/channels" style="margin-left:10px">cancel</a>{% endif %}
+    </p>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %} · Event{% endblock %}
+{% block content %}
+<h1><a href="/ui/events">Events</a> / <code>{{ event_id }}</code></h1>
+{% if not event %}
+  <div class="card"><p class="muted">Event not found.</p></div>
+{% else %}
+  <div class="card">
+    <h2>Summary</h2>
+    <table>
+      <tr><th>Severity</th><td><span class="badge sev-{{ event.severity or 'unscored' }}">{{ event.severity or 'unscored' }}</span></td></tr>
+      <tr><th>Action</th><td><code>{{ event.action }}</code></td></tr>
+      <tr><th>Category</th><td>{{ event.category }}</td></tr>
+      <tr><th>Outcome</th><td>{{ event.outcome }}</td></tr>
+      <tr><th>Time</th><td>{{ event.event_time|ts }}</td></tr>
+      <tr><th>Module</th><td>{{ event.source.module }}</td></tr>
+      <tr><th>Actor</th><td>{{ event.actor.principal or '-' }} {% if event.actor.source_ip %}<span class="muted">from {{ event.actor.source_ip }}</span>{% endif %}</td></tr>
+      <tr><th>Target</th><td>{{ event.target.id or event.target.name or '-' }}</td></tr>
+      <tr><th>Rules</th><td>{{ event.rule_matches|join(', ') or '-' }}</td></tr>
+      <tr><th>Tags</th><td>{{ event.tags|join(', ') or '-' }}</td></tr>
+      <tr><th>Dedup fingerprint</th><td>
+        <code style="font-size:11px">{{ event.dedup_fingerprint }}</code>
+        <form method="post" action="/ui/notifications/ack" style="display:inline;margin-left:12px">
+          <input type="hidden" name="fingerprint" value="{{ event.dedup_fingerprint }}">
+          <input type="hidden" name="back_to" value="/ui/events/{{ event_id }}">
+          <select name="hours" style="width:auto">
+            <option value="1">1h</option><option value="4" selected>4h</option>
+            <option value="24">24h</option>
+          </select>
+          <input name="reason" placeholder="reason (optional)" style="width:200px">
+          <button type="submit" title="Suppress further notifications for this fingerprint">Ack</button>
+        </form>
+      </td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Normalized envelope</h2>
+    <pre>{{ envelope_json }}</pre>
+  </div>
+  {% if raw_json %}
+  <div class="card">
+    <h2>Raw payload</h2>
+    <pre>{{ raw_json }}</pre>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,15 @@
+# AWS network exposure detections.
+
+- id: aws-sg-public-ingress
+  title: Security group opened to the internet
+  description: An ingress rule allowing 0.0.0.0/0 or ::/0 was authorized.
+  severity: high
+  tags: [network, exposure, aws]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: network.sg.authorize_ingress
+      - field: observables.value
+        op: in
+        value: ["0.0.0.0/0", "::/0"]

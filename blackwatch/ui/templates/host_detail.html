@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %} · {{ instance_id }}{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block content %}
+<h1><a href="/ui/hosts">Hosts</a> / <code>{{ instance_id }}</code>
+  {% if host %}<span class="muted" style="font-size:12px">· {{ host.hostname or '' }}</span>{% endif %}
+</h1>
+
+{% if not host %}
+<div class="card"><p class="muted">No data for instance <code>{{ instance_id }}</code> yet. Has the agent ever reported?</p></div>
+{% else %}
+
+{# --- Heartbeat / identity --- #}
+<div class="card">
+  <h2>Status</h2>
+  <table>
+    <tr><th>Agent</th><td>
+      {% if host.active and not stale %}<span class="up">● reporting</span>
+      {% else %}<span class="down">● stale/down</span>{% endif %}
+    </td></tr>
+    <tr><th>Last seen</th><td class="muted">{% if age is not none %}{{ age }}s ago{% if stale %} <span class="stale">· STALE</span>{% endif %}{% else %}-{% endif %}</td></tr>
+    <tr><th>Hostname</th><td>{{ host.hostname or '-' }}</td></tr>
+    <tr><th>Account</th><td class="muted">{{ host.account or '-' }}</td></tr>
+    <tr><th>Region</th><td class="muted">{{ host.region or '-' }}</td></tr>
+    {% if host.extra %}
+    <tr><th>Uptime</th><td class="muted">{{ host.extra.uptime_seconds or '-' }}s</td></tr>
+    <tr><th>Agent version</th><td class="muted">{{ host.extra.agent_version or '-' }}</td></tr>
+    {% if host.extra.memory %}
+    <tr><th>Memory</th><td>
+      {% set mp = host.extra.memory.used_pct %}
+      {% if mp is not none %}
+        {% if mp >= 95 %}<span class="down">{{ mp }}%</span>
+        {% elif mp >= 90 %}<span class="stale">{{ mp }}%</span>
+        {% else %}<span class="up">{{ mp }}%</span>{% endif %}
+        <span class="muted" style="font-size:11px">
+          · {{ (host.extra.memory.used_kb / 1024)|round|int }} / {{ (host.extra.memory.total_kb / 1024)|round|int }} MiB
+        </span>
+      {% else %}-{% endif %}
+    </td></tr>
+    {% endif %}
+    {% if host.extra.cpu %}
+    <tr><th>CPU load</th><td>
+      {{ host.extra.cpu.load_1min }} <span class="muted">(1m)</span> ·
+      {{ host.extra.cpu.load_5min }} <span class="muted">(5m)</span> ·
+      <span class="muted" style="font-size:11px">{{ host.extra.cpu.cpu_count }} CPUs · normalized {{ host.extra.cpu.load_norm_1min }}</span>
+      {% if host.extra._state and host.extra._state.cpu_anomaly_active %}
+        <br><span class="down">● ANOMALY ACTIVE</span>
+      {% elif host.extra._baseline_cpu and host.extra._baseline_cpu.n >= 60 %}
+        <span class="muted" style="font-size:11px">· baseline mean {{ host.extra._baseline_cpu.mean|round(3) }} ({{ host.extra._baseline_cpu.n }} samples)</span>
+      {% endif %}
+    </td></tr>
+    {% endif %}
+    {% if host.extra.rpm_db_corrupted %}
+    <tr><th>Package DB</th><td>
+      <span class="down">● CORRUPTED</span>
+      <span class="muted" style="font-size:11px">· {{ host.extra.rpm_db_corrupted.lock_count }} stale lock file(s)</span>
+      <br><span class="muted" style="font-size:11px">
+        Fix: <code>sudo rm -f /var/lib/rpm/__db.* &amp;&amp; sudo rpm --rebuilddb</code>
+      </span>
+    </td></tr>
+    {% endif %}
+    {% if host.extra.tick_duration_ms is not none %}
+    <tr><th>Last tick</th><td class="muted">{{ host.extra.tick_duration_ms }}ms</td></tr>
+    {% endif %}
+    {% if host.extra.tags %}
+    <tr><th>Tags</th><td class="muted">
+      {% for k, v in host.extra.tags.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if host.extra.collector_errors %}
+    <tr><th>Collector errors</th><td>
+      {% for name, err in host.extra.collector_errors.items() %}
+        <div class="down" style="font-size:12px">{{ name }}: {{ err }}</div>
+      {% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if host.extra.stalled_collectors %}
+    <tr><th>Stalled collectors</th><td>
+      {% for name in host.extra.stalled_collectors %}
+        <span class="badge sev-medium">{{ name }}</span>
+      {% endfor %}
+      <br><span class="muted" style="font-size:11px">no successful run in 3× their interval</span>
+    </td></tr>
+    {% endif %}
+    {% endif %}
+  </table>
+</div>
+
+{# --- Currently logged-in sessions --- #}
+{% if host.extra and host.extra.active_sessions is not none %}
+<div class="card">
+  <h2>Currently logged in <span class="muted" style="font-size:12px">· {{ host.extra.active_sessions|length }} session(s)</span></h2>
+  {% if host.extra.active_sessions %}
+  <table>
+    <tr><th>User</th><th>TTY</th><th>Source IP</th><th>Login</th></tr>
+    {% for s in host.extra.active_sessions %}
+    <tr>
+      <td><b>{{ s.user }}</b></td>
+      <td class="muted">{{ s.tty }}</td>
+      <td>{% if s.source %}<code>{{ s.source }}</code>{% else %}<span class="muted">local</span>{% endif %}</td>
+      <td class="muted">{{ s.login }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No active sessions.</p>{% endif %}
+</div>
+{% endif %}
+
+{# --- Notable / alerts for this host --- #}
+{% if alerts %}
+<div class="card">
+  <h2>Recent notable activity (high/critical)</h2>
+  <table>
+    <tr><th>Time</th><th>Severity</th><th>Action</th><th>Actor</th><th>Rules</th></tr>
+    {% for a in alerts %}
+    <tr>
+      <td class="muted">{{ a.event_time|ts }}</td>
+      <td><span class="badge sev-{{ a.severity }}">{{ a.severity }}</span></td>
+      <td><a href="/ui/events/{{ a.event_id }}"><code>{{ a.action }}</code></a></td>
+      <td>{{ a.actor.principal or '-' }}</td>
+      <td class="muted">{{ a.rule_matches|join(', ') or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{# --- Disk usage (per-mount fill levels) --- #}
+{% if snapshots.disk %}
+<div class="card">
+  <h2>Disk usage <span class="muted" style="font-size:12px">· {{ snapshots.disk|length }} mount(s)</span></h2>
+  <table>
+    <tr><th>Mount</th><th>FS</th><th>Used %</th><th>Used / Total</th></tr>
+    {% for d in snapshots.disk %}
+    <tr>
+      <td><code>{{ d.mount }}</code></td>
+      <td class="muted">{{ d.fs_type }}</td>
+      <td>
+        {% if d.used_pct >= 95 %}<span class="down">{{ d.used_pct }}%</span>
+        {% elif d.used_pct >= 90 %}<span class="stale">{{ d.used_pct }}%</span>
+        {% else %}{{ d.used_pct }}%{% endif %}
+      </td>
+      <td class="muted">{{ d.used }} / {{ d.total }} KB</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{# --- Listening ports (with binding process) --- #}
+<div class="card">
+  <h2>Listening ports <span class="muted" style="font-size:12px">· {{ (snapshots.ports or [])|length }}</span></h2>
+  {% if snapshots.ports %}
+  <table>
+    <tr><th>Proto</th><th>Address</th><th>Port</th><th>Process</th></tr>
+    {% for p in snapshots.ports %}
+    <tr>
+      <td class="muted">{{ p.proto }}</td>
+      <td>{{ p.address }}</td>
+      <td><b>{{ p.port }}</b></td>
+      <td class="muted"><code>{{ p.process or '-' }}</code></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No port snapshot yet.</p>{% endif %}
+</div>
+
+{# --- Running processes (B.2) --- #}
+<div class="card">
+  <h2>Running processes <span class="muted" style="font-size:12px">· {{ (snapshots.processes or [])|length }}</span></h2>
+  {% if snapshots.processes %}
+  <div style="max-height:380px;overflow:auto">
+  <table>
+    <tr><th>User</th><th>PID</th><th>Command</th><th>Args</th></tr>
+    {% for p in snapshots.processes %}
+    <tr>
+      <td class="muted">{{ p.user }}</td>
+      <td class="muted">{{ p.pid }}</td>
+      <td><code>{{ p.comm }}</code></td>
+      <td class="muted" style="font-size:11px"><code style="color:#9da7b1">{{ p.args }}</code></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No process snapshot yet (agent needs Phase B.2 update).</p>{% endif %}
+</div>
+
+{# --- Users --- #}
+<div class="card">
+  <h2>Users <span class="muted" style="font-size:12px">· {{ (snapshots.users or [])|length }}</span></h2>
+  {% if snapshots.users %}
+  <div style="max-height:280px;overflow:auto">
+  <table>
+    <tr><th>Name</th><th>UID</th><th>Shell</th></tr>
+    {% for u in snapshots.users %}
+    <tr><td>{{ u.name }}</td><td class="muted">{{ u.uid }}</td><td class="muted">{{ u.shell }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% endif %}
+</div>
+
+{# --- Authorized SSH keys --- #}
+<div class="card">
+  <h2>Authorized SSH keys <span class="muted" style="font-size:12px">· {{ (snapshots.authorized_keys or [])|length }}</span></h2>
+  {% if snapshots.authorized_keys %}
+  <table>
+    <tr><th>User</th><th>Fingerprint</th><th>Preview</th></tr>
+    {% for k in snapshots.authorized_keys %}
+    <tr>
+      <td>{{ k.user }}</td>
+      <td><code style="font-size:11px">{{ k.fingerprint }}</code></td>
+      <td class="muted" style="font-size:11px;font-family:monospace">{{ k.preview }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+</div>
+
+{# --- Sudoers files --- #}
+<div class="card">
+  <h2>Sudoers files <span class="muted" style="font-size:12px">· {{ (snapshots.sudoers or {})|length }}</span></h2>
+  {% if snapshots.sudoers %}
+  <table>
+    <tr><th>Path</th><th>sha256</th></tr>
+    {% for path, h in snapshots.sudoers.items() %}
+    <tr><td><code>{{ path }}</code></td><td class="muted"><code style="font-size:11px">{{ h[:16] }}…</code></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{# --- Critical files (FIM) --- #}
+<div class="card">
+  <h2>Critical files <span class="muted" style="font-size:12px">· FIM · {{ (snapshots.critical_files or {})|length }}</span></h2>
+  {% if snapshots.critical_files %}
+  <table>
+    <tr><th>Path</th><th>sha256</th></tr>
+    {% for path, h in snapshots.critical_files.items() %}
+    <tr><td><code>{{ path }}</code></td><td class="muted"><code style="font-size:11px">{{ h[:16] }}…</code></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{# --- Cron files --- #}
+<div class="card">
+  <h2>Cron files <span class="muted" style="font-size:12px">· {{ (snapshots.cron or {})|length }}</span></h2>
+  {% if snapshots.cron %}
+  <table>
+    <tr><th>Path</th><th>sha256</th></tr>
+    {% for path, h in snapshots.cron.items() %}
+    <tr><td><code>{{ path }}</code></td><td class="muted"><code style="font-size:11px">{{ h[:16] }}…</code></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{# --- Enabled systemd units --- #}
+<div class="card">
+  <h2>Enabled systemd units <span class="muted" style="font-size:12px">· {{ (snapshots.systemd_units or [])|length }}</span></h2>
+  {% if snapshots.systemd_units %}
+  <div style="max-height:280px;overflow:auto;font-family:monospace;font-size:12px">
+    {% for u in snapshots.systemd_units %}<div>{{ u }}</div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# --- Kernel modules --- #}
+{% if snapshots.kernel_modules %}
+<div class="card">
+  <h2>Kernel modules <span class="muted" style="font-size:12px">· {{ snapshots.kernel_modules|length }}</span></h2>
+  <div style="max-height:240px;overflow:auto;font-family:monospace;font-size:12px;column-count:3;column-gap:24px">
+    {% for m in snapshots.kernel_modules %}<div>{{ m }}</div>{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- SUID binaries --- #}
+<div class="card">
+  <h2>SUID binaries <span class="muted" style="font-size:12px">· {{ (snapshots.suid or [])|length }}</span></h2>
+  {% if snapshots.suid %}
+  <div style="max-height:240px;overflow:auto;font-family:monospace;font-size:12px">
+    {% for path in snapshots.suid %}<div>{{ path }}</div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# --- Installed packages (first 100) --- #}
+<div class="card">
+  <h2>Installed packages <span class="muted" style="font-size:12px">· {{ (snapshots.packages or [])|length }} total (showing first 100)</span></h2>
+  {% if snapshots.packages %}
+  <div style="max-height:220px;overflow:auto;font-family:monospace;font-size:12px;column-count:3;column-gap:24px">
+    {% for p in snapshots.packages[:100] %}<div>{{ p }}</div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# --- Recent access (SSH/sudo) --- #}
+<div class="card">
+  <h2>Recent SSH / sudo</h2>
+  {% if auth_events %}
+  <table>
+    <tr><th>Time</th><th>Result</th><th>Action</th><th>User</th><th>Source IP</th></tr>
+    {% for a in auth_events %}
+    <tr>
+      <td class="muted">{{ a.event_time|ts }}</td>
+      <td>{% if a.outcome == 'success' %}<span class="up">success</span>{% else %}<span class="down">FAILED</span>{% endif %}</td>
+      <td><a href="/ui/events/{{ a.event_id }}"><code>{{ a.action }}</code></a></td>
+      <td>{{ a.actor.principal or '-' }}</td>
+      <td class="muted">{{ a.actor.source_ip or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No recent SSH/sudo activity.</p>{% endif %}
+</div>
+
+{# --- Recent state changes --- #}
+<div class="card">
+  <h2>Recent state changes</h2>
+  {% if state_changes %}
+  <table>
+    <tr><th>Time</th><th>Severity</th><th>Action</th><th>Detail</th></tr>
+    {% for c in state_changes %}
+    <tr>
+      <td class="muted">{{ c.event_time|ts }}</td>
+      <td><span class="badge sev-{{ c.severity or 'unscored' }}">{{ c.severity or 'unscored' }}</span></td>
+      <td><a href="/ui/events/{{ c.event_id }}"><code>{{ c.action }}</code></a></td>
+      <td class="muted">
+        {%- if c.extra.port %}port {{ c.extra.proto }}/{{ c.extra.port }} on {{ c.extra.address or '-' }}{% endif -%}
+        {%- if c.extra.user and not c.extra.port and not c.extra.fingerprint %}user <b>{{ c.extra.user }}</b>{% endif -%}
+        {%- if c.extra.fingerprint %}{{ c.extra.user }} · fp <code>{{ c.extra.fingerprint[:12] }}</code>{% endif -%}
+        {%- if c.extra.path %}<code>{{ c.extra.path }}</code>{% if c.extra.change %} · {{ c.extra.change }}{% endif %}{% endif -%}
+        {%- if c.extra.unit %}<code>{{ c.extra.unit }}</code>{% endif -%}
+        {%- if c.extra.added_count is defined %}+{{ c.extra.added_count }} / −{{ c.extra.removed_count }} packages{% endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No recent state changes.</p>{% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

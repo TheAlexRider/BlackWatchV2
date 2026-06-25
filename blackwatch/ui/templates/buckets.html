@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %} · S3 buckets{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="60">{% endblock %}
+{% block content %}
+<h1>S3 bucket inventory
+  <span class="muted" style="font-size:12px">· auto-refreshes every 60s · {{ buckets|length }} bucket(s) tracked</span>
+</h1>
+
+<div class="grid">
+  <div class="stat"><div class="num">{{ buckets|length }}</div><div class="lbl">Total</div></div>
+  <div class="stat"><div class="num" style="color:{{ '#f85149' if public_count > 0 else '#3fb950' }}">{{ public_count }}</div><div class="lbl">Public</div></div>
+  <div class="stat"><div class="num" style="color:{{ '#d29922' if unenc_count > 0 else '#3fb950' }}">{{ unenc_count }}</div><div class="lbl">Unencrypted</div></div>
+  <div class="stat"><div class="num" style="color:{{ '#d29922' if no_versioning_count > 0 else '#3fb950' }}">{{ no_versioning_count }}</div><div class="lbl">No versioning</div></div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>All buckets</h2>
+  {% if buckets %}
+  <table>
+    <tr>
+      <th>Bucket</th><th>Region</th><th>Public</th><th>Encryption</th>
+      <th>Versioning</th><th>BPA</th><th>Logging</th><th>Last scan</th>
+    </tr>
+    {% for b in buckets %}
+    <tr>
+      <td>
+        <b>{{ b.bucket_name }}</b>
+        {% if b.tags %}<br>
+          <span class="muted" style="font-size:11px">
+            {% for k, v in b.tags.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+          </span>
+        {% endif %}
+      </td>
+      <td class="muted">{{ b.region or '-' }}</td>
+      <td>
+        {% if b.public %}<span class="down">● PUBLIC</span>
+          {% if b.public_reasons %}<br><span class="muted" style="font-size:11px">{{ b.public_reasons|join(', ') }}</span>{% endif %}
+        {% else %}<span class="up">● private</span>{% endif %}
+      </td>
+      <td>
+        {% if b.encryption == 'none' %}<span class="down">none</span>
+        {% else %}<code>{{ b.encryption }}</code>{% endif %}
+      </td>
+      <td>
+        {% if b.versioning == 'Enabled' %}<span class="up">Enabled</span>{% if b.mfa_delete %} · MFA{% endif %}
+        {% elif b.versioning == 'Suspended' %}<span class="stale">Suspended</span>
+        {% else %}<span class="muted">Disabled</span>{% endif %}
+      </td>
+      <td>
+        {% if b.block_public_access %}
+          {% set bpa = b.block_public_access %}
+          {% if bpa.block_public_acls and bpa.ignore_public_acls and bpa.block_public_policy and bpa.restrict_public_buckets %}
+            <span class="up">all on</span>
+          {% else %}
+            <span class="stale">partial</span>
+            <br><span class="muted" style="font-size:10px">
+              acls={{ bpa.block_public_acls }} · ig={{ bpa.ignore_public_acls }} ·
+              pol={{ bpa.block_public_policy }} · rs={{ bpa.restrict_public_buckets }}
+            </span>
+          {% endif %}
+        {% else %}<span class="muted">not configured</span>{% endif %}
+      </td>
+      <td>
+        {% if b.logging_target %}<span class="up">{{ b.logging_target }}</span>
+        {% else %}<span class="muted">off</span>{% endif %}
+      </td>
+      <td class="muted">{{ b.last_scan|ts }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">
+    No buckets tracked yet. Either run the bootstrap script (<code>scripts/s3_bucket_inventory.py</code>)
+    to seed the inventory once, or set up an <b>S3 drift connector</b> in
+    <a href="/ui/settings">Settings</a> for ongoing scans.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

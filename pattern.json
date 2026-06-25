@@ -1,0 +1,30 @@
+{
+  "$or": [
+    {
+      "detail-type": ["AWS API Call via CloudTrail", "AWS Console Sign In via CloudTrail"],
+      "detail": {
+        "eventName": [
+          "AttachUserPolicy", "AttachRolePolicy", "AttachGroupPolicy",
+          "PutUserPolicy", "PutRolePolicy", "PutGroupPolicy",
+          "CreatePolicyVersion",
+          "CreateUser", "CreateRole",
+          "CreateLoginProfile", "UpdateLoginProfile",
+          "CreateAccessKey", "UpdateAccessKey",
+          "DeactivateMFADevice", "DeleteVirtualMFADevice",
+          "UpdateAssumeRolePolicy", "AddUserToGroup",
+          "ConsoleLogin",
+          "StopLogging", "DeleteTrail", "UpdateTrail",
+          "CreateDBInstance", "DeleteDBInstance", "ModifyDBInstance",
+          "RestoreDBInstanceFromDBSnapshot", "RestoreDBInstanceToPointInTime",
+          "CreateDBSnapshot", "DeleteDBSnapshot", "ModifyDBSnapshotAttribute",
+          "CopyDBSnapshot",
+          "CreateDBParameterGroup", "DeleteDBParameterGroup",
+          "ModifyDBParameterGroup", "ResetDBParameterGroup",
+          "CreateDBCluster", "DeleteDBCluster", "ModifyDBCluster",
+          "ModifyDBClusterSnapshotAttribute"
+        ]
+      }
+    },
+    { "detail": { "userIdentity": { "type": ["Root"] } } }
+  ]
+}

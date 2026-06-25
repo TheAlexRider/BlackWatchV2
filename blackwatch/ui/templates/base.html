@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlackWatch{% block title %}{% endblock %}</title>
+{% block head %}{% endblock %}
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { background:#0f1419; color:#d7dde3; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; margin:0; }
+  header { display:flex; align-items:center; gap:24px; background:#161b22; border-bottom:1px solid #30363d; padding:12px 22px; }
+  .logo { font-weight:700; color:#fff; letter-spacing:1.5px; }
+  nav a { color:#9da7b1; text-decoration:none; margin-right:18px; }
+  nav a:hover { color:#fff; }
+  main { padding:22px; max-width:1200px; }
+  h1 { font-size:18px; margin:0 0 16px; }
+  h2 { font-size:14px; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin:0 0 10px; }
+  table { border-collapse:collapse; width:100%; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid #21262d; font-size:13px; vertical-align:top; }
+  th { color:#8b949e; font-weight:600; text-transform:uppercase; font-size:11px; }
+  tr:hover td { background:#11161d; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; margin-bottom:18px; }
+  .grid { display:flex; gap:14px; flex-wrap:wrap; }
+  .stat { flex:1; min-width:110px; text-align:center; background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:14px 8px; }
+  .stat .num { font-size:26px; font-weight:700; color:#fff; }
+  .stat .lbl { font-size:11px; text-transform:uppercase; color:#8b949e; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:700; color:#fff; }
+  .sev-critical{background:#b00020}.sev-high{background:#e65100}.sev-medium{background:#b8860b}
+  .sev-low{background:#2e7d32}.sev-informational{background:#546e7a}.sev-unscored{background:#5c636b}
+  a { color:#58a6ff; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .muted { color:#8b949e; }
+  form.filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  input,select { background:#0d1117; border:1px solid #30363d; color:#d7dde3; padding:6px 9px; border-radius:6px; }
+  button { background:#238636; border:0; color:#fff; padding:6px 14px; border-radius:6px; cursor:pointer; }
+  .up{color:#3fb950;font-weight:700}.down{color:#f85149;font-weight:700}
+  .stale{color:#d29922;font-weight:700}
+  pre { background:#0d1117; border:1px solid #30363d; padding:14px; border-radius:8px; overflow:auto; font-size:12px; }
+  code { color:#79c0ff; }
+  .tz-picker { margin-left:auto; background:#0d1117; border:1px solid #30363d; color:#9da7b1; font-size:12px; padding:4px 8px; border-radius:5px; }
+  .tz-picker:focus { outline:1px solid #58a6ff; }
+  time.ts { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">BLACKWATCH</span>
+  <nav>
+    <a href="/ui">Dashboard</a>
+    <a href="/ui/events">Events</a>
+    <a href="/ui/vpn">VPN</a>
+    <a href="/ui/hosts">Hosts</a>
+    <a href="/ui/services">Services</a>
+    <a href="/ui/buckets">S3</a>
+    <a href="/ui/aws-posture">AWS posture</a>
+    <a href="/ui/rules">Rules</a>
+    <a href="/ui/notifications/rules">Notifications</a>
+    <a href="/ui/settings">Settings</a>
+    <a href="/docs">API</a>
+  </nav>
+  <select id="tz-picker" class="tz-picker" title="Display timezone for all timestamps on this page">
+    <option value="UTC">UTC</option>
+    <option value="PST">PST (UTC−8)</option>
+    <option value="PDT">PDT (UTC−7)</option>
+    <option value="IST">IST (UTC+5:30)</option>
+  </select>
+</header>
+<main>{% block content %}{% endblock %}</main>
+<script>
+  // Client-side timezone re-render. Server always ships UTC in <time datetime="…">;
+  // we just relabel the visible text. Choice is persisted in localStorage so it
+  // sticks across page navigation + auto-refresh.
+  (function () {
+    var TZ_OFFSET_MIN = { UTC: 0, PST: -480, PDT: -420, IST: 330 };
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function fmt(d) {
+      // d is already shifted; read its UTC fields to get the wall-clock in the
+      // chosen zone.
+      return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' +
+             pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' +
+             pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+    }
+    function applyTz(tz) {
+      var off = TZ_OFFSET_MIN[tz];
+      if (off === undefined) { tz = 'UTC'; off = 0; }
+      document.querySelectorAll('time.ts[datetime]').forEach(function (el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (isNaN(d)) return;
+        var shifted = new Date(d.getTime() + off * 60000);
+        el.textContent = fmt(shifted) + ' ' + tz;
+      });
+      var picker = document.getElementById('tz-picker');
+      if (picker) picker.value = tz;
+    }
+    function currentTz() {
+      try { return localStorage.getItem('bw_tz') || 'UTC'; }
+      catch (_) { return 'UTC'; }
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      applyTz(currentTz());
+      var picker = document.getElementById('tz-picker');
+      if (picker) {
+        picker.addEventListener('change', function (e) {
+          try { localStorage.setItem('bw_tz', e.target.value); } catch (_) {}
+          applyTz(e.target.value);
+        });
+      }
+    });
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { API_BASE } from "@/lib/api";
+
+// Helpers --------------------------------------------------------------------
+
+async function postJSON(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${path} failed: ${res.status} ${text}`);
+  }
+}
+
+function rulesRedirect(msg: string): never {
+  redirect(`/rules?msg=${encodeURIComponent(msg)}`);
+}
+
+// Actions --------------------------------------------------------------------
+
+export async function toggleRuleAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("rule_id") ?? "");
+  const enabled = formData.get("enabled") === "on";
+  if (!ruleId) return;
+  await postJSON(`/api/rules/${encodeURIComponent(ruleId)}/toggle`, { enabled });
+  revalidatePath("/rules");
+  rulesRedirect(`${ruleId} ${enabled ? "enabled" : "disabled"}`);
+}
+
+export async function muteAction(formData: FormData): Promise<void> {
+  const action = String(formData.get("action") ?? "").trim();
+  if (!action) return;
+  await postJSON("/api/noise/mute", { action });
+  revalidatePath("/rules");
+  rulesRedirect(`muting ${action}`);
+}
+
+export async function unmuteAction(formData: FormData): Promise<void> {
+  const action = String(formData.get("action") ?? "").trim();
+  if (!action) return;
+  await postJSON("/api/noise/unmute", { action });
+  revalidatePath("/rules");
+  rulesRedirect(`unmuted ${action}`);
+}

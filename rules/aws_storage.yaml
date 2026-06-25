@@ -1,0 +1,20 @@
+# AWS S3 exposure detections.
+
+- id: aws-s3-public-access-block-disabled
+  title: S3 public access block disabled
+  description: A bucket's public-access guardrail was removed — exposure risk.
+  severity: high
+  tags: [storage, exposure, aws]
+  match:
+    field: action
+    op: equals
+    value: storage.s3.public_access.disable
+
+- id: aws-s3-bucket-policy-changed
+  title: S3 bucket policy changed
+  severity: medium
+  tags: [storage, aws]
+  match:
+    field: action
+    op: equals
+    value: storage.s3.policy.put

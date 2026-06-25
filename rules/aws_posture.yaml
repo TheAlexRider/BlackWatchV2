@@ -1,0 +1,279 @@
+# AWS posture detections. Two layers:
+#   (a) CloudTrail rules for CHANGE events — fire instantly when someone makes
+#       a posture-bad change. Match on aws.cloudtrail-adapter normalized actions
+#       with the extras flagged by the adapter.
+#   (b) Drift rules for state findings — fire when the aws_posture_drift
+#       connector reports a posture problem in current state (and again
+#       silently after on re-runs; the projection only emits .new on the first
+#       sight, .resolved when the finding clears).
+
+# === Change-event rules (from CloudTrail) =====================================
+
+- id: aws-instance-sg-attached
+  title: Security groups attached to / changed on an EC2 instance
+  description: |
+    ModifyInstanceAttribute changed which SGs apply to an instance. This is
+    routine (every instance launch and post-launch attach hits this) — kept
+    at low severity so it's visible without being noisy. Promote to higher
+    severity if the attached SG is one you've flagged as risky.
+  severity: low
+  tags: [aws, network, sg, instance]
+  match:
+    field: action
+    op: equals
+    value: network.sg.instance_attach
+
+- id: aws-sg-public-ingress-risky-port
+  title: Security group opened risky port to the world
+  description: |
+    AuthorizeSecurityGroupIngress added a rule allowing 0.0.0.0/0 (or ::/0)
+    to a risky port — SSH, RDP, DB ports, Docker daemon, etc. The classic
+    AWS breach precursor. Catches the change in real time.
+  severity: critical
+  tags: [aws, network, public-exposure]
+  match:
+    all:
+      - {field: action, op: equals, value: network.sg.ingress.add}
+      - {field: extra.public_ingress_risky_port, op: equals, value: true}
+
+- id: aws-sg-public-ingress-all-traffic
+  title: Security group opened ALL traffic to the world
+  description: |
+    AuthorizeSecurityGroupIngress with protocol=-1 OR full-port-range (0-65535+)
+    targeting 0.0.0.0/0. Always wrong on prod.
+  severity: critical
+  tags: [aws, network, public-exposure]
+  match:
+    all:
+      - {field: action, op: equals, value: network.sg.ingress.add}
+      - {field: extra.public_ingress_all_traffic, op: equals, value: true}
+
+- id: aws-sg-public-ingress-non-web
+  title: Security group opened non-web port to the world
+  description: |
+    Public 80/443 = expected web traffic. Public anything else = at least worth
+    a look. Lower severity than the risky-port rule above.
+  severity: high
+  tags: [aws, network, public-exposure]
+  match:
+    all:
+      - {field: action, op: equals, value: network.sg.ingress.add}
+      - {field: extra.public_ingress, op: equals, value: true}
+      # Suppress the overlap — the more-specific rules already fired if applicable.
+      - {field: extra.public_ingress_risky_port, op: not_equals, value: true}
+      - {field: extra.public_ingress_all_traffic, op: not_equals, value: true}
+
+- id: aws-imdsv1-enabled
+  title: EC2 instance hardening weakened (IMDSv1 allowed)
+  description: |
+    ModifyInstanceMetadataOptions set HttpTokens=optional, re-enabling the
+    SSRF-vulnerable IMDSv1 endpoint. Strong signal — almost never legitimate.
+  severity: high
+  tags: [aws, compute, hardening]
+  match:
+    all:
+      - {field: action, op: equals, value: compute.imds.modify}
+      - {field: extra.imdsv1_enabled, op: equals, value: true}
+
+- id: aws-snapshot-shared-public
+  title: EBS snapshot shared publicly
+  description: |
+    ModifySnapshotAttribute granted createVolumePermission to group 'all' —
+    anyone in any AWS account can now restore the snapshot in their account.
+    A direct data-exfiltration path.
+  severity: critical
+  tags: [aws, storage, data-exfil]
+  match:
+    all:
+      - {field: action, op: equals, value: storage.snapshot.modify}
+      - {field: extra.snapshot_made_public, op: equals, value: true}
+
+- id: aws-ami-shared-public
+  title: AMI made public
+  description: |
+    ModifyImageAttribute added 'all' to launch permissions. Sometimes intentional
+    (open-source AMI release) but always worth knowing.
+  severity: high
+  tags: [aws, compute]
+  match:
+    all:
+      - {field: action, op: equals, value: compute.ami.modify}
+      - {field: extra.ami_made_public, op: equals, value: true}
+
+- id: aws-kms-policy-wildcard
+  title: KMS key policy granted to wildcard principal
+  description: |
+    PutKeyPolicy set a Statement with Effect=Allow and Principal=* without a
+    scoping Condition. Anyone can use the key — basically equivalent to having
+    no key at all. Cross-account exfil possible.
+  severity: critical
+  tags: [aws, encryption, kms]
+  match:
+    all:
+      - {field: action, op: equals, value: kms.policy.put}
+      - {field: extra.kms_wildcard_policy, op: equals, value: true}
+
+- id: aws-kms-rotation-disabled
+  title: KMS key rotation disabled
+  description: DisableKeyRotation on a customer-managed key. Compliance + key-leakage-risk reduction.
+  severity: medium
+  tags: [aws, encryption, kms, compliance]
+  match: {field: action, op: equals, value: kms.rotation.disable}
+
+- id: aws-kms-key-deletion-scheduled
+  title: KMS key scheduled for deletion
+  description: |
+    ScheduleKeyDeletion on a customer-managed key. Pending deletion = pending
+    data loss (anything encrypted with the key becomes unreadable). The
+    deletion window is configurable (7-30 days); cancel via CancelKeyDeletion
+    if unintended.
+  severity: high
+  tags: [aws, encryption, kms, destruction]
+  match: {field: action, op: equals, value: kms.key.delete_scheduled}
+
+# === RDS change-event rules =================================================
+#
+# All fire on CloudTrail events from the aws.cloudtrail adapter. The adapter
+# flags the security-relevant signal in extra.* — rules match on the flag,
+# not the bare API name, so routine modifies don't fire alerts.
+
+- id: aws-rds-publicly-accessible
+  title: RDS database made publicly accessible
+  description: |
+    Create/ModifyDBInstance set PubliclyAccessible=true. The DB instance now
+    accepts connections from anywhere — only the security group + master
+    password stand between attackers and the data. Almost never legitimate
+    for production.
+  severity: critical
+  tags: [aws, rds, public-exposure, data]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.instance.create, rds.instance.modify, rds.cluster.create, rds.cluster.modify]}
+      - {field: extra.rds_publicly_accessible, op: equals, value: true}
+
+- id: aws-rds-snapshot-shared-public
+  title: RDS snapshot shared publicly
+  description: |
+    ModifyDBSnapshotAttribute granted restore permission to "all" — anyone in
+    any AWS account can now restore the snapshot. A direct data-exfiltration
+    path identical to making an EBS snapshot public.
+  severity: critical
+  tags: [aws, rds, data-exfil]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.snapshot.modify, rds.cluster_snapshot.modify]}
+      - {field: extra.rds_snapshot_made_public, op: equals, value: true}
+
+- id: aws-rds-backups-disabled
+  title: RDS automated backups disabled
+  description: |
+    BackupRetentionPeriod set to 0 days — automated backups are off. If the
+    DB dies or is encrypted by ransomware, recovery is on whatever manual
+    snapshots happen to exist.
+  severity: high
+  tags: [aws, rds, recoverability]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.instance.create, rds.instance.modify, rds.cluster.create, rds.cluster.modify]}
+      - {field: extra.rds_backups_disabled, op: equals, value: true}
+
+- id: aws-rds-deletion-protection-off
+  title: RDS deletion protection turned off
+  description: |
+    DeletionProtection=false explicitly set. The DB can now be deleted with a
+    single API call. Common precursor to destructive actions.
+  severity: medium
+  tags: [aws, rds, destruction]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.instance.modify, rds.cluster.modify]}
+      - {field: extra.rds_deletion_protection_off, op: equals, value: true}
+
+- id: aws-rds-unencrypted-at-creation
+  title: RDS database created without storage encryption
+  description: |
+    CreateDBInstance with StorageEncrypted=false. Storage encryption can only
+    be set at creation — fixing this later means create-new + restore-from-
+    snapshot + cutover. Catch it on day zero.
+  severity: high
+  tags: [aws, rds, encryption, compliance]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.instance.create, rds.cluster.create]}
+      - {field: extra.rds_unencrypted_at_creation, op: equals, value: true}
+
+- id: aws-rds-master-password-changed
+  title: RDS master password changed
+  description: |
+    ModifyDBInstance with masterUserPassword set. Could be a legitimate
+    rotation OR account takeover. Always worth a look — the actor identity
+    tells you which.
+  severity: medium
+  tags: [aws, rds, credential]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.instance.modify, rds.cluster.modify]}
+      - {field: extra.rds_master_password_change, op: equals, value: true}
+
+- id: aws-rds-security-params-changed
+  title: RDS parameter group — TLS / logging setting changed
+  description: |
+    ModifyDBParameterGroup touched a security-relevant parameter
+    (rds.force_ssl, log_connections, log_statement, require_secure_transport).
+    These are the knobs that decide whether traffic is encrypted and whether
+    queries are audited.
+  severity: high
+  tags: [aws, rds, tls, auditing]
+  match:
+    all:
+      - {field: action, op: equals, value: rds.parameter_group.modify}
+      - {field: extra.rds_security_params_changed, op: exists}
+
+- id: aws-rds-instance-deleted
+  title: RDS instance deleted
+  description: |
+    DeleteDBInstance fired. Destructive — fires regardless of skip-final-snapshot
+    setting. The actor + time + source IP tell you whether this was planned.
+  severity: high
+  tags: [aws, rds, destruction]
+  match: {field: action, op: in, value: [rds.instance.delete, rds.cluster.delete]}
+
+# === Drift findings (from aws_posture_drift connector) ========================
+
+- id: aws-posture-finding-new-critical
+  title: New AWS posture finding (critical)
+  description: |
+    The drift scanner found a critical posture problem we hadn't seen before.
+    Fires once per (resource, finding_type); resolves silently when the issue
+    clears (a separate aws.posture.finding.resolved event marks closure).
+  severity: critical
+  tags: [aws, posture, drift]
+  match:
+    all:
+      - {field: action, op: equals, value: aws.posture.finding.new}
+      - {field: extra.severity, op: equals, value: critical}
+
+- id: aws-posture-finding-new-high
+  title: New AWS posture finding (high)
+  severity: high
+  tags: [aws, posture, drift]
+  match:
+    all:
+      - {field: action, op: equals, value: aws.posture.finding.new}
+      - {field: extra.severity, op: equals, value: high}
+
+- id: aws-posture-finding-new-medium
+  title: New AWS posture finding (medium)
+  severity: medium
+  tags: [aws, posture, drift]
+  match:
+    all:
+      - {field: action, op: equals, value: aws.posture.finding.new}
+      - {field: extra.severity, op: equals, value: medium}
+
+- id: aws-posture-finding-resolved
+  title: AWS posture finding resolved
+  description: A finding the drift scanner had reported previously no longer appears in the current scan.
+  severity: informational
+  tags: [aws, posture, drift]
+  match: {field: action, op: equals, value: aws.posture.finding.resolved}

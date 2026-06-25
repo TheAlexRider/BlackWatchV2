@@ -1,0 +1,82 @@
+# OpenVPN detections. Fed by the vpn.openvpn module (service health + status
+# snapshots) and by the VPN projection (derived session start/end/concurrent).
+
+- id: vpn-service-down
+  title: OpenVPN service went down
+  description: The service transitioned from up to down. Routine "still up" heartbeats are dropped at ingest; only the transition fires this rule.
+  severity: high
+  tags: [vpn, availability]
+  match:
+    field: action
+    op: equals
+    value: vpn.service.down
+
+- id: vpn-service-up
+  title: OpenVPN service is up
+  description: First-seen or recovered from down. Informational; the value is the transition itself.
+  severity: informational
+  tags: [vpn, availability]
+  match:
+    field: action
+    op: equals
+    value: vpn.service.up
+
+- id: vpn-concurrent-sessions
+  title: Same VPN identity connected from multiple IPs
+  description: Possible credential or certificate sharing.
+  severity: medium
+  tags: [vpn, credential-sharing]
+  match:
+    field: action
+    op: equals
+    value: vpn.session.concurrent
+
+- id: vpn-auth-brute-force
+  title: VPN auth brute-force
+  description: 5+ failed VPN logins from the same source IP within 5 minutes. Emitted once per IP per window.
+  severity: high
+  tags: [vpn, auth, brute-force]
+  match:
+    field: action
+    op: equals
+    value: vpn.bruteforce
+
+- id: vpn-auth-brute-force-user
+  title: VPN credential stuffing (per-user)
+  description: |
+    5+ failed VPN logins targeting the same username within 5 minutes, regardless of
+    source IP. Catches credential-stuffing / distributed attacks where each IP only
+    contributes 1-2 failures (so vpn-auth-brute-force never crosses its per-IP threshold).
+    Emitted once per username per window.
+  severity: high
+  tags: [vpn, auth, brute-force, credential-stuffing]
+  match:
+    field: action
+    op: equals
+    value: vpn.bruteforce.user
+
+- id: vpn-session-start
+  title: VPN client connected
+  description: A client appeared since the previous status snapshot.
+  severity: low
+  tags: [vpn]
+  match:
+    field: action
+    op: equals
+    value: vpn.session.start
+
+# Example allowlist: keep your own admin CN connecting from being noisy. Adjust
+# the CN suffix and enable as needed (suppress wins over alert rules).
+- id: vpn-suppress-admin-client
+  title: Expected admin VPN client
+  action: suppress
+  enabled: false
+  tags: [expected-vpn]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: vpn.session.start
+      - field: actor.principal
+        op: equals
+        value: admin

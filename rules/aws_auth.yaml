@@ -1,0 +1,42 @@
+# AWS authentication detections.
+
+- id: aws-root-account-usage
+  title: Root account used
+  description: Any activity by the AWS root identity is high-signal by default.
+  severity: critical
+  tags: [auth, root, aws]
+  match:
+    field: actor.is_root
+    op: equals
+    value: true
+
+- id: aws-console-login-failed
+  title: Failed console login
+  description: A single failed login; thresholding (N-in-window) arrives in Phase 3.
+  severity: low
+  tags: [auth, aws]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: auth.console.login
+      - field: outcome
+        op: equals
+        value: failure
+
+- id: aws-console-login-no-mfa
+  title: Console login without MFA
+  description: A successful console login where MFA was not used.
+  severity: high
+  tags: [auth, mfa, aws]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: auth.console.login
+      - field: outcome
+        op: equals
+        value: success
+      - field: extra.mfa_used
+        op: equals
+        value: "No"
