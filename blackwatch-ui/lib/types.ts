@@ -329,6 +329,7 @@ export interface HostSummary {
   age_seconds: number | null;
   stale: boolean;
   updated_at: string | null;
+  tags: Record<string, string> | null;
   port_count: number;
   user_count: number;
   key_count: number;

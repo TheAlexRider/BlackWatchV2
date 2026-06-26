@@ -135,7 +135,12 @@ function EventsTable({ events }: { events: EventEnvelope[] }) {
 function EventRow({ event }: { event: EventEnvelope }) {
   const severity = (event.severity as string | null | undefined) ?? null;
   const actor = event.actor?.principal ?? "—";
-  const target = event.target?.id ?? event.target?.name ?? "—";
+  // Prefer the role tag (set per-agent via BLACKWATCH_TAGS) so the column shows
+  // "Dev-NAT" instead of "i-08ba075...". Falls back to hostname, then instance id.
+  const extra = (event.extra as Record<string, unknown> | undefined) ?? {};
+  const tags = extra.tags as Record<string, string> | undefined;
+  const target =
+    tags?.role ?? event.target?.name ?? event.target?.id ?? "—";
   const moduleName = event.source?.module ?? "—";
 
   return (

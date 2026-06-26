@@ -310,6 +310,8 @@ def hosts_list() -> dict[str, Any]:
     for row in storage.list_host_status():
         age = (now - row["updated_at"]).total_seconds() if row.get("updated_at") else None
         snaps = row.get("snapshots") or {}
+        extra = row.get("extra") or {}
+        tags = extra.get("tags") if isinstance(extra.get("tags"), dict) else None
         servers.append({
             "instance_id": row["instance_id"],
             "hostname": row.get("hostname"),
@@ -319,6 +321,7 @@ def hosts_list() -> dict[str, Any]:
             "age_seconds": int(age) if age is not None else None,
             "stale": age is not None and age > _HOST_STALE_AFTER,
             "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+            "tags": tags,
             "port_count": len(snaps.get("ports") or []),
             "user_count": len(snaps.get("users") or []),
             "key_count": len(snaps.get("authorized_keys") or []),

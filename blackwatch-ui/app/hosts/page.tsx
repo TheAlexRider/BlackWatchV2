@@ -80,13 +80,15 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          <th className="w-44 px-4 py-2 text-left font-normal">Instance</th>
-          <th className="w-40 px-4 py-2 text-left font-normal">Hostname</th>
-          <th className="w-32 px-4 py-2 text-left font-normal">Agent</th>
-          <th className="w-24 px-4 py-2 text-left font-normal">Region</th>
-          <th className="w-16 px-4 py-2 text-right font-normal">Ports</th>
-          <th className="w-16 px-4 py-2 text-right font-normal">Users</th>
-          <th className="w-16 px-4 py-2 text-right font-normal">Keys</th>
+          <th className="w-20 px-4 py-2 text-left font-normal">Env</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">Role</th>
+          <th className="w-36 px-4 py-2 text-left font-normal">Instance</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">Hostname</th>
+          <th className="w-28 px-4 py-2 text-left font-normal">Agent</th>
+          <th className="w-20 px-4 py-2 text-left font-normal">Region</th>
+          <th className="w-14 px-4 py-2 text-right font-normal">Ports</th>
+          <th className="w-14 px-4 py-2 text-right font-normal">Users</th>
+          <th className="w-14 px-4 py-2 text-right font-normal">Keys</th>
           <th className="px-4 py-2 text-left font-normal">Last seen</th>
         </tr>
       </thead>
@@ -96,6 +98,12 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
             key={s.instance_id}
             className="border-b border-line-soft last:border-0 hover:bg-surface-2"
           >
+            <td className="truncate px-4 py-2.5 text-xs text-fg">
+              {s.tags?.env ?? "—"}
+            </td>
+            <td className="truncate px-4 py-2.5 text-xs text-fg">
+              {s.tags?.role ?? "—"}
+            </td>
             <td className="truncate px-4 py-2.5">
               <Link
                 href={`/hosts/${s.instance_id}`}
@@ -130,6 +138,14 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
       </tbody>
     </table>
   );
+}
+
+// Prefer the role tag for an event's host display, fall back to hostname,
+// then instance id. Keeps tables readable when "i-08ba075..." is meaningless.
+function hostLabel(event: EventEnvelope): string {
+  const extra = (event.extra as Record<string, unknown> | undefined) ?? {};
+  const tags = extra.tags as Record<string, string> | undefined;
+  return tags?.role ?? event.target?.name ?? event.target?.id ?? "—";
 }
 
 function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
@@ -172,7 +188,7 @@ function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
               </Link>
             </td>
             <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-              {c.target?.name ?? c.target?.id ?? "—"}
+              {hostLabel(c)}
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
               <ChangeDetail event={c} />
@@ -227,7 +243,7 @@ function AccessTable({ rows }: { rows: EventEnvelope[] }) {
               />
             </td>
             <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-              {a.target?.name ?? a.target?.id ?? "—"}
+              {hostLabel(a)}
             </td>
           </tr>
         ))}

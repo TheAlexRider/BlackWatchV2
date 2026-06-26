@@ -99,6 +99,21 @@
     op: equals
     value: host.auth.ssh.success
 
+- id: host-ssh-password-login
+  title: SSH password-based login
+  description: |
+    A successful SSH login authenticated by password (or keyboard-interactive,
+    which is usually PAM-password underneath). Most production boxes should
+    have PasswordAuthentication off in sshd_config — key-based only. A
+    password success means either the policy isn't enforced, or this is a
+    vendor / integration partner reaching in. Worth eyeballing every time.
+  severity: medium
+  tags: [host, auth, policy]
+  match:
+    field: action
+    op: equals
+    value: host.auth.ssh.password.success
+
 # --- Phase B: state-diff detections (derived from snapshot changes) -----------
 
 - id: host-new-authorized-key

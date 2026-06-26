@@ -265,7 +265,18 @@ class Ec2HostAdapter(Adapter):
         """-> (action, outcome, user, ip, extra) or None."""
         m = _SSH_OK.search(msg)
         if m:
-            return "host.auth.ssh.success", Outcome.success, m.group(2), m.group(3), {"method": m.group(1)}
+            method = m.group(1)
+            # Password-based SSH success is a higher-signal event than key-based
+            # (most boxes should have PasswordAuthentication off). Split it onto
+            # its own action so rules and the UI can flag it distinctly.
+            # keyboard-interactive often wraps PAM password underneath, so treat
+            # it the same way.
+            action = (
+                "host.auth.ssh.password.success"
+                if method in ("password", "keyboard-interactive")
+                else "host.auth.ssh.success"
+            )
+            return action, Outcome.success, m.group(2), m.group(3), {"method": method}
         m = _SSH_FAIL.search(msg)
         if m:
             return "host.auth.ssh.failure", Outcome.failure, m.group(2), m.group(3), {"method": m.group(1)}
