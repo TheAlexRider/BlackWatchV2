@@ -669,7 +669,11 @@ function FimChangesTable({ changes }: { changes: FimChange[] }) {
             className="border-b border-line-soft last:border-0 hover:bg-surface-2"
           >
             <td className="px-4 py-2.5">
-              <TimestampCell value={c.changed_at} />
+              {c.changed_at ? (
+                <TimestampCell value={c.changed_at} />
+              ) : (
+                <span className="text-xs text-fg-disabled">—</span>
+              )}
             </td>
             <td className="px-4 py-2.5">
               <FimDetectionPill detection={c.detection} />
