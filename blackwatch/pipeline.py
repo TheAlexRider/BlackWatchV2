@@ -42,6 +42,10 @@ _PROJECTION_ONLY_ACTIONS = {
     "vpn.cert.snapshot",
     "host.service.health",
     "host.state.snapshot",
+    # FIM coverage rides on every heartbeat (60/min/host) — feed it to the
+    # projection (updates fim_coverage table) but DON'T store as an event.
+    # Real FIM changes (host.fim.modified/created/deleted/etc.) ARE stored.
+    "host.fim.coverage",
     "probe.agent.heartbeat",
     "service.probe.result",
     "s3.bucket.snapshot",

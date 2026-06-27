@@ -8,6 +8,9 @@ import type {
   HostSnapshots,
   HostSession,
   EventEnvelope,
+  FimCoverage,
+  FimChange,
+  FimConfiguredPaths,
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
@@ -27,7 +30,11 @@ export default async function HostDetailPage({
 }) {
   const { id } = await params;
   const data = await fetchHostDetail(id);
-  const { host, snapshots, age_seconds, stale, auth_events, state_changes, alerts } = data;
+  const {
+    host, snapshots, age_seconds, stale,
+    auth_events, state_changes, alerts,
+    fim_coverage, fim_recent_changes,
+  } = data;
 
   return (
     <>
@@ -63,6 +70,13 @@ export default async function HostDetailPage({
 
           {alerts.length > 0 && (
             <AlertsSection alerts={alerts} />
+          )}
+
+          {(fim_coverage || fim_recent_changes.length > 0) && (
+            <FimSection
+              coverage={fim_coverage}
+              changes={fim_recent_changes}
+            />
           )}
 
           {(snapshots.disk?.length ?? 0) > 0 && (
@@ -445,6 +459,361 @@ function AlertsSection({ alerts }: { alerts: EventEnvelope[] }) {
       </DataPanel>
     </section>
   );
+}
+
+// =========================================================================
+// File Integrity Monitoring (FIM)  — Part 1: periodic baseline
+// =========================================================================
+
+function FimSection({
+  coverage,
+  changes,
+}: {
+  coverage: FimCoverage | null;
+  changes: FimChange[];
+}) {
+  const realtime = coverage?.inotify_active ?? false;
+  const whodata = coverage?.auditd_active ?? false;
+  let subtitle: string;
+  if (realtime && whodata) {
+    subtitle = "real-time · inotify + auditd whodata + 6h baseline scan";
+  } else if (realtime) {
+    subtitle = "real-time · inotify + 6h baseline scan (whodata off)";
+  } else {
+    subtitle = "periodic baseline · 6h scan (inotify inactive)";
+  }
+
+  return (
+    <section className="mt-6 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <SectionLabel>file integrity</SectionLabel>
+        <span className="text-[11px] text-fg-subtle">{subtitle}</span>
+      </div>
+
+      <FimCoverageCard coverage={coverage} />
+
+      <DataPanel className="overflow-hidden">
+        {changes.length === 0 ? (
+          <div className="px-6 py-10 text-center text-sm text-fg-muted">
+            No file integrity changes recorded. The agent will start emitting
+            events once it detects drift from the established baseline.
+          </div>
+        ) : (
+          <FimChangesTable changes={changes} />
+        )}
+      </DataPanel>
+
+      {coverage?.configured_paths && (
+        <FimWatchedPaths paths={coverage.configured_paths} />
+      )}
+    </section>
+  );
+}
+
+function FimWatchedPaths({ paths }: { paths: FimConfiguredPaths }) {
+  return (
+    <DataPanel className="space-y-3 px-4 py-3 text-xs">
+      <div className="text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
+        watched paths · what FIM is monitoring on this host
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <PathColumn label="Critical files" paths={paths.critical_files} />
+        <PathColumn label="Critical directories" paths={paths.critical_dirs} />
+        <PathColumn label="Binary directories" paths={paths.binary_dirs} />
+      </div>
+      <div className="border-t border-line-soft pt-2 text-[10px] text-fg-subtle">
+        Real-time (inotify): files + critical directories · Periodic (6h):
+        everything · Auditd whodata: write &amp; attribute changes
+      </div>
+    </DataPanel>
+  );
+}
+
+function PathColumn({
+  label,
+  paths,
+}: {
+  label: string;
+  paths: string[];
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
+        {label} <span className="text-fg-disabled">({paths.length})</span>
+      </div>
+      <ul className="space-y-0.5">
+        {paths.map((p) => (
+          <li key={p} className="font-mono text-[11px] text-fg-muted">
+            {p}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FimCoverageCard({ coverage }: { coverage: FimCoverage | null }) {
+  if (!coverage) {
+    return (
+      <DataPanel className="px-4 py-3 text-xs text-fg-muted">
+        Coverage data not reported yet. Agent will report after its first scan
+        (~15 seconds after start, then every 6 hours).
+      </DataPanel>
+    );
+  }
+  const lastScan = coverage.last_full_scan_at
+    ? new Date(coverage.last_full_scan_at)
+    : null;
+  const lastScanAge = lastScan
+    ? humanAge((Date.now() - lastScan.getTime()) / 1000)
+    : "—";
+
+  // Real-time + whodata indicators are the two things an auditor / SRE wants
+  // to see at a glance: "is detection live?" and "do we know who changed it?"
+  const realtime = coverage.inotify_active;
+  const whodata = coverage.auditd_active;
+  const realtimeValue = realtime
+    ? `${coverage.inotify_watch_count} paths · sub-second`
+    : "inactive";
+  const whodataValue = whodata
+    ? "auditd active · actor attribution on"
+    : "inactive";
+
+  return (
+    <DataPanel className="space-y-3 px-4 py-3">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-5">
+        <Stat
+          label="Real-time (inotify)"
+          value={realtimeValue}
+          tone={realtime ? "ok" : "warn"}
+        />
+        <Stat
+          label="Whodata (auditd)"
+          value={whodataValue}
+          tone={whodata ? "ok" : "warn"}
+        />
+        <Stat label="Files tracked" value={String(coverage.files_tracked)} />
+        <Stat label="Last full scan" value={lastScanAge} />
+        <Stat
+          label="Scan errors"
+          value={String(coverage.scan_errors)}
+          tone={coverage.scan_errors > 0 ? "warn" : undefined}
+        />
+      </div>
+      <div className="border-t border-line-soft pt-2 text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
+        Paths configured: <span className="text-fg-muted normal-case">{coverage.paths_configured}</span>
+        {coverage.paths_inotify > 0 && (
+          <>
+            {" · "}real-time scope:{" "}
+            <span className="text-fg-muted normal-case">{coverage.paths_inotify}</span>
+          </>
+        )}
+        {coverage.paths_baseline_only > 0 && (
+          <>
+            {" · "}baseline-only:{" "}
+            <span className="text-fg-muted normal-case">{coverage.paths_baseline_only}</span>
+          </>
+        )}
+      </div>
+    </DataPanel>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "warn" | "ok";
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
+        {label}
+      </div>
+      <div
+        className={clsx(
+          "font-mono text-sm",
+          tone === "warn"
+            ? "text-sev-medium"
+            : tone === "ok"
+            ? "text-sev-resolved"
+            : "text-fg",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function FimChangesTable({ changes }: { changes: FimChange[] }) {
+  return (
+    <table className="w-full table-fixed text-sm">
+      <thead>
+        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+          <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
+          <th className="w-24 px-4 py-2 text-left font-normal">Detected</th>
+          <th className="w-24 px-4 py-2 text-left font-normal">Change</th>
+          <th className="px-4 py-2 text-left font-normal">Path</th>
+          <th className="w-44 px-4 py-2 text-left font-normal">Who</th>
+          <th className="w-44 px-4 py-2 text-left font-normal">Diff</th>
+        </tr>
+      </thead>
+      <tbody>
+        {changes.map((c, i) => (
+          <tr
+            key={c.event_id ?? `${c.path}-${i}`}
+            className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+          >
+            <td className="px-4 py-2.5">
+              <TimestampCell value={c.changed_at} />
+            </td>
+            <td className="px-4 py-2.5">
+              <FimDetectionPill detection={c.detection} />
+            </td>
+            <td className="px-4 py-2.5">
+              <FimChangePill type={c.change_type} />
+            </td>
+            <td className="truncate px-4 py-2.5">
+              {c.event_id ? (
+                <Link
+                  href={`/events/${c.event_id}`}
+                  className="font-mono text-xs text-fg transition-colors hover:text-signal"
+                >
+                  {c.path}
+                </Link>
+              ) : (
+                <span className="font-mono text-xs text-fg">{c.path}</span>
+              )}
+            </td>
+            <td className="truncate px-4 py-2.5">
+              <FimActorCell change={c} />
+            </td>
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+              <FimDiff change={c} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function FimActorCell({ change }: { change: FimChange }) {
+  if (change.actor_comm == null && change.actor_uid == null) {
+    return (
+      <span className="text-xs text-fg-disabled">—</span>
+    );
+  }
+  const comm = change.actor_comm ?? "?";
+  const uid = change.actor_uid != null ? `uid=${change.actor_uid}` : null;
+  return (
+    <span
+      className="text-xs text-fg"
+      title={
+        change.actor_proctitle ??
+        [comm, uid, change.actor_pid != null ? `pid=${change.actor_pid}` : null]
+          .filter(Boolean)
+          .join(" · ")
+      }
+    >
+      <span className="font-mono">{comm}</span>
+      {uid && (
+        <span className="ml-1.5 text-fg-muted">{uid}</span>
+      )}
+    </span>
+  );
+}
+
+function FimDetectionPill({
+  detection,
+}: {
+  detection: FimChange["detection"];
+}) {
+  if (detection === "inotify") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs">
+        <span className="h-1.5 w-1.5 rounded-full bg-signal" aria-hidden />
+        <span className="text-fg">real-time</span>
+      </span>
+    );
+  }
+  if (detection === "auditd") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-sev-medium" aria-hidden />
+        auditd
+      </span>
+    );
+  }
+  // baseline or unknown (older rows pre-Part 2 won't have the field)
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+      <span className="h-1.5 w-1.5 rounded-full bg-fg-disabled" aria-hidden />
+      baseline
+    </span>
+  );
+}
+
+function FimChangePill({ type }: { type: FimChange["change_type"] }) {
+  // Color encodes how alarming the change is at a glance. Modified content
+  // (new sha256) is the most-actionable signal.
+  const COLOR: Record<FimChange["change_type"], string> = {
+    created:        "bg-sev-medium",
+    modified:       "bg-sev-high",
+    deleted:        "bg-sev-medium",
+    perm_changed:   "bg-sev-medium",
+    owner_changed:  "bg-sev-medium",
+  };
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs">
+      <span
+        className={clsx("h-1.5 w-1.5 rounded-full", COLOR[type])}
+        aria-hidden
+      />
+      <span className="text-fg-muted">{type.replace("_", " ")}</span>
+    </span>
+  );
+}
+
+function FimDiff({ change }: { change: FimChange }) {
+  if (change.change_type === "perm_changed") {
+    return (
+      <span>
+        perm {toOctal(change.perm_before)} → {toOctal(change.perm_after)}
+      </span>
+    );
+  }
+  if (change.change_type === "owner_changed") {
+    return (
+      <span>
+        {change.owner_before ?? "—"} → {change.owner_after ?? "—"}
+      </span>
+    );
+  }
+  if (change.change_type === "deleted") {
+    return <span>was {toOctal(change.perm_before)}, {change.size_before ?? 0} B</span>;
+  }
+  // created or modified — show sha256 prefix diff. Full 64-char hash is in
+  // the event detail; 8 chars is enough for at-a-glance distinction.
+  const before = change.sha256_before?.slice(0, 8) ?? "new";
+  const after = change.sha256_after?.slice(0, 8) ?? "—";
+  return <span>{before} → {after}</span>;
+}
+
+function toOctal(p: number | null): string {
+  if (p === null) return "—";
+  return p.toString(8).padStart(4, "0");
+}
+
+function humanAge(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 // =========================================================================

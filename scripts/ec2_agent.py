@@ -45,7 +45,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-AGENT_VERSION = "1.2"  # hardened: scrubbing, sandbox, watchdog, size caps, send backoff
+AGENT_VERSION = "1.5"  # FIM Part 3: auditd whodata — actor attribution on real-time events
 IMDS = "http://169.254.169.254"
 
 SQS_URL = os.environ.get("BLACKWATCH_SQS_URL", "")
@@ -53,6 +53,14 @@ INTERVAL = int(os.environ.get("INTERVAL", "60"))
 SPOOL_DIR = Path(os.environ.get("SPOOL_DIR", "/var/lib/blackwatch-agent")) / "spool"
 SPOOL_MAX_FILES = int(os.environ.get("SPOOL_MAX_FILES", "5000"))
 SPOOL_MAX_BYTES = int(os.environ.get("SPOOL_MAX_BYTES", str(100 * 1024 * 1024)))
+
+# FIM (File Integrity Monitoring) — periodic-baseline mode in Part 1. Part 2
+# will add real-time inotify; Part 3 will add auditd whodata. All three share
+# the same local SQLite baseline at /var/lib/blackwatch-agent/fim/baseline.db.
+# Singleton initialized in main(); build_report() drains queued changes.
+_FIM_ENGINE = None  # type: ignore[var-annotated]
+FIM_SCAN_SEC = int(os.environ.get("COLLECT_FIM_SEC", str(6 * 60 * 60)))   # 6h
+FIM_DISABLED = os.environ.get("BLACKWATCH_FIM_DISABLED", "").lower() in ("1", "true", "yes")
 
 # SQS message body limit is 262_144 bytes (256 KiB). We leave headroom for the
 # attributes / framing overhead and any growth from JSON-encoding strings.
@@ -914,6 +922,15 @@ def build_report() -> dict:
         if (now - _last_full_send_at) > _FULL_RESYNC_SECONDS:
             _last_full_send_at = now
 
+    # FIM Part 1: drain any baseline-scan-detected changes since last tick.
+    # The scanner thread queues changes asynchronously; we ship whatever is
+    # pending. Coverage rides on every tick so the UI never goes "no data".
+    if _FIM_ENGINE is not None:
+        fim_changes = _FIM_ENGINE.drain_changes()
+        if fim_changes:
+            report["fim_changes"] = fim_changes
+        report["fim_coverage"] = _FIM_ENGINE.coverage()
+
     errs = collector_errors()
     if errs:
         report["collector_errors"] = errs
@@ -1046,7 +1063,25 @@ def _shrink_for_sqs(payload: dict, max_bytes: int = SQS_BODY_MAX_BYTES) -> dict:
             payload["truncated"] = truncated
             return payload
 
-    # 4. Drop auth_events (last resort — we lose authn signal but keep the
+    # 4. FIM Part 1: if a baseline scan picked up a huge wave of changes (e.g.
+    # post-yum-update touching 500 binaries), the change list might be the
+    # biggest thing left. Halve it iteratively; each batch becomes its own
+    # tick on the next pass. The local SQLite baseline still has the after-
+    # state, so a dropped change won't re-fire next scan.
+    fim_changes = payload.get("fim_changes")
+    if isinstance(fim_changes, list) and len(fim_changes) > 0:
+        # Halve until it fits or we hit 1.
+        while fim_changes and \
+                len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) > max_bytes:
+            half = max(1, len(fim_changes) // 2)
+            fim_changes[:] = fim_changes[:half]
+            payload["fim_changes"] = fim_changes
+        truncated.append(f"fim_changes(kept={len(fim_changes)})")
+        if len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) <= max_bytes:
+            payload["truncated"] = truncated
+            return payload
+
+    # 5. Drop auth_events (last resort — we lose authn signal but keep the
     # heartbeat alive). Followers replay would re-fetch on next tick.
     if "auth_events" in payload:
         payload.pop("auth_events")
@@ -1123,6 +1158,26 @@ def main() -> None:
     once = "--once" in sys.argv
     print(f"BlackWatch EC2 agent v{AGENT_VERSION} -> {SQS_URL} (every {INTERVAL}s)")
     print(f"  distro={distro_family()} tags={TAGS or '-'}")
+
+    # FIM Part 1: kick off the periodic-baseline scanner. The thread starts
+    # its first scan 15s after engine start, then every COLLECT_FIM_SEC.
+    # BLACKWATCH_FIM_DISABLED=1 is a kill switch for boxes where the scan
+    # cost isn't acceptable yet. Import here so the agent still works if
+    # someone copies it without fim_engine.py (rare but possible).
+    if not FIM_DISABLED:
+        try:
+            global _FIM_ENGINE
+            from fim_engine import FimEngine  # type: ignore[import-not-found]
+            _FIM_ENGINE = FimEngine(scan_interval_sec=FIM_SCAN_SEC)
+            _FIM_ENGINE.start()
+            print(f"  fim=enabled scan_every={FIM_SCAN_SEC}s "
+                  f"paths_configured={_FIM_ENGINE.coverage()['paths_configured']}")
+        except Exception as exc:
+            print(f"  fim=startup_failed reason={exc!r}", file=sys.stderr)
+            _FIM_ENGINE = None
+    else:
+        print("  fim=disabled (BLACKWATCH_FIM_DISABLED set)")
+
     # Tell systemd we're alive (no-op outside systemd / outside Type=notify).
     _sd_notify("READY=1")
     while True:

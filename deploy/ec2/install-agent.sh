@@ -39,11 +39,108 @@ fi
 # 3.7 through 3.12+.
 pip3 install --quiet 'boto3>=1.28,<1.35'
 
+# v1.4 (FIM Part 2): inotify_simple is a tiny pure-python wrapper around the
+# inotify syscalls. Without it, FIM falls back to periodic-only — the agent
+# still works, just no sub-second detection. Pin loosely; this package is
+# stable and rarely changes.
+pip3 install --quiet 'inotify_simple>=1.3,<2.0' || \
+  echo "WARNING: inotify_simple install failed — real-time FIM will be disabled" >&2
+
+# Bump kernel inotify watch limit. AL2 default is 8192 which is fine for our
+# scope (~30 paths), but small instances sometimes have lower limits. Make
+# the change persistent via sysctl.d so it survives reboots.
+SYSCTL_FILE=/etc/sysctl.d/99-blackwatch-agent.conf
+if [ ! -f "$SYSCTL_FILE" ] || ! grep -q "max_user_watches" "$SYSCTL_FILE" 2>/dev/null; then
+  cat > "$SYSCTL_FILE" <<'SYSCTL_EOF'
+# BlackWatch FIM Part 2 — real-time inotify watcher.
+# Default 8192 is plenty for our ~30 paths, but small instances sometimes
+# ship with smaller limits. Bump conservatively so we never silently lose
+# watches at runtime.
+fs.inotify.max_user_watches = 16384
+fs.inotify.max_user_instances = 256
+SYSCTL_EOF
+  sysctl -p "$SYSCTL_FILE" >/dev/null 2>&1 || true
+fi
+
+# v1.5 (FIM Part 3): auditd for whodata. Install if missing, then load our
+# rules from /etc/audit/rules.d/bw_fim.rules. The rules are persistent —
+# auditd reloads them on every restart — so we never have to re-apply.
+# Whodata is "best-effort": absence of auditd doesn't break the agent.
+if ! command -v auditctl >/dev/null 2>&1; then
+  if   command -v dnf       >/dev/null 2>&1; then dnf install -y audit  || true
+  elif command -v yum       >/dev/null 2>&1; then yum install -y audit  || true
+  elif command -v apt-get   >/dev/null 2>&1; then apt-get install -y auditd  || true
+  fi
+fi
+
+if command -v auditctl >/dev/null 2>&1; then
+  install -d -m 0750 /etc/audit/rules.d
+  # Rule set mirrors the agent's critical-files + critical-dirs config. -p wa
+  # watches for write + attribute (perm/owner). -k bw_fim is the tag the
+  # agent's audit reader filters on for cheap parsing.
+  cat > /etc/audit/rules.d/bw_fim.rules <<'AUDIT_RULES_EOF'
+# BlackWatch FIM whodata — write/attribute watches on security-critical paths.
+# Loaded automatically by auditd at startup. The agent's audit reader filters
+# records by key=bw_fim, joins them to FIM change events, and attaches actor
+# info (uid/pid/comm/exe/proctitle) to the events shipped to BlackWatch.
+-w /etc/passwd -p wa -k bw_fim
+-w /etc/shadow -p wa -k bw_fim
+-w /etc/group -p wa -k bw_fim
+-w /etc/gshadow -p wa -k bw_fim
+-w /etc/sudoers -p wa -k bw_fim
+-w /etc/sudoers.d -p wa -k bw_fim
+-w /etc/ssh/sshd_config -p wa -k bw_fim
+-w /etc/ssh/sshd_config.d -p wa -k bw_fim
+-w /etc/pam.d -p wa -k bw_fim
+-w /etc/security -p wa -k bw_fim
+-w /etc/login.defs -p wa -k bw_fim
+-w /etc/crontab -p wa -k bw_fim
+-w /etc/cron.d -p wa -k bw_fim
+-w /etc/cron.hourly -p wa -k bw_fim
+-w /etc/cron.daily -p wa -k bw_fim
+-w /etc/cron.weekly -p wa -k bw_fim
+-w /etc/cron.monthly -p wa -k bw_fim
+-w /etc/systemd/system -p wa -k bw_fim
+-w /etc/hosts -p wa -k bw_fim
+-w /etc/hosts.allow -p wa -k bw_fim
+-w /etc/hosts.deny -p wa -k bw_fim
+-w /root/.ssh -p wa -k bw_fim
+AUDIT_RULES_EOF
+  chmod 0640 /etc/audit/rules.d/bw_fim.rules
+
+  # Enable + start auditd if it isn't running. On AL2/AL2023 auditd is the
+  # default and usually already up; on minimal Ubuntu we just installed it.
+  systemctl enable auditd >/dev/null 2>&1 || true
+  systemctl start  auditd >/dev/null 2>&1 || true
+
+  # Load rules without restarting auditd (faster, no log gap). augenrules is
+  # preferred; fall back to auditctl -R for older systems.
+  if command -v augenrules >/dev/null 2>&1; then
+    augenrules --load >/dev/null 2>&1 || true
+  else
+    auditctl -R /etc/audit/rules.d/bw_fim.rules >/dev/null 2>&1 || true
+  fi
+
+  # Confirm at install-time that at least one rule landed. Operator sees a
+  # clear "auditd whodata: ready" or "auditd whodata: rules failed to load"
+  # instead of figuring out from the agent journal hours later.
+  if auditctl -l 2>/dev/null | grep -q "key=bw_fim\|-k bw_fim"; then
+    echo "auditd whodata: ready ($(auditctl -l | grep -c bw_fim) rules loaded)"
+  else
+    echo "auditd whodata: rules failed to load (agent will continue without whodata)" >&2
+  fi
+else
+  echo "auditd whodata: auditctl not installed — agent will continue without whodata" >&2
+fi
+
 # 2. install the agent. /opt/blackwatch holds the script (world-readable is OK,
 # it's not a secret). /var/lib/blackwatch-agent holds the spool (journal lines,
-# process args) — root-only, 0700.
+# process args) — root-only, 0700. /var/lib/blackwatch-agent/fim holds the
+# FIM baseline SQLite — also root-only, 0700; agent will create on startup
+# but pre-create here so first-tick file errors are unambiguous.
 install -d -m 0755 /opt/blackwatch
 install -d -m 0700 /var/lib/blackwatch-agent
+install -d -m 0700 /var/lib/blackwatch-agent/fim
 # Skip the copy if AGENT_SRC is already the installed path (re-running the
 # script to just refresh the systemd unit). `install(1)` errors out with
 # "are the same file" otherwise and set -e aborts the whole install.
@@ -52,6 +149,24 @@ if [ "$(readlink -f "$AGENT_SRC")" != "$(readlink -f "$DEST")" ]; then
   install -m 0755 "$AGENT_SRC" "$DEST"
 else
   echo "AGENT_SRC == DEST — skipping copy (refreshing systemd unit only)"
+fi
+
+# v1.3+: fim_engine.py lives next to ec2_agent.py. The agent does
+# `from fim_engine import FimEngine` at startup; missing file = FIM disabled
+# (logged), not a fatal error. Look in the same dir as AGENT_SRC first; fall
+# back to repo layout / next-to-install-script so dev installs work.
+FIM_SRC=""
+for p in "$(dirname "$AGENT_SRC")/fim_engine.py" "$HERE/fim_engine.py" "$HERE/../../scripts/fim_engine.py"; do
+  if [ -f "$p" ]; then FIM_SRC="$p"; break; fi
+done
+if [ -n "$FIM_SRC" ]; then
+  FIM_DEST=/opt/blackwatch/fim_engine.py
+  if [ "$(readlink -f "$FIM_SRC")" != "$(readlink -f "$FIM_DEST")" ]; then
+    install -m 0644 "$FIM_SRC" "$FIM_DEST"
+    echo "fim_engine.py installed from $FIM_SRC"
+  fi
+else
+  echo "WARNING: fim_engine.py not found — FIM will be disabled at runtime" >&2
 fi
 
 # 2b. Pre-flight — fail at install time if the instance role can't actually

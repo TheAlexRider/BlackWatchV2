@@ -57,7 +57,148 @@ def project(event: Event) -> list[Event]:
         return _project_heartbeat(event, instance_id)
     if event.action == "host.state.snapshot":
         return _project_snapshot(event, instance_id)
+    # FIM Part 1 — update baseline + append history rows for every change.
+    if event.action in _FIM_CHANGE_ACTIONS:
+        return _project_fim_change(event, instance_id)
+    if event.action == "host.fim.coverage":
+        return _project_fim_coverage(event, instance_id)
     return []
+
+
+_FIM_CHANGE_ACTIONS = frozenset({
+    "host.fim.created",
+    "host.fim.modified",
+    "host.fim.deleted",
+    "host.fim.perm_changed",
+    "host.fim.owner_changed",
+})
+
+
+def _project_fim_change(event: Event, instance_id: str) -> list[Event]:
+    """One FIM change event arrived. Append to fim_history (always), then
+    refresh the current baseline row (or delete it on `deleted`).
+
+    Never emits derived events — the change event itself is the signal. The
+    rules engine + notifier already pick it up; no second-order amplification."""
+    e = event.extra or {}
+    path = e.get("path")
+    if not path:
+        return []
+    when = event.event_time or datetime.now(timezone.utc)
+    change_type = e.get("change_type", "modified")
+
+    # Part 3: actor fields come through extra.actor when the agent's audit
+    # reader had a fresh hit for this path. Best-effort — missing fields
+    # are normal (auditd absent, change detected by periodic scanner, etc).
+    actor = e.get("actor") if isinstance(e.get("actor"), dict) else {}
+    storage.insert_fim_history(
+        instance_id,
+        path,
+        changed_at=when,
+        change_type=change_type,
+        sha256_before=e.get("sha256_before"),
+        sha256_after=e.get("sha256_after"),
+        size_before=_safe_int(e.get("size_before")),
+        size_after=_safe_int(e.get("size_after")),
+        perm_before=_safe_int(e.get("perm_before")),
+        perm_after=_safe_int(e.get("perm_after")),
+        owner_before=e.get("owner_before"),
+        owner_after=e.get("owner_after"),
+        event_id=event.event_id,
+        detection=e.get("detection"),
+        actor_uid=_safe_int(actor.get("uid")),
+        actor_gid=_safe_int(actor.get("gid")),
+        actor_pid=_safe_int(actor.get("pid")),
+        actor_comm=_safe_str(actor.get("comm")),
+        actor_exe=_safe_str(actor.get("exe")),
+        actor_proctitle=_safe_str(actor.get("proctitle")),
+    )
+
+    if change_type == "deleted":
+        storage.delete_fim_baseline(instance_id, path)
+        return []
+
+    # Created / modified / perm_changed / owner_changed — update the baseline
+    # to the new known-good. We only have full metadata when the after-state
+    # is known; gracefully no-op if the agent shipped a partial change.
+    sha256 = e.get("sha256_after")
+    perm = _safe_int(e.get("perm_after"))
+    size = _safe_int(e.get("size_after"))
+    owner_after = e.get("owner_after") or ""
+    if not sha256 or perm is None or size is None:
+        return []
+    try:
+        uid_str, gid_str = owner_after.split(":", 1)
+        owner_uid = int(uid_str)
+        owner_gid = int(gid_str)
+    except (ValueError, AttributeError):
+        owner_uid = -1
+        owner_gid = -1
+
+    storage.upsert_fim_baseline(
+        instance_id,
+        path,
+        sha256=sha256,
+        size=size,
+        perm=perm,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+        mtime=when,
+        last_seen_at=when,
+    )
+    return []
+
+
+def _project_fim_coverage(event: Event, instance_id: str) -> list[Event]:
+    """Heartbeat-frequency coverage summary. Persist into fim_coverage so the
+    UI can show 'tracking 324 files, last scan 3h ago' without scanning the
+    full baseline table on every page load."""
+    e = event.extra or {}
+    when = event.event_time or datetime.now(timezone.utc)
+    last_scan = e.get("last_full_scan_at")
+    if isinstance(last_scan, str):
+        try:
+            last_scan_dt = datetime.fromisoformat(last_scan.replace("Z", "+00:00"))
+        except ValueError:
+            last_scan_dt = None
+    else:
+        last_scan_dt = None
+
+    configured_paths = e.get("configured_paths")
+    if not isinstance(configured_paths, dict):
+        configured_paths = None
+    storage.upsert_fim_coverage(
+        instance_id,
+        paths_configured=_safe_int(e.get("paths_configured")) or 0,
+        files_tracked=_safe_int(e.get("files_tracked")) or 0,
+        last_full_scan_at=last_scan_dt,
+        last_scan_duration_ms=_safe_int(e.get("last_scan_duration_ms")),
+        scan_errors=_safe_int(e.get("scan_errors")) or 0,
+        updated_at=when,
+        paths_inotify=_safe_int(e.get("paths_inotify")) or 0,
+        paths_baseline_only=_safe_int(e.get("paths_baseline_only")) or 0,
+        inotify_active=bool(e.get("inotify_active")),
+        inotify_watch_count=_safe_int(e.get("inotify_watch_count")) or 0,
+        auditd_active=bool(e.get("auditd_active")),
+        configured_paths=configured_paths,
+    )
+    return []
+
+
+def _safe_int(v: Any) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_str(v: Any) -> str | None:
+    if v is None:
+        return None
+    s = str(v)
+    # Defensive cap so a malicious or buggy agent can't OOM the projection by
+    # shipping a 50 MB "comm" field.
+    return s[:512] if len(s) > 512 else s
 
 
 # ---------- Heartbeat: liveness + memory/CPU/db/stall transitions -----------

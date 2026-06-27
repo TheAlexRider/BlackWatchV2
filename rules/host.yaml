@@ -168,6 +168,239 @@
     op: equals
     value: host.file.changed
 
+# --- FIM Part 1: file integrity events from the new periodic-baseline scanner -
+
+- id: host-fim-sudoers-changed
+  title: sudoers file changed (FIM)
+  description: |
+    /etc/sudoers or /etc/sudoers.d/* was modified, created, or had its
+    permissions/owner changed. Top-tier privilege-escalation signal.
+  severity: critical
+  tags: [host, integrity, privilege, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+          - host.fim.perm_changed
+          - host.fim.owner_changed
+      - field: extra.path
+        op: startswith
+        value: /etc/sudoers
+
+- id: host-fim-sshd-config-changed
+  title: SSH server config changed (FIM)
+  description: |
+    sshd_config or a drop-in under sshd_config.d/ was modified. Almost always
+    operator action but could indicate persistence (PermitRootLogin, MaxAuthTries
+    relaxed, AuthorizedKeysFile redirected).
+  severity: high
+  tags: [host, integrity, ssh, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+          - host.fim.perm_changed
+      - field: extra.path
+        op: startswith
+        value: /etc/ssh/sshd_config
+
+- id: host-fim-authorized-keys-changed
+  title: SSH authorized_keys changed (FIM)
+  description: |
+    An authorized_keys file was modified — somebody added/removed a key. Pairs
+    with the snapshot-diff host.authorized_key.added rule but this catches the
+    write itself, not just the post-fact diff.
+  severity: high
+  tags: [host, integrity, ssh, persistence, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+      - field: extra.path
+        op: icontains
+        value: authorized_keys
+
+- id: host-fim-pam-changed
+  title: PAM configuration changed (FIM)
+  description: |
+    Anything under /etc/pam.d/ or /etc/security/ changed. PAM config controls
+    auth/account/session policy — abuse here gives persistent backdoors.
+  severity: high
+  tags: [host, integrity, auth, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+          - host.fim.perm_changed
+      - field: extra.path
+        op: startswith
+        value: /etc/pam.d/
+
+- id: host-fim-cron-changed
+  title: Cron config changed (FIM)
+  description: |
+    A file under /etc/cron* changed. Classic persistence vector — the realtime
+    FIM watcher catches this before the next cron tick fires.
+  severity: high
+  tags: [host, integrity, persistence, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+      - field: extra.path
+        op: startswith
+        value: /etc/cron
+
+- id: host-fim-systemd-unit-changed
+  title: systemd unit changed (FIM)
+  description: |
+    A unit file under /etc/systemd/system/ was modified. Could be legit
+    operator action or quiet persistence (new service that starts on boot).
+  severity: medium
+  tags: [host, integrity, persistence, fim]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.created
+      - field: extra.path
+        op: startswith
+        value: /etc/systemd/system/
+
+- id: host-fim-system-binary-changed
+  title: System binary changed (FIM)
+  description: |
+    A binary under /bin, /sbin, /usr/bin, /usr/sbin, /usr/local/bin, or
+    /usr/local/sbin changed without a corresponding package update. Strong
+    rootkit / trojanized-binary signal.
+  severity: high
+  tags: [host, integrity, rootkit, fim]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: host.fim.modified
+      - field: extra.path
+        op: regex
+        value: '^/(usr/)?(local/)?(s?bin)/'
+
+- id: host-fim-generic-modified
+  title: Monitored file modified (FIM)
+  description: |
+    Catch-all for any FIM modification not matched by a more specific rule.
+    Severity is medium so it surfaces in the UI without being alarming;
+    upgrade via a narrower rule if a specific path needs higher signal.
+  severity: medium
+  tags: [host, integrity, fim]
+  match:
+    field: action
+    op: equals
+    value: host.fim.modified
+
+- id: host-fim-created
+  title: New file in monitored path (FIM)
+  description: A file appeared in a monitored directory that wasn't there before.
+  severity: low
+  tags: [host, integrity, fim]
+  match:
+    field: action
+    op: equals
+    value: host.fim.created
+
+- id: host-fim-deleted
+  title: Monitored file deleted (FIM)
+  description: A previously-tracked file is gone. Often legit (config cleanup) but worth surfacing.
+  severity: low
+  tags: [host, integrity, fim]
+  match:
+    field: action
+    op: equals
+    value: host.fim.deleted
+
+- id: host-fim-perm-changed
+  title: Monitored file permission changed (FIM)
+  description: File mode bits changed without content modification — could be a misconfiguration or a privilege-escalation precursor.
+  severity: medium
+  tags: [host, integrity, fim]
+  match:
+    field: action
+    op: equals
+    value: host.fim.perm_changed
+
+- id: host-fim-owner-changed
+  title: Monitored file owner changed (FIM)
+  description: uid/gid changed on a monitored file. Almost always intentional; surface for review.
+  severity: medium
+  tags: [host, integrity, fim]
+  match:
+    field: action
+    op: equals
+    value: host.fim.owner_changed
+
+# --- FIM Part 3: whodata-aware rules ----------------------------------------
+
+- id: host-fim-non-root-edit-critical
+  title: Non-root user modified a critical file
+  description: |
+    auditd whodata recorded a non-root uid editing a security-critical
+    file (sudoers, sshd_config, shadow, PAM). Either privilege escalation
+    happened upstream, or someone has unintended write access. Either way
+    this is a top-priority signal.
+  severity: critical
+  tags: [host, integrity, privilege, fim, whodata]
+  match:
+    all:
+      - field: action
+        op: in
+        value:
+          - host.fim.modified
+          - host.fim.perm_changed
+          - host.fim.owner_changed
+      - field: extra.actor.uid
+        op: not_equals
+        value: 0
+      - field: extra.path
+        op: regex
+        value: '^/etc/(sudoers|shadow|passwd|gshadow|ssh/sshd_config|pam\.d/|security/)'
+
+- id: host-fim-editor-touched-binary
+  title: Interactive editor modified a system binary
+  description: |
+    A binary under /bin, /sbin, /usr, etc. was modified, and auditd
+    recorded an interactive editor (vim, nano, emacs, vi) as the actor.
+    Legit operator workflows almost never edit system binaries — this
+    is a strong rootkit / supply-chain compromise signal.
+  severity: critical
+  tags: [host, integrity, rootkit, fim, whodata]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: host.fim.modified
+      - field: extra.path
+        op: regex
+        value: '^/(usr/)?(local/)?(s?bin)/'
+      - field: extra.actor.comm
+        op: in
+        value: [vim, vi, nano, emacs, ed]
+
 - id: host-cron-changed
   title: Cron job added or changed
   description: A cron file was added, changed, or removed — classic persistence.

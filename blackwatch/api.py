@@ -384,6 +384,12 @@ def host_detail(instance_id: str) -> dict[str, Any]:
         "alerts": [
             e for e in recent if e.get("severity") in ("high", "critical")
         ][:20],
+        # FIM Part 1: coverage stats + most recent change history.
+        # The full file list (fim_baselines) is per-host data and rarely needed
+        # for the host page; we expose count + last-N changes here and ship the
+        # full list via a separate endpoint when the UI needs it.
+        "fim_coverage": storage.get_fim_coverage(instance_id),
+        "fim_recent_changes": storage.list_fim_history(instance_id, limit=50),
     }
 
 

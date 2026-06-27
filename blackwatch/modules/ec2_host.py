@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -258,6 +259,106 @@ class Ec2HostAdapter(Adapter):
                     raw=entry,
                 )
             )
+
+        # 3) FIM (Part 1: periodic baseline). The agent ships fim_changes
+        # whenever its scan finds drift, plus a fim_coverage summary on every
+        # tick. Each change becomes one host.fim.* event; coverage becomes a
+        # single host.fim.coverage event (informational, drives the UI's
+        # "324 files monitored, last scan 3h ago" box).
+        _ACTION_BY_CHANGE_TYPE = {
+            "created":        "host.fim.created",
+            "modified":       "host.fim.modified",
+            "deleted":        "host.fim.deleted",
+            "perm_changed":   "host.fim.perm_changed",
+            "owner_changed":  "host.fim.owner_changed",
+        }
+        for ch in raw.get("fim_changes") or []:
+            if not isinstance(ch, dict):
+                continue
+            path = ch.get("path")
+            change_type = ch.get("change_type")
+            if not path or change_type not in _ACTION_BY_CHANGE_TYPE:
+                continue
+            # Deterministic event_id: same path + same hash + same
+            # detection_time can re-arrive (re-shipped tick) without
+            # producing duplicate notifications.
+            detected_at = ch.get("detected_at") or ""
+            fp = f"fim:{instance_id}:{path}:{change_type}:{ch.get('sha256_after')}:{detected_at}"
+            try:
+                ev_time = datetime.fromisoformat(detected_at.replace("Z", "+00:00")) \
+                    if detected_at else datetime.now(timezone.utc)
+            except ValueError:
+                ev_time = datetime.now(timezone.utc)
+            # Part 3: actor field (whodata) flows through verbatim when the
+            # agent's auditd reader had a recent hit for this path. Both
+            # the inner extra.actor (rules engine) and the top-level
+            # event.actor (UI / notifier) get populated.
+            actor_dict = ch.get("actor") if isinstance(ch.get("actor"), dict) else None
+            actor_obj = None
+            if actor_dict:
+                principal_parts = []
+                if actor_dict.get("comm"):
+                    principal_parts.append(str(actor_dict["comm"]))
+                if actor_dict.get("uid") is not None:
+                    principal_parts.append(f"uid={actor_dict['uid']}")
+                principal = " ".join(principal_parts) or None
+                actor_obj = Actor(principal=principal)
+            events.append(
+                Event(
+                    event_id=str(uuid.uuid5(uuid.NAMESPACE_URL, fp)),
+                    source=src(),
+                    event_time=ev_time,
+                    category=Category.host,
+                    action=_ACTION_BY_CHANGE_TYPE[change_type],
+                    outcome=Outcome.success,
+                    actor=actor_obj,
+                    target=target(),
+                    extra={
+                        "instance_id": instance_id,
+                        "path": path,
+                        "change_type": change_type,
+                        "sha256_before": ch.get("sha256_before"),
+                        "sha256_after": ch.get("sha256_after"),
+                        "size_before": ch.get("size_before"),
+                        "size_after": ch.get("size_after"),
+                        "perm_before": ch.get("perm_before"),
+                        "perm_after": ch.get("perm_after"),
+                        "owner_before": ch.get("owner_before"),
+                        "owner_after": ch.get("owner_after"),
+                        "detection": ch.get("detection") or "baseline",
+                        **({"actor": actor_dict} if actor_dict else {}),
+                        **tags_extra,
+                    },
+                    raw={"kind": "ec2_report.fim_change", "change": ch},
+                )
+            )
+
+        # FIM coverage summary — one informational event per heartbeat that
+        # the projection persists into fim_coverage. Not stored as a long-lived
+        # event (it'd be 1440/day per host), filtered out before insert.
+        coverage = raw.get("fim_coverage")
+        if isinstance(coverage, dict):
+            events.append(
+                Event(
+                    event_id=str(uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"fim-cov:{instance_id}:{int(time.time() // 60)}"
+                    )),
+                    source=src(),
+                    event_time=datetime.now(timezone.utc),
+                    category=Category.host,
+                    action="host.fim.coverage",
+                    outcome=Outcome.success,
+                    target=target(),
+                    extra={
+                        "instance_id": instance_id,
+                        **coverage,
+                        **tags_extra,
+                    },
+                    raw={"kind": "ec2_report.fim_coverage"},
+                )
+            )
+
         return events
 
     @staticmethod

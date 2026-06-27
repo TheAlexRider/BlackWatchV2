@@ -1101,3 +1101,236 @@ def list_unresolved_finding_ids_for_account(account: str) -> set[str]:
             (account,),
         ).fetchall()
     return {r[0] for r in rows}
+
+
+# --- File Integrity Monitoring read-model -----------------------------------
+
+def upsert_fim_baseline(
+    instance_id: str,
+    path: str,
+    *,
+    sha256: str,
+    size: int,
+    perm: int,
+    owner_uid: int,
+    owner_gid: int,
+    mtime: datetime,
+    last_seen_at: datetime,
+) -> None:
+    """Upsert the current known-good state for one path. `established_at` only
+    gets set on insert (first time we ever saw this path) — subsequent updates
+    leave it alone so the UI can show 'tracked since YYYY-MM-DD'."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO fim_baselines
+                (instance_id, path, sha256, size, perm, owner_uid, owner_gid,
+                 mtime, last_seen_at, established_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (instance_id, path) DO UPDATE SET
+                sha256 = EXCLUDED.sha256,
+                size = EXCLUDED.size,
+                perm = EXCLUDED.perm,
+                owner_uid = EXCLUDED.owner_uid,
+                owner_gid = EXCLUDED.owner_gid,
+                mtime = EXCLUDED.mtime,
+                last_seen_at = EXCLUDED.last_seen_at
+            """,
+            (instance_id, path, sha256, size, perm, owner_uid, owner_gid,
+             mtime, last_seen_at, last_seen_at),
+        )
+
+
+def delete_fim_baseline(instance_id: str, path: str) -> None:
+    """File was deleted. Drop the baseline row — history still records it."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "DELETE FROM fim_baselines WHERE instance_id = %s AND path = %s",
+            (instance_id, path),
+        )
+
+
+def insert_fim_history(
+    instance_id: str,
+    path: str,
+    *,
+    changed_at: datetime,
+    change_type: str,
+    sha256_before: str | None,
+    sha256_after: str | None,
+    size_before: int | None,
+    size_after: int | None,
+    perm_before: int | None,
+    perm_after: int | None,
+    owner_before: str | None,
+    owner_after: str | None,
+    event_id: str | None,
+    detection: str | None = None,
+    actor_uid: int | None = None,
+    actor_gid: int | None = None,
+    actor_pid: int | None = None,
+    actor_comm: str | None = None,
+    actor_exe: str | None = None,
+    actor_proctitle: str | None = None,
+) -> None:
+    """Append-only change log. One row per detected change. Actor fields
+    are populated only when Part 3 auditd whodata had a fresh hit for
+    this path; null otherwise."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO fim_history
+                (instance_id, path, changed_at, change_type,
+                 sha256_before, sha256_after, size_before, size_after,
+                 perm_before, perm_after, owner_before, owner_after,
+                 event_id, detection,
+                 actor_uid, actor_gid, actor_pid,
+                 actor_comm, actor_exe, actor_proctitle)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (instance_id, path, changed_at, change_type,
+             sha256_before, sha256_after, size_before, size_after,
+             perm_before, perm_after, owner_before, owner_after,
+             event_id, detection,
+             actor_uid, actor_gid, actor_pid,
+             actor_comm, actor_exe, actor_proctitle),
+        )
+
+
+def list_fim_history(instance_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Most recent changes on this host."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT path, changed_at, change_type,
+                   sha256_before, sha256_after,
+                   size_before, size_after,
+                   perm_before, perm_after,
+                   owner_before, owner_after,
+                   event_id, detection,
+                   actor_uid, actor_gid, actor_pid,
+                   actor_comm, actor_exe, actor_proctitle
+            FROM fim_history
+            WHERE instance_id = %s
+            ORDER BY changed_at DESC
+            LIMIT %s
+            """,
+            (instance_id, limit),
+        ).fetchall()
+    return [
+        {
+            "path": r[0],
+            "changed_at": r[1].isoformat() if r[1] else None,
+            "change_type": r[2],
+            "sha256_before": r[3],
+            "sha256_after": r[4],
+            "size_before": r[5],
+            "size_after": r[6],
+            "perm_before": r[7],
+            "perm_after": r[8],
+            "owner_before": r[9],
+            "owner_after": r[10],
+            "event_id": str(r[11]) if r[11] else None,
+            "detection": r[12],
+            "actor_uid": r[13],
+            "actor_gid": r[14],
+            "actor_pid": r[15],
+            "actor_comm": r[16],
+            "actor_exe": r[17],
+            "actor_proctitle": r[18],
+        }
+        for r in rows
+    ]
+
+
+def count_fim_baselines(instance_id: str) -> int:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM fim_baselines WHERE instance_id = %s",
+            (instance_id,),
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def upsert_fim_coverage(
+    instance_id: str,
+    *,
+    paths_configured: int,
+    files_tracked: int,
+    last_full_scan_at: datetime | None,
+    last_scan_duration_ms: int | None,
+    scan_errors: int,
+    updated_at: datetime,
+    paths_inotify: int = 0,
+    paths_baseline_only: int = 0,
+    inotify_active: bool = False,
+    inotify_watch_count: int = 0,
+    auditd_active: bool = False,
+    configured_paths: dict[str, Any] | None = None,
+) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO fim_coverage
+                (instance_id, paths_configured, files_tracked,
+                 last_full_scan_at, last_scan_duration_ms, scan_errors,
+                 updated_at, paths_inotify, paths_baseline_only,
+                 inotify_active, inotify_watch_count,
+                 auditd_active, configured_paths)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (instance_id) DO UPDATE SET
+                paths_configured = EXCLUDED.paths_configured,
+                files_tracked = EXCLUDED.files_tracked,
+                last_full_scan_at = COALESCE(EXCLUDED.last_full_scan_at,
+                                             fim_coverage.last_full_scan_at),
+                last_scan_duration_ms = COALESCE(EXCLUDED.last_scan_duration_ms,
+                                                 fim_coverage.last_scan_duration_ms),
+                scan_errors = EXCLUDED.scan_errors,
+                updated_at = EXCLUDED.updated_at,
+                paths_inotify = EXCLUDED.paths_inotify,
+                paths_baseline_only = EXCLUDED.paths_baseline_only,
+                inotify_active = EXCLUDED.inotify_active,
+                inotify_watch_count = EXCLUDED.inotify_watch_count,
+                auditd_active = EXCLUDED.auditd_active,
+                configured_paths = COALESCE(EXCLUDED.configured_paths,
+                                            fim_coverage.configured_paths)
+            """,
+            (instance_id, paths_configured, files_tracked,
+             last_full_scan_at, last_scan_duration_ms, scan_errors, updated_at,
+             paths_inotify, paths_baseline_only,
+             inotify_active, inotify_watch_count,
+             auditd_active,
+             Jsonb(configured_paths) if configured_paths is not None else None),
+        )
+
+
+def get_fim_coverage(instance_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT paths_configured, files_tracked, last_full_scan_at,
+                   last_scan_duration_ms, scan_errors, updated_at,
+                   paths_inotify, paths_baseline_only,
+                   inotify_active, inotify_watch_count,
+                   auditd_active, configured_paths
+            FROM fim_coverage WHERE instance_id = %s
+            """,
+            (instance_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "paths_configured": int(row[0]),
+        "files_tracked": int(row[1]),
+        "last_full_scan_at": row[2].isoformat() if row[2] else None,
+        "last_scan_duration_ms": int(row[3]) if row[3] is not None else None,
+        "scan_errors": int(row[4]),
+        "updated_at": row[5].isoformat() if row[5] else None,
+        "paths_inotify": int(row[6]),
+        "paths_baseline_only": int(row[7]),
+        "inotify_active": bool(row[8]),
+        "inotify_watch_count": int(row[9]),
+        "auditd_active": bool(row[10]),
+        "configured_paths": row[11] if row[11] else None,
+    }

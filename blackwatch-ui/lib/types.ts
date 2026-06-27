@@ -351,6 +351,63 @@ export interface HostDetailResponse {
   auth_events: EventEnvelope[];
   state_changes: EventEnvelope[];
   alerts: EventEnvelope[];
+  fim_coverage: FimCoverage | null;
+  fim_recent_changes: FimChange[];
+}
+
+// FIM coverage + per-file change history.
+//   Part 1 (periodic baseline): paths_configured, files_tracked, scan stats
+//   Part 2 (real-time inotify): paths_inotify, inotify_active, watch count
+//   Part 3 (whodata via auditd): auditd_active + per-change actor fields
+//                                + configured_paths for the "what are we watching" UI
+export interface FimCoverage {
+  paths_configured: number;
+  files_tracked: number;
+  last_full_scan_at: string | null;
+  last_scan_duration_ms: number | null;
+  scan_errors: number;
+  updated_at: string | null;
+  paths_inotify: number;
+  paths_baseline_only: number;
+  inotify_active: boolean;
+  inotify_watch_count: number;
+  auditd_active: boolean;
+  configured_paths: FimConfiguredPaths | null;
+}
+
+export interface FimConfiguredPaths {
+  critical_files: string[];
+  critical_dirs: string[];
+  binary_dirs: string[];
+}
+
+export interface FimChange {
+  path: string;
+  changed_at: string | null;
+  change_type:
+    | "created"
+    | "modified"
+    | "deleted"
+    | "perm_changed"
+    | "owner_changed";
+  sha256_before: string | null;
+  sha256_after: string | null;
+  size_before: number | null;
+  size_after: number | null;
+  perm_before: number | null;
+  perm_after: number | null;
+  owner_before: string | null;
+  owner_after: string | null;
+  event_id: string | null;
+  // Which detection path caught this change.
+  detection: "baseline" | "inotify" | "auditd" | null;
+  // Part 3 — populated only when auditd whodata had a fresh hit.
+  actor_uid: number | null;
+  actor_gid: number | null;
+  actor_pid: number | null;
+  actor_comm: string | null;
+  actor_exe: string | null;
+  actor_proctitle: string | null;
 }
 
 export interface HostRecord {
