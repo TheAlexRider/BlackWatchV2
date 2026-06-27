@@ -496,15 +496,16 @@ class FimEngine:
         }
 
     def _upsert_baseline_path(self, path: str, meta: dict) -> None:
+        # INSERT OR REPLACE works on every SQLite version (vs. ON CONFLICT DO
+        # UPDATE which needs 3.24+). Amazon Linux 2 ships an older SQLite
+        # bundled with Python 3.7 — INSERT OR REPLACE is the compatible upsert.
+        # Semantically identical for our case: PK is `path`, we always update
+        # every column with the fresh values.
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
-                "INSERT INTO baseline "
+                "INSERT OR REPLACE INTO baseline "
                 "(path, sha256, size, perm, owner_uid, owner_gid, mtime) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(path) DO UPDATE SET "
-                "sha256=excluded.sha256, size=excluded.size, "
-                "perm=excluded.perm, owner_uid=excluded.owner_uid, "
-                "owner_gid=excluded.owner_gid, mtime=excluded.mtime",
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (path, meta["sha256"], meta["size"], meta["perm"],
                  meta["owner_uid"], meta["owner_gid"], meta["mtime"]),
             )
