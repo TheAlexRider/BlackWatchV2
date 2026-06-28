@@ -503,6 +503,165 @@ def fim_instance_view(instance_id: str) -> dict[str, Any]:
     }
 
 
+# --- Performance alert rules ------------------------------------------------
+
+_VALID_PERF_METRICS = {"memory_pct", "cpu_load_norm", "disk_pct_max"}
+_VALID_PERF_COMPARISONS = {"gte", "gt", "lte", "lt"}
+_VALID_PERF_SEVERITIES = {"informational", "low", "medium", "high", "critical"}
+
+
+@router.get("/perf-alerts")
+def perf_alerts_list() -> dict[str, Any]:
+    """All perf alert rules + the list of instances available to scope
+    new rules to (used by the wizard's dropdown)."""
+    rules = storage.list_perf_alert_rules()
+    # Build instance dropdown: every host that's reporting, with display tags.
+    instances = []
+    for h in storage.list_host_status():
+        extra = h.get("extra") or {}
+        tags = extra.get("tags") if isinstance(extra.get("tags"), dict) else None
+        instances.append({
+            "instance_id": h["instance_id"],
+            "hostname": h.get("hostname"),
+            "tags": tags,
+        })
+    # Channels available — for the dropdown.
+    channels = [
+        {"id": str(c["id"]), "name": c["name"], "type": c.get("type"),
+         "enabled": c.get("enabled", True)}
+        for c in storage.list_notification_channels()
+    ]
+    return {
+        "rules": rules,
+        "instances": instances,
+        "channels": channels,
+    }
+
+
+@router.get("/perf-alerts/{rule_id}")
+def perf_alerts_get(rule_id: str) -> dict[str, Any]:
+    rule = storage.get_perf_alert_rule(rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="rule not found")
+    return rule
+
+
+@router.post("/perf-alerts")
+def perf_alerts_create(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Create a new perf alert rule. Validation is permissive on display
+    fields (name, severity), strict on semantic fields (metric, scope)."""
+    rule_id = payload.get("id") or str(__import__("uuid").uuid4())
+    _validate_perf_payload(payload)
+    storage.upsert_perf_alert_rule(
+        rule_id,
+        name=str(payload["name"]).strip(),
+        enabled=bool(payload.get("enabled", True)),
+        module=payload.get("module") or "ec2.host",
+        instance_id=(payload.get("instance_id") or None),
+        tag_key=(payload.get("tag_key") or None),
+        tag_value=(payload.get("tag_value") or None),
+        metric=payload["metric"],
+        comparison=payload.get("comparison", "gte"),
+        threshold=float(payload["threshold"]),
+        window_seconds=int(payload.get("window_seconds", 300)),
+        min_breach_ratio=float(payload.get("min_breach_ratio", 0.6)),
+        severity=payload.get("severity", "high"),
+        channels=list(payload.get("channels") or []),
+        throttle_seconds=int(payload.get("throttle_seconds", 1800)),
+    )
+    return {"id": rule_id}
+
+
+@router.put("/perf-alerts/{rule_id}")
+def perf_alerts_update(
+    rule_id: str, payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    if storage.get_perf_alert_rule(rule_id) is None:
+        raise HTTPException(status_code=404, detail="rule not found")
+    _validate_perf_payload(payload)
+    storage.upsert_perf_alert_rule(
+        rule_id,
+        name=str(payload["name"]).strip(),
+        enabled=bool(payload.get("enabled", True)),
+        module=payload.get("module") or "ec2.host",
+        instance_id=(payload.get("instance_id") or None),
+        tag_key=(payload.get("tag_key") or None),
+        tag_value=(payload.get("tag_value") or None),
+        metric=payload["metric"],
+        comparison=payload.get("comparison", "gte"),
+        threshold=float(payload["threshold"]),
+        window_seconds=int(payload.get("window_seconds", 300)),
+        min_breach_ratio=float(payload.get("min_breach_ratio", 0.6)),
+        severity=payload.get("severity", "high"),
+        channels=list(payload.get("channels") or []),
+        throttle_seconds=int(payload.get("throttle_seconds", 1800)),
+    )
+    return {"id": rule_id}
+
+
+@router.delete("/perf-alerts/{rule_id}")
+def perf_alerts_delete(rule_id: str) -> dict[str, Any]:
+    storage.delete_perf_alert_rule(rule_id)
+    return {"ok": True}
+
+
+def _validate_perf_payload(p: dict[str, Any]) -> None:
+    if not p.get("name") or not str(p["name"]).strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    metric = p.get("metric")
+    if metric not in _VALID_PERF_METRICS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"metric must be one of {sorted(_VALID_PERF_METRICS)}",
+        )
+    comparison = p.get("comparison", "gte")
+    if comparison not in _VALID_PERF_COMPARISONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"comparison must be one of {sorted(_VALID_PERF_COMPARISONS)}",
+        )
+    sev = p.get("severity", "high")
+    if sev not in _VALID_PERF_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {sorted(_VALID_PERF_SEVERITIES)}",
+        )
+    if p.get("threshold") is None:
+        raise HTTPException(status_code=400, detail="threshold is required")
+    # Scope: must pick instance OR tag pair (avoid fleet-wide alerts by
+    # accident — easy to add explicitly later if needed).
+    has_instance = bool(p.get("instance_id"))
+    has_tag = bool(p.get("tag_key")) and p.get("tag_value") is not None
+    if not has_instance and not has_tag:
+        raise HTTPException(
+            status_code=400,
+            detail="scope required: either instance_id or (tag_key + tag_value)",
+        )
+    if has_instance and has_tag:
+        raise HTTPException(
+            status_code=400,
+            detail="scope conflict: set instance_id OR tag, not both",
+        )
+    try:
+        ws = int(p.get("window_seconds", 300))
+        if ws < 60:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="window_seconds must be >= 60")
+    try:
+        ratio = float(p.get("min_breach_ratio", 0.6))
+        if not (0 < ratio <= 1):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="min_breach_ratio must be in (0, 1]")
+    try:
+        ts = int(p.get("throttle_seconds", 1800))
+        if ts < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="throttle_seconds must be >= 0")
+
+
 @router.get("/services")
 def services_list() -> dict[str, Any]:
     """Probe-target inventory grouped by VPC, joined with current status, plus

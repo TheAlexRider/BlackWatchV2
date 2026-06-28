@@ -7,12 +7,14 @@ import {
   fetchNotificationRules,
   fetchNotificationLog,
   fetchNotificationAcks,
+  fetchPerfAlerts,
 } from "@/lib/api";
 import type {
   NotificationChannel,
   NotificationRule,
   NotificationLogEntry,
   NotificationAck,
+  PerfAlertRule,
 } from "@/lib/types";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -34,6 +36,11 @@ import {
   clearAckAction,
 } from "./actions";
 
+import {
+  togglePerfAlertAction,
+  deletePerfAlertAction,
+} from "./perf-alerts/actions";
+
 type SearchParams = { msg?: string };
 
 export default async function NotificationsPage({
@@ -42,11 +49,12 @@ export default async function NotificationsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const { msg } = await searchParams;
-  const [channelsData, rulesData, logData, acksData] = await Promise.all([
+  const [channelsData, rulesData, logData, acksData, perfData] = await Promise.all([
     fetchNotificationChannels(),
     fetchNotificationRules(),
     fetchNotificationLog({ limit: 50 }),
     fetchNotificationAcks(),
+    fetchPerfAlerts(),
   ]);
 
   return (
@@ -54,7 +62,11 @@ export default async function NotificationsPage({
       <AutoRefresh intervalMs={5000} />
       <PageHeader
         title="Notifications"
-        subtitle={`${channelsData.count} channel${channelsData.count === 1 ? "" : "s"} · ${rulesData.count} rule${rulesData.count === 1 ? "" : "s"}`}
+        subtitle={
+          `${channelsData.count} channel${channelsData.count === 1 ? "" : "s"} · ` +
+          `${rulesData.count} event rule${rulesData.count === 1 ? "" : "s"} · ` +
+          `${perfData.rules.length} performance alert${perfData.rules.length === 1 ? "" : "s"}`
+        }
       />
 
       {msg && <FlashBar message={msg} />}
@@ -64,6 +76,10 @@ export default async function NotificationsPage({
       <ChannelsSection channels={channelsData.channels} />
       <RulesSection
         rules={rulesData.rules}
+        channelsAvailable={channelsData.channels.length > 0}
+      />
+      <PerfAlertsSection
+        rules={perfData.rules}
         channelsAvailable={channelsData.channels.length > 0}
       />
       <RecentActivitySection entries={logData.entries} />
@@ -428,6 +444,155 @@ function RuleStatePill({ rule }: { rule: NotificationRule }) {
       <span className="h-1.5 w-1.5 rounded-full bg-sev-resolved" aria-hidden />
       <span className="text-fg-muted">active</span>
     </span>
+  );
+}
+
+// =========================================================================
+// performance alerts (threshold-based)
+// =========================================================================
+
+const METRIC_LABEL: Record<string, string> = {
+  memory_pct: "Memory %",
+  cpu_load_norm: "CPU load (norm)",
+  disk_pct_max: "Disk % (worst mount)",
+};
+
+const COMPARISON_SYM: Record<string, string> = {
+  gte: "≥",
+  gt: ">",
+  lte: "≤",
+  lt: "<",
+};
+
+function PerfAlertsSection({
+  rules,
+  channelsAvailable,
+}: {
+  rules: PerfAlertRule[];
+  channelsAvailable: boolean;
+}) {
+  return (
+    <section className="mt-6 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <SectionLabel>performance alerts · threshold-based</SectionLabel>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/notifications/perf-alerts/new">
+            <Plus size={12} className="mr-1" /> new
+          </Link>
+        </Button>
+      </div>
+      <DataPanel className="overflow-hidden">
+        {!channelsAvailable ? (
+          <div className="px-6 py-8 text-center text-sm text-fg-muted">
+            Create a notification channel above first — perf alerts need
+            somewhere to send their pings.
+          </div>
+        ) : rules.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-fg-muted">
+            No performance alerts yet.{" "}
+            <Link
+              href="/notifications/perf-alerts/new"
+              className="text-signal hover:underline"
+            >
+              Create one
+            </Link>
+            {" "}— alerts trigger when a metric stays above your threshold
+            for the configured window.
+          </div>
+        ) : (
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                <th className="w-12 px-4 py-2 text-left font-normal">On</th>
+                <th className="px-4 py-2 text-left font-normal">Alert</th>
+                <th className="w-44 px-4 py-2 text-left font-normal">Scope</th>
+                <th className="w-44 px-4 py-2 text-left font-normal">Condition</th>
+                <th className="w-32 px-4 py-2 text-left font-normal">Channels</th>
+                <th className="w-24 px-4 py-2 text-right font-normal">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <PerfAlertRow key={r.id} rule={r} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </DataPanel>
+    </section>
+  );
+}
+
+function PerfAlertRow({ rule }: { rule: PerfAlertRule }) {
+  const minutes = Math.max(1, Math.round(rule.window_seconds / 60));
+  const metric = METRIC_LABEL[rule.metric] ?? rule.metric;
+  const sym = COMPARISON_SYM[rule.comparison] ?? rule.comparison;
+  const scope = rule.instance_id
+    ? rule.instance_id
+    : rule.tag_key
+    ? `tag ${rule.tag_key}=${rule.tag_value}`
+    : "—";
+
+  return (
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
+      <td className="px-4 py-2.5">
+        <form action={togglePerfAlertAction.bind(null, rule.id, !rule.enabled)}>
+          <button
+            type="submit"
+            className="inline-flex items-center"
+            aria-label={rule.enabled ? "Disable" : "Enable"}
+          >
+            <span
+              className={clsx(
+                "h-1.5 w-1.5 rounded-full",
+                rule.enabled ? "bg-sev-resolved" : "bg-fg-disabled",
+              )}
+              aria-hidden
+            />
+            <span className="ml-1.5 text-xs text-fg-muted">
+              {rule.enabled ? "on" : "off"}
+            </span>
+          </button>
+        </form>
+      </td>
+      <td className="truncate px-4 py-2.5 text-sm text-fg">
+        {rule.name}
+        {rule.last_value != null && (
+          <span className="ml-2 text-[11px] text-fg-subtle">
+            (last: {rule.last_value.toFixed(1)}%)
+          </span>
+        )}
+      </td>
+      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+        {scope}
+      </td>
+      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+        {metric} {sym} {rule.threshold}% / {minutes}m
+      </td>
+      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+        {(rule.channels || []).join(", ") || "—"}
+      </td>
+      <td className="px-4 py-2.5 text-right">
+        <div className="inline-flex items-center gap-1">
+          <Link
+            href={`/notifications/perf-alerts/${encodeURIComponent(rule.id)}/edit`}
+            className="rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg"
+            aria-label="Edit"
+          >
+            <Pencil size={14} />
+          </Link>
+          <form action={deletePerfAlertAction.bind(null, rule.id, rule.name)}>
+            <button
+              type="submit"
+              className="rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg"
+              aria-label="Delete"
+            >
+              <X size={14} />
+            </button>
+          </form>
+        </div>
+      </td>
+    </tr>
   );
 }
 

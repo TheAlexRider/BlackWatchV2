@@ -471,6 +471,64 @@ export interface FimInstanceResponse {
   recent_changes: FimChange[];
 }
 
+// --- Performance alert rules -----------------------------------------------
+
+export type PerfMetric =
+  | "memory_pct"
+  | "cpu_load_norm"
+  | "disk_pct_max";
+
+export type PerfComparison = "gte" | "gt" | "lte" | "lt";
+
+export type PerfSeverity =
+  | "informational"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export interface PerfAlertRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  module: string;
+  instance_id: string | null;
+  tag_key: string | null;
+  tag_value: string | null;
+  metric: PerfMetric;
+  comparison: PerfComparison;
+  threshold: number;
+  window_seconds: number;
+  min_breach_ratio: number;
+  severity: PerfSeverity;
+  channels: string[];
+  throttle_seconds: number;
+  samples?: Array<{ t: number; b: boolean; v: number }>;
+  last_fired_at?: string | null;
+  last_value: number | null;
+}
+
+export interface PerfAlertInstance {
+  instance_id: string;
+  hostname: string | null;
+  tags: Record<string, string> | null;
+}
+
+export interface PerfAlertChannel {
+  id: string;
+  name: string;
+  type: string | null;
+  enabled: boolean;
+}
+
+export interface PerfAlertsListResponse {
+  rules: PerfAlertRule[];
+  instances: PerfAlertInstance[];
+  channels: PerfAlertChannel[];
+}
+
 export interface HostRecord {
   instance_id: string;
   hostname: string | null;

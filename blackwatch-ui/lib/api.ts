@@ -29,6 +29,8 @@ import type {
   LivePingResponse,
   FimViewResponse,
   FimInstanceResponse,
+  PerfAlertRule,
+  PerfAlertsListResponse,
 } from "./types";
 
 export const API_BASE = process.env.BW_API_URL ?? "http://localhost:8000";
@@ -138,6 +140,23 @@ export async function fetchFimInstance(
     throw new Error(`fetchFimInstance failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as FimInstanceResponse;
+}
+
+// --- Performance alerts ---------------------------------------------------
+
+export async function fetchPerfAlerts(): Promise<PerfAlertsListResponse> {
+  const res = await fetch(`${API_BASE}/api/perf-alerts`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchPerfAlerts failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as PerfAlertsListResponse;
+}
+
+export async function fetchPerfAlert(ruleId: string): Promise<PerfAlertRule> {
+  const url = `${API_BASE}/api/perf-alerts/${encodeURIComponent(ruleId)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`fetchPerfAlert failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as PerfAlertRule;
 }
 
 // --- Services --------------------------------------------------------------

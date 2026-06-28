@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .. import storage
+from .. import perf_alerts
 from ..event import Category, Event, Outcome, Source, Target, Transport
 from .diff import diff_snapshots
 
@@ -247,6 +248,14 @@ def _project_heartbeat(event: Event, instance_id: str) -> list[Event]:
                                       {"prev_active": prev_active}))
     for action, extra in transitions:
         derived.append(_make_derived(event, instance_id, action, extra))
+
+    # User-configured threshold alerts — runs alongside the hardcoded
+    # transitions above (95% memory etc.). Both can fire; built-in
+    # alerts are the safety net, perf rules are the customizable layer.
+    # The evaluator also dispatches directly to its bound channels, so
+    # the user doesn't have to wire a separate notification rule.
+    derived.extend(perf_alerts.evaluate(event))
+
     return derived
 
 

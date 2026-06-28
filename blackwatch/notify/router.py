@@ -162,6 +162,69 @@ class Notifier:
                 results.append({"rule": rule.name, "channel": channel.name, "status": "queued"})
         return results
 
+    def dispatch_direct(
+        self,
+        event: Event,
+        channel_names: list[str],
+        rule_name: str,
+        rule_id: str | None = None,
+        throttle_seconds: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Bypass rule-matching and dispatch `event` to a specific list of
+        channels. Used by features (perf alerts, future schedulers) that
+        own their own rule semantics but still want to ride the existing
+        channel/worker plumbing.
+
+        Caller supplies a `rule_name` for logging/ack-tracking purposes;
+        if `rule_id` is given, it's used as the rule-identity in the
+        throttle key (so two perf rules pointing at the same channel for
+        the same fingerprint don't share a throttle bucket).
+        """
+        results: list[dict[str, Any]] = []
+        now_ts = time.time()
+
+        # Honor the same ack semantics as the regular dispatch path.
+        try:
+            if storage.is_fingerprint_acked(event.dedup_fingerprint):
+                return [{"status": "acked", "fingerprint": event.dedup_fingerprint}]
+        except Exception:
+            pass
+
+        for cname in channel_names:
+            channel = self.channels.get(cname)
+            if channel is None or not channel.enabled:
+                results.append({"rule": rule_name, "channel": cname, "status": "skipped"})
+                continue
+            key = (rule_id or rule_name, channel.name, event.dedup_fingerprint)
+            window = throttle_seconds or channel.dedup_window_seconds
+            last = self._last_sent.get(key)
+            if window > 0 and last is not None and now_ts - last < window:
+                results.append({"rule": rule_name, "channel": channel.name,
+                                "status": "throttled"})
+                continue
+            self._last_sent[key] = now_ts
+            # Build an ephemeral NotificationRule so the worker has the
+            # shape it expects (it reads rule.name + rule.id for logging).
+            # `match` is required by the model but we bypassed matching;
+            # an empty Condition is the canonical "matches nothing" sentinel.
+            from ..rules.model import Condition  # local import — avoids cycle
+            virtual_rule = NotificationRule(
+                id=rule_id or f"perf:{rule_name}",
+                name=rule_name,
+                enabled=True,
+                match=Condition(),
+                channels=[cname],
+                throttle_seconds=throttle_seconds,
+            )
+            notify_worker.get_worker().enqueue({
+                "rule": virtual_rule,
+                "channel": channel,
+                "channel_id": self._channel_ids.get(cname),
+                "event": event,
+            })
+            results.append({"rule": rule_name, "channel": channel.name, "status": "queued"})
+        return results
+
     def send_test(self, channel_name: str) -> dict[str, Any]:
         """Synchronous test send (bypasses the worker)."""
         channel = self.channels.get(channel_name)

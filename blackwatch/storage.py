@@ -1091,6 +1091,155 @@ def mark_posture_finding_resolved(finding_id: str, resolved_at: datetime) -> Non
         )
 
 
+# --- Performance alert rules (host metric thresholds) ---------------------
+
+_PERF_COLS = (
+    "id, name, enabled, created_at, updated_at, "
+    "module, instance_id, tag_key, tag_value, "
+    "metric, comparison, threshold, "
+    "window_seconds, min_breach_ratio, "
+    "severity, channels, throttle_seconds, "
+    "samples, last_fired_at, last_value"
+)
+
+
+def _perf_rule_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": str(row[0]),
+        "name": row[1],
+        "enabled": bool(row[2]),
+        "created_at": row[3].isoformat() if row[3] else None,
+        "updated_at": row[4].isoformat() if row[4] else None,
+        "module": row[5],
+        "instance_id": row[6],
+        "tag_key": row[7],
+        "tag_value": row[8],
+        "metric": row[9],
+        "comparison": row[10],
+        "threshold": float(row[11]),
+        "window_seconds": int(row[12]),
+        "min_breach_ratio": float(row[13]),
+        "severity": row[14],
+        "channels": row[15] or [],
+        "throttle_seconds": int(row[16]),
+        "samples": row[17] or [],
+        "last_fired_at": row[18],   # keep as datetime for evaluator math
+        "last_value": float(row[19]) if row[19] is not None else None,
+    }
+
+
+def list_perf_alert_rules() -> list[dict[str, Any]]:
+    """Every rule (enabled + disabled), for the management UI."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {_PERF_COLS} FROM perf_alert_rules ORDER BY created_at DESC"
+        ).fetchall()
+    return [_perf_rule_row(r) for r in rows]
+
+
+def get_perf_alert_rule(rule_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"SELECT {_PERF_COLS} FROM perf_alert_rules WHERE id = %s",
+            (rule_id,),
+        ).fetchone()
+    return _perf_rule_row(row) if row else None
+
+
+def list_enabled_perf_rules_for_module(module: str) -> list[dict[str, Any]]:
+    """Used by the evaluator on each heartbeat — small, cached-ish."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {_PERF_COLS} FROM perf_alert_rules "
+            "WHERE enabled = TRUE AND module = %s",
+            (module,),
+        ).fetchall()
+    return [_perf_rule_row(r) for r in rows]
+
+
+def upsert_perf_alert_rule(
+    rule_id: str,
+    *,
+    name: str,
+    enabled: bool,
+    module: str,
+    instance_id: str | None,
+    tag_key: str | None,
+    tag_value: str | None,
+    metric: str,
+    comparison: str,
+    threshold: float,
+    window_seconds: int,
+    min_breach_ratio: float,
+    severity: str,
+    channels: list[str],
+    throttle_seconds: int,
+) -> None:
+    """Create-or-update a rule. Evaluator state (samples, last_fired_at,
+    last_value) is NEVER touched here — that's owned by the evaluator."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO perf_alert_rules
+                (id, name, enabled, module, instance_id, tag_key, tag_value,
+                 metric, comparison, threshold,
+                 window_seconds, min_breach_ratio,
+                 severity, channels, throttle_seconds)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                enabled = EXCLUDED.enabled,
+                module = EXCLUDED.module,
+                instance_id = EXCLUDED.instance_id,
+                tag_key = EXCLUDED.tag_key,
+                tag_value = EXCLUDED.tag_value,
+                metric = EXCLUDED.metric,
+                comparison = EXCLUDED.comparison,
+                threshold = EXCLUDED.threshold,
+                window_seconds = EXCLUDED.window_seconds,
+                min_breach_ratio = EXCLUDED.min_breach_ratio,
+                severity = EXCLUDED.severity,
+                channels = EXCLUDED.channels,
+                throttle_seconds = EXCLUDED.throttle_seconds,
+                updated_at = NOW()
+            """,
+            (rule_id, name, enabled, module, instance_id, tag_key, tag_value,
+             metric, comparison, threshold,
+             window_seconds, min_breach_ratio,
+             severity, Jsonb(channels), throttle_seconds),
+        )
+
+
+def delete_perf_alert_rule(rule_id: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute("DELETE FROM perf_alert_rules WHERE id = %s", (rule_id,))
+
+
+def update_perf_rule_state(
+    rule_id: str,
+    *,
+    samples: list[dict[str, Any]],
+    last_value: float | None,
+    last_fired_at: datetime | None = None,
+) -> None:
+    """Evaluator-only. Updates the rolling sample buffer + last observed
+    value. last_fired_at is updated only when an alert fires (left None
+    here means 'don't touch')."""
+    with get_pool().connection() as conn:
+        if last_fired_at is not None:
+            conn.execute(
+                "UPDATE perf_alert_rules SET samples = %s, last_value = %s, "
+                "last_fired_at = %s WHERE id = %s",
+                (Jsonb(samples), last_value, last_fired_at, rule_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE perf_alert_rules SET samples = %s, last_value = %s "
+                "WHERE id = %s",
+                (Jsonb(samples), last_value, rule_id),
+            )
+
+
 def list_unresolved_finding_ids_for_account(account: str) -> set[str]:
     """For scan-completion reconciliation: any open finding in this account
     that wasn't in the latest scan has been resolved."""
