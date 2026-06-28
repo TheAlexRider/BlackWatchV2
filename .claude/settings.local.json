@@ -23,7 +23,8 @@
       "Bash(bash -n C:/Users/TheAl/Documents/GitHub/BlackWatchV2/deploy/vpn/install-vpn-agent.sh)",
       "Bash(bash -n deploy/ec2/install-agent.sh)",
       "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('rules/host.yaml'\\)\\); print\\('host.yaml OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/notify/channels.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/notify/channels.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/api.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

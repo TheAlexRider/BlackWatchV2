@@ -1074,25 +1074,34 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
     """Render a Jinja template against a synthetic sample event so the UI can
     show the operator what their message will look like before they save.
     Renders are best-effort: a bad template returns the Jinja error string
-    instead of raising — surfacing the error inline is the point."""
+    instead of raising — surfacing the error inline is the point.
+
+    Accepts:
+      template       — Jinja source. If empty/null, falls back to the
+                       default template for `channel_type` (so you can
+                       preview the built-in friendly preset without
+                       pasting it).
+      channel_type   — slack | discord | teams | email | pagerduty | webhook
+      sample_event   — perf_alert | fim_modified | ssh_failure | vpn_failure
+                       (default: vpn_failure for backward compat)
+      sample_action  — override the action name on the sample (kept for compat)
+    """
     from jinja2 import Environment, StrictUndefined
     from .event import Event, Source, Actor, Target, Severity, Outcome, Category
+    from .notify import channels as channels_module
 
-    template = str(payload.get("template") or "")
-    if not template.strip():
+    channel_type = str(payload.get("channel_type") or "slack").lower()
+    template = str(payload.get("template") or "").strip()
+    # Empty / null template → preview the channel-type default. Lets the UI
+    # show "what the built-in preset looks like" without sending a copy.
+    if not template:
+        template = channels_module._DEFAULT_TEMPLATES.get(channel_type) or ""
+    if not template:
         return {"rendered": "", "error": None}
 
-    sample = Event(
-        source=Source(module="vpn.openvpn", transport="queue", account="prod"),
-        category=Category.vpn,
-        action=str(payload.get("sample_action") or "vpn.auth.failure"),
-        outcome=Outcome.failure,
-        severity=Severity.high,
-        actor=Actor(principal="apoorvasharma", source_ip="27.58.20.140"),
-        target=Target(id="openvpn-prod-1", type="vpn.server", name="openvpn-prod-1"),
-        rule_matches=["Failed logins"],
-        tags=["vpn", "auth"],
-    )
+    sample_kind = str(payload.get("sample_event") or "vpn_failure").lower()
+    sample = _build_preview_sample(sample_kind, payload)
+
     env = Environment(autoescape=False, undefined=StrictUndefined, trim_blocks=True)
     try:
         rendered = env.from_string(template).render(
@@ -1102,6 +1111,94 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
         return {"rendered": rendered, "error": None}
     except Exception as exc:
         return {"rendered": "", "error": f"{exc.__class__.__name__}: {exc}"}
+
+
+def _build_preview_sample(kind: str, payload: dict[str, Any]):
+    """Hand-crafted sample events for the template preview. One per
+    interesting event shape so the user can see how their template
+    renders without firing a real event."""
+    from .event import Event, Source, Actor, Target, Severity, Outcome, Category
+
+    sample_action = payload.get("sample_action")
+
+    if kind == "perf_alert":
+        return Event(
+            source=Source(module="ec2.host", transport="queue", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.host,
+            action=sample_action or "host.perf.alert",
+            outcome=Outcome.failure,
+            severity=Severity.high,
+            target=Target(id="i-03499c8ce39a70d21", type="ec2.instance",
+                          name="ip-172-16-1-97.us-west-1.compute.internal"),
+            extra={
+                "metric": "cpu_load_norm",
+                "metric_label": "CPU (normalized load)",
+                "rule_id": "preview-rule-id",
+                "rule_name": "CPU load (normalized) ≥ 80% on Mgmt-NAT EC2 for 5 minutes",
+                "threshold": 80,
+                "comparison": "gte",
+                "current_value": 98.0,
+                "window_seconds": 300,
+                "min_breach_ratio": 0.6,
+                "message": "CPU (normalized load) ≥ 80% for 5m (current: 98.0%)",
+                "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
+            },
+        )
+
+    if kind == "fim_modified":
+        return Event(
+            source=Source(module="ec2.host", transport="queue", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.host,
+            action=sample_action or "host.fim.modified",
+            outcome=Outcome.success,
+            severity=Severity.critical,
+            actor=Actor(principal="tee uid=0"),
+            target=Target(id="i-03499c8ce39a70d21", type="ec2.instance",
+                          name="ip-172-16-1-97.us-west-1.compute.internal"),
+            extra={
+                "path": "/etc/sudoers.d/bw-test",
+                "change_type": "modified",
+                "sha256_before": "7dd5d071...",
+                "sha256_after": "998699d9...",
+                "detection": "inotify",
+                "actor": {"uid": 0, "pid": 8377, "comm": "tee",
+                          "exe": "/usr/bin/tee",
+                          "proctitle": "tee -a /etc/sudoers.d/bw-test"},
+                "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
+            },
+        )
+
+    if kind == "ssh_failure":
+        return Event(
+            source=Source(module="ec2.host", transport="queue", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.host,
+            action=sample_action or "host.auth.ssh.failure",
+            outcome=Outcome.failure,
+            severity=Severity.low,
+            actor=Actor(principal="root", source_ip="118.193.61.170"),
+            target=Target(id="i-03499c8ce39a70d21", type="ec2.instance",
+                          name="ip-172-16-1-97"),
+            extra={
+                "method": "publickey",
+                "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
+            },
+        )
+
+    # Default: VPN auth failure (kept for backward compat with UI callers).
+    return Event(
+        source=Source(module="vpn.openvpn", transport="queue", account="prod"),
+        category=Category.vpn,
+        action=sample_action or "vpn.auth.failure",
+        outcome=Outcome.failure,
+        severity=Severity.high,
+        actor=Actor(principal="apoorvasharma", source_ip="27.58.20.140"),
+        target=Target(id="openvpn-prod-1", type="vpn.server", name="openvpn-prod-1"),
+        rule_matches=["Failed logins"],
+        tags=["vpn", "auth"],
+    )
 
 
 @router.get("/notifications/channels")
