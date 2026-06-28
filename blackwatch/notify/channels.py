@@ -50,11 +50,22 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English, emoji per severity. Easy to scan in a channel.",
+            "blurb": "Plain English, emoji per severity. Easy to scan in a channel. "
+                     "Uses event.extra.message as the headline when present "
+                     "(perf alerts, FIM events with rich descriptions).",
             "template": (
-                f"{_SEV_EMOJI} *{{{{ event.action }}}}*"
+                # Headline: rich message if the event provides one, else the
+                # raw action name. Most events set extra.message when they
+                # have something more informative than the action label.
+                f"{_SEV_EMOJI} *{{{{ event.extra.message or event.action }}}}*"
+                # Actor block — for events caused by a person.
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
+                # Target context — prefer role tag, then hostname, then ID.
+                "{% if event.extra.tags and event.extra.tags.role %}"
+                " on `{{ event.extra.tags.role }}`"
+                "{% elif event.target.name %} on `{{ event.target.name }}`"
+                "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
                 "{% if event.severity %} _(severity: {{ event.severity }})_{% endif %}"
             ),
         },
@@ -63,11 +74,13 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Detailed",
             "blurb": "Multi-line with all key fields. Best for an alerts channel where each message stands alone.",
             "template": (
-                f"{_SEV_EMOJI} *{{{{ event.action }}}}*\n"
-                "• *Who:* {{ event.actor.principal or 'unknown' }}\n"
-                "• *From:* {{ event.actor.source_ip or '—' }}\n"
+                f"{_SEV_EMOJI} *{{{{ event.extra.message or event.action }}}}*\n"
+                "{% if event.actor.principal %}• *Who:* {{ event.actor.principal }}\n{% endif %}"
+                "{% if event.actor.source_ip %}• *From:* {{ event.actor.source_ip }}\n{% endif %}"
                 "• *When:* {{ event.event_time }}\n"
-                "• *Target:* {{ event.target.id or event.target.name or '—' }}\n"
+                "• *Target:* {{ event.target.name or event.target.id or '—' }}\n"
+                "{% if event.extra.tags %}• *Tags:* "
+                "{% for k, v in event.extra.tags.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}\n{% endif %}"
                 "{% if event.severity %}• *Severity:* {{ event.severity }}\n{% endif %}"
                 "{% if event.rule_matches %}• *Matched rules:* {{ event.rule_matches|join(', ') }}{% endif %}"
             ),
@@ -77,9 +90,10 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Compact (one line)",
             "blurb": "Single line, no fluff. Best for a noisy logs channel.",
             "template": (
-                "{{ event.action }} · "
-                "{{ event.actor.principal or 'unknown' }}"
+                "{{ event.extra.message or event.action }}"
+                "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
+                "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
             ),
         },
     ],
@@ -87,11 +101,15 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English, emoji per severity.",
+            "blurb": "Plain English, emoji per severity. Uses extra.message when available.",
             "template": (
-                f"{_SEV_EMOJI} **{{{{ event.action }}}}**"
+                f"{_SEV_EMOJI} **{{{{ event.extra.message or event.action }}}}**"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
+                "{% if event.extra.tags and event.extra.tags.role %}"
+                " on `{{ event.extra.tags.role }}`"
+                "{% elif event.target.name %} on `{{ event.target.name }}`"
+                "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
             ),
         },
         {
@@ -99,8 +117,10 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Compact (one line)",
             "blurb": "Single line, no fluff.",
             "template": (
-                "{{ event.action }} · {{ event.actor.principal or 'unknown' }}"
+                "{{ event.extra.message or event.action }}"
+                "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
+                "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
             ),
         },
     ],
@@ -110,9 +130,13 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Friendly (recommended)",
             "blurb": "Plain English, fits Teams card formatting.",
             "template": (
-                "**{{ event.action }}**"
+                "**{{ event.extra.message or event.action }}**"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
+                "{% if event.extra.tags and event.extra.tags.role %}"
+                " on `{{ event.extra.tags.role }}`"
+                "{% elif event.target.name %} on `{{ event.target.name }}`"
+                "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
                 "{% if event.severity %} _(severity: {{ event.severity }})_{% endif %}"
             ),
         },
@@ -121,8 +145,10 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Compact (one line)",
             "blurb": "Single line.",
             "template": (
-                "{{ event.action }} · {{ event.actor.principal or 'unknown' }}"
+                "{{ event.extra.message or event.action }}"
+                "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
+                "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
             ),
         },
     ],
@@ -132,13 +158,17 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Friendly (recommended)",
             "blurb": "Human-readable summary at the top, full detail below.",
             "template": (
-                "{{ event.action }} — {{ event.actor.principal or 'unknown' }}"
+                "{{ event.extra.message or event.action }}"
+                "{% if event.actor.principal %} — {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} from {{ event.actor.source_ip }}{% endif %}\n"
                 "\n"
                 "When:     {{ event.event_time }}\n"
-                "Target:   {{ event.target.id or event.target.name or '-' }}\n"
+                "Target:   {{ event.target.name or event.target.id or '-' }}\n"
+                "{% if event.extra.tags %}Tags:     "
+                "{% for k, v in event.extra.tags.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}\n{% endif %}"
                 "Severity: {{ event.severity or 'unscored' }}\n"
                 "Module:   {{ event.source.module }}\n"
+                "Action:   {{ event.action }}\n"
                 "Rules:    {{ event.rule_matches|join(', ') or '-' }}\n"
             ),
         },
