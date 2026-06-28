@@ -98,4 +98,17 @@
     background: var(--color-line);
     opacity: 0.7;
   }
+
+  /* Drag-to-resize column handle (injected by ResizableTable). Invisible
+     until hover so the header chrome stays quiet — appears as a thin signal
+     line when the cursor approaches a column edge. */
+  .bw-col-resize-handle {
+    background: transparent;
+    transition: background 120ms ease;
+  }
+  .bw-col-resize-handle:hover,
+  .bw-col-resize-handle:active {
+    background: var(--color-signal);
+    opacity: 0.55;
+  }
 }

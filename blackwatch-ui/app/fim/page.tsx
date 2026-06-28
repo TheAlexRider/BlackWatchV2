@@ -11,6 +11,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { ResizableTable } from "@/components/ui/ResizableTable";
 
 export default async function FimPage() {
   const { count, hosts, recent_changes } = await fetchFimView();
@@ -69,6 +70,7 @@ export default async function FimPage() {
 
 function HostsTable({ hosts }: { hosts: FimHostRow[] }) {
   return (
+    <ResizableTable tableId="fim-hosts">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -133,6 +135,7 @@ function HostsTable({ hosts }: { hosts: FimHostRow[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 
@@ -190,6 +193,7 @@ function LastScanCell({
 
 function ChangesTable({ changes }: { changes: FimChangeWithInstance[] }) {
   return (
+    <ResizableTable tableId="fim-recent-changes">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -247,6 +251,7 @@ function ChangesTable({ changes }: { changes: FimChangeWithInstance[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 

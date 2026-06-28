@@ -7,8 +7,17 @@ against, and how to verify it's working.
 The quick-start install is at [`deploy/ec2/README.md`](../deploy/ec2/README.md);
 read this when you want the *full* picture or are debugging at 3am.
 
-Current agent version: **v1.2** (hardened: scrubbing, sandbox, watchdog,
-size caps, send backoff)
+Current agent version: **v1.5** (hardened, full File Integrity Monitoring).
+
+Recent version history:
+- **v1.2** — scrubbing, systemd sandbox, watchdog, size caps, send backoff
+- **v1.3** — FIM Part 1: periodic baseline scan + per-instance coverage
+- **v1.4** — FIM Part 2: real-time inotify watcher on critical paths
+- **v1.5** — FIM Part 3: auditd whodata, actor attribution per change event
+
+For a deep dive on FIM specifically (architecture, every detection path,
+auditd rules, the UI surfaces, troubleshooting), see [`docs/fim.md`](fim.md).
+This file remains the canonical reference for the agent as a whole.
 
 ---
 
@@ -22,14 +31,27 @@ seconds (default 60s) it:
    ones every minute, FIM-tier every 2 min, heavy ones every 10 min).
 3. Samples always-on lightweight metrics (memory, CPU, sessions, OOM,
    rpm-DB health).
-4. Builds **one JSON payload** and pushes it to an SQS queue using the
+4. Drains any pending **FIM** change events queued by the FIM engine's
+   three detection threads (periodic baseline / inotify / auditd whodata).
+5. Builds **one JSON payload** and pushes it to an SQS queue using the
    instance role (no static creds on the box).
-5. Spools to disk and replays if SQS is unreachable. Bounded — see
+6. Spools to disk and replays if SQS is unreachable. Bounded — see
    [Failure modes](#13-failure-modes--recovery).
 
-BlackWatch (running elsewhere, currently in Docker on operator PC, soon
-on Lightsail) drains the SQS queue and turns each payload into normalized
-events.
+In parallel, three background threads owned by `fim_engine.py` run
+independently of the heartbeat tick:
+- **Periodic baseline scanner** — every 6h, hashes ~3000 files, diffs
+  against the local SQLite baseline, queues any changes.
+- **Inotify watcher** — sub-second detection on critical paths (sudoers,
+  sshd_config, authorized_keys, cron, systemd units, etc).
+- **Audit reader** — tails `/var/log/audit/audit.log` with key `bw_fim`,
+  maintains a path → `{uid,pid,comm,exe,proctitle}` lookup map. The other
+  two threads consult it when emitting changes, attaching actor data.
+
+BlackWatch (running on Lightsail) drains the SQS queue and turns each
+payload into normalized events. FIM changes get persisted to
+`fim_history` + `fim_baselines`; coverage stats land in `fim_coverage`
+and feed the `/fim` UI.
 
 ---
 
@@ -68,10 +90,15 @@ but no inbound from the public internet ever.
 | Path | Mode | Purpose |
 |---|---|---|
 | `/opt/blackwatch/ec2_agent.py` | `0755 root:root` | The agent script itself. Not a secret. |
+| `/opt/blackwatch/fim_engine.py` | `0644 root:root` | FIM engine module (v1.3+). Imported by `ec2_agent.py` at startup. |
 | `/etc/systemd/system/blackwatch-agent.service` | `0644 root:root` | systemd unit. Owns all env vars + sandboxing. |
+| `/etc/sysctl.d/99-blackwatch-agent.conf` | `0644 root:root` | Bumps `fs.inotify.max_user_watches` for FIM Part 2. |
+| `/etc/audit/rules.d/bw_fim.rules` | `0640 root:root` | Audit rules for FIM Part 3 whodata. Loaded by auditd. |
 | `/var/lib/blackwatch-agent/` | `0700 root:root` | Spool parent. Locked at install time. |
 | `/var/lib/blackwatch-agent/spool/` | `0700 root:root` | Created on first send failure. Files are `0600`. |
 | `/var/lib/blackwatch-agent/spool/<unix-ms>.json` | `0600 root:root` | One spooled report. JSON, gzipped if grown. |
+| `/var/lib/blackwatch-agent/fim/` | `0700 root:root` | FIM state directory. |
+| `/var/lib/blackwatch-agent/fim/baseline.db` | `0600 root:root` | SQLite (WAL) holding per-path hash + metadata. Shared by all three FIM threads. |
 | systemd journal (`journalctl -u blackwatch-agent`) | n/a | All agent stdout/stderr lands here. |
 
 ### In the BlackWatch repo
@@ -79,15 +106,18 @@ but no inbound from the public internet ever.
 | Path | Purpose |
 |---|---|
 | `scripts/ec2_agent.py` | Source-of-truth for the agent. Pushed to each EC2's `/opt/blackwatch/`. |
-| `deploy/ec2/install-agent.sh` | Idempotent installer. Sets up systemd unit + perms. |
+| `scripts/fim_engine.py` | FIM engine — periodic + inotify + auditd threads. Pushed alongside `ec2_agent.py`. |
+| `deploy/ec2/install-agent.sh` | Idempotent installer. Sets up systemd unit, sysctl, audit rules. |
 | `deploy/ec2/setup.ps1` | One-time AWS bootstrap (creates SQS queue, IAM policies). |
 | `deploy/ec2/blackwatch-ec2-agent-send-policy.json` | Minimal IAM policy: `sqs:SendMessage` to the one queue. |
 | `deploy/ec2/README.md` | Quick-start (5 min). |
-| `blackwatch/modules/ec2_host.py` | Adapter that converts the JSON payload into BlackWatch Events. |
-| `blackwatch/hosts/projection.py` | Stateful read-model (last-seen, staleness, diffs). |
+| `blackwatch/modules/ec2_host.py` | Adapter that converts the JSON payload into BlackWatch Events (incl. `host.fim.*`). |
+| `blackwatch/hosts/projection.py` | Stateful read-model — last-seen, staleness, snapshot diffs, FIM baseline + history + coverage. |
 | `blackwatch/hosts/diff.py` | Snapshot diffing — what changed since last snapshot. |
 | `blackwatch/connectors/aws_sqs.py` | Generic SQS poller. `target_module=ec2.host` routes to the adapter. |
-| `docs/ec2-agent.md` | **This file.** |
+| `blackwatch/sql/014_fim.sql`, `015_fim_inotify.sql`, `016_fim_whodata.sql`, `017_fim_path_stats.sql` | FIM read-model migrations. Additive — apply in order. |
+| `docs/ec2-agent.md` | **This file** — the agent overall. |
+| `docs/fim.md` | The deep-dive FIM reference. |
 
 ---
 
@@ -112,6 +142,15 @@ the unit to apply changes).
 | `SPOOL_DIR` | `/var/lib/blackwatch-agent` | Parent of `spool/`. |
 | `SPOOL_MAX_FILES` | `5000` | Hard cap. Oldest files deleted when exceeded. |
 | `SPOOL_MAX_BYTES` | `100*1024*1024` (100 MB) | Hard byte cap. Oldest files deleted when exceeded. |
+
+### FIM (Part 1 / 2 / 3)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `COLLECT_FIM_SEC` | `21600` (6h) | Periodic baseline scan interval. Lower = faster drift detection + more CPU at scan time. |
+| `BLACKWATCH_FIM_DISABLED` | `""` (off) | Set to `1` / `true` / `yes` to disable FIM entirely. The agent still ships heartbeat + auth + snapshots; FIM threads don't start. |
+| `BLACKWATCH_FIM_EXTRA_FILES` | `""` | Comma-separated paths to ADD to the per-file FIM watch (e.g. `/etc/redis/redis.conf,/etc/postgresql/postgresql.conf`). Merged with defaults. |
+| `BLACKWATCH_FIM_EXTRA_DIRS` | `""` | Comma-separated dirs to ADD to the recursive FIM watch (e.g. `/etc/nginx,/etc/letsencrypt`). |
 
 ### Per-collector cadence (only override if you know why)
 
@@ -209,6 +248,22 @@ Diff-derived events (emitted by `hosts/projection.py`, not the adapter):
 | `host.agent.stale` | no heartbeat in 3× interval |
 | `host.agent.recovered` | heartbeat returns after staleness |
 | `host.collector.stalled` | individual collector hasn't succeeded in 3× its interval |
+
+FIM events (emitted by the new `fim_engine.py` threads):
+
+| Action | Trigger | Severity (default) |
+|---|---|---|
+| `host.fim.created` | new file appeared in a watched path | low |
+| `host.fim.modified` | content changed (sha256 differs) | medium · upgraded by per-path rules for sudoers / sshd_config / etc. |
+| `host.fim.deleted` | watched file removed | low |
+| `host.fim.perm_changed` | mode bits changed | medium |
+| `host.fim.owner_changed` | uid/gid changed | medium |
+| `host.fim.coverage` | per-heartbeat coverage stats | n/a — projection-only, never stored |
+
+Every FIM event carries `extra.detection ∈ {baseline, inotify, auditd}` plus
+(when audit caught it) `extra.actor = {uid, gid, pid, comm, exe, proctitle}`.
+See [`docs/fim.md`](fim.md) for the full event shape, all detection rules,
+and the UI surfaces (`/fim`, `/fim/<id>`).
 
 ---
 
@@ -724,5 +779,14 @@ PIPELINE:       agent → SQS → aws_sqs.drain → Ec2HostAdapter → pipeline 
 
 ---
 
-*Document version: v1.2 (matches agent version). Update on any agent or
+*Document version: v1.5 (matches agent version). Update on any agent or
 install-script change.*
+
+---
+
+## Related docs
+
+- [`docs/fim.md`](fim.md) — File Integrity Monitoring deep dive (Parts 1-3, the FIM engine, all UI surfaces, troubleshooting)
+- [`docs/vpn-agent.md`](vpn-agent.md) — sister doc for the OpenVPN agent (same hardening playbook)
+- [`docs/EVENT_SCHEMA.md`](EVENT_SCHEMA.md) — Event envelope schema
+- [`deploy/ec2/README.md`](../deploy/ec2/README.md) — Quick-start (5 min)

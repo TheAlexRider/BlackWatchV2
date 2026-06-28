@@ -14,6 +14,7 @@ import {
   SeverityBadge,
   severityBorderBg,
 } from "@/components/domain/SeverityBadge";
+import { ResizableTable } from "@/components/ui/ResizableTable";
 
 type SearchParams = {
   q?: string;
@@ -112,6 +113,7 @@ function FilterBar({ params }: { params: SearchParams }) {
 
 function EventsTable({ events }: { events: EventEnvelope[] }) {
   return (
+    <ResizableTable tableId="events-main">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -129,6 +131,7 @@ function EventsTable({ events }: { events: EventEnvelope[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 

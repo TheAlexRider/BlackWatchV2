@@ -12,6 +12,7 @@ import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
+import { ResizableTable } from "@/components/ui/ResizableTable";
 import {
   SeverityBadge,
   severityBorderBg,
@@ -77,6 +78,7 @@ export default async function HostsPage() {
 
 function InstancesTable({ servers }: { servers: HostSummary[] }) {
   return (
+    <ResizableTable tableId="hosts-instances">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -137,6 +139,7 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 
@@ -150,6 +153,7 @@ function hostLabel(event: EventEnvelope): string {
 
 function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
   return (
+    <ResizableTable tableId="hosts-recent-changes">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -197,11 +201,13 @@ function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 
 function AccessTable({ rows }: { rows: EventEnvelope[] }) {
   return (
+    <ResizableTable tableId="hosts-recent-access">
     <table className="w-full table-fixed text-sm">
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
@@ -249,6 +255,7 @@ function AccessTable({ rows }: { rows: EventEnvelope[] }) {
         ))}
       </tbody>
     </table>
+    </ResizableTable>
   );
 }
 

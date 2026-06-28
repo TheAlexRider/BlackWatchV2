@@ -716,3 +716,12 @@ LIVE DIR:       /etc/openvpn/server
 
 *Document version: v0.6 (matches agent version). Update on any agent or
 install-script change.*
+
+---
+
+## Related docs
+
+- [`docs/ec2-agent.md`](ec2-agent.md) — sister doc for the EC2 agent (same hardening playbook + collectors)
+- [`docs/fim.md`](fim.md) — File Integrity Monitoring. Lives inside the EC2 agent, not the VPN agent. The VPN box can also host a co-installed EC2 agent if you want FIM coverage of OpenVPN config files.
+- [`vpn-info.md`](vpn-info.md) — VPN box runtime facts (unit name, PAM, CRL state)
+- [`docs/EVENT_SCHEMA.md`](EVENT_SCHEMA.md) — Event envelope schema
