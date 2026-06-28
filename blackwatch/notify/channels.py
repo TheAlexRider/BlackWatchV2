@@ -20,7 +20,7 @@ import urllib.request
 from email.mime.text import MIMEText
 from typing import Any
 
-from jinja2 import Environment, StrictUndefined
+from jinja2 import ChainableUndefined, Environment, StrictUndefined  # noqa: F401
 
 from ..event import Event
 from .model import Channel
@@ -228,7 +228,13 @@ _PD_SEVERITY = {
     "medium": "warning", "low": "info", "informational": "info",
 }
 
-_jinja = Environment(autoescape=False, undefined=StrictUndefined, trim_blocks=True)
+# ChainableUndefined lets templates safely traverse optional paths like
+# `event.extra.message` or `event.extra.tags.role` without raising when a
+# key isn't present. Combined with `{{ X or fallback }}` and `{% if X %}`,
+# missing fields cleanly degrade to the fallback path. StrictUndefined
+# would have raised here — which is great for catching typos but bad for
+# optional fields that vary across event types (perf vs auth vs FIM).
+_jinja = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
 
 
 def _env(var: str) -> str | None:

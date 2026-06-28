@@ -1086,7 +1086,7 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
                        (default: vpn_failure for backward compat)
       sample_action  — override the action name on the sample (kept for compat)
     """
-    from jinja2 import Environment, StrictUndefined
+    from jinja2 import ChainableUndefined, Environment
     from .event import Event, Source, Actor, Target, Severity, Outcome, Category
     from .notify import channels as channels_module
 
@@ -1102,7 +1102,7 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
     sample_kind = str(payload.get("sample_event") or "vpn_failure").lower()
     sample = _build_preview_sample(sample_kind, payload)
 
-    env = Environment(autoescape=False, undefined=StrictUndefined, trim_blocks=True)
+    env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
     try:
         rendered = env.from_string(template).render(
             event=sample.model_dump(mode="json"),
