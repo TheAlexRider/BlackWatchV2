@@ -1268,6 +1268,7 @@ def upsert_fim_coverage(
     inotify_watch_count: int = 0,
     auditd_active: bool = False,
     configured_paths: dict[str, Any] | None = None,
+    path_stats: dict[str, Any] | None = None,
 ) -> None:
     with get_pool().connection() as conn:
         conn.execute(
@@ -1277,8 +1278,8 @@ def upsert_fim_coverage(
                  last_full_scan_at, last_scan_duration_ms, scan_errors,
                  updated_at, paths_inotify, paths_baseline_only,
                  inotify_active, inotify_watch_count,
-                 auditd_active, configured_paths)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 auditd_active, configured_paths, path_stats)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (instance_id) DO UPDATE SET
                 paths_configured = EXCLUDED.paths_configured,
                 files_tracked = EXCLUDED.files_tracked,
@@ -1294,14 +1295,17 @@ def upsert_fim_coverage(
                 inotify_watch_count = EXCLUDED.inotify_watch_count,
                 auditd_active = EXCLUDED.auditd_active,
                 configured_paths = COALESCE(EXCLUDED.configured_paths,
-                                            fim_coverage.configured_paths)
+                                            fim_coverage.configured_paths),
+                path_stats = COALESCE(EXCLUDED.path_stats,
+                                      fim_coverage.path_stats)
             """,
             (instance_id, paths_configured, files_tracked,
              last_full_scan_at, last_scan_duration_ms, scan_errors, updated_at,
              paths_inotify, paths_baseline_only,
              inotify_active, inotify_watch_count,
              auditd_active,
-             Jsonb(configured_paths) if configured_paths is not None else None),
+             Jsonb(configured_paths) if configured_paths is not None else None,
+             Jsonb(path_stats) if path_stats is not None else None),
         )
 
 
@@ -1432,7 +1436,7 @@ def get_fim_coverage(instance_id: str) -> dict[str, Any] | None:
                    last_scan_duration_ms, scan_errors, updated_at,
                    paths_inotify, paths_baseline_only,
                    inotify_active, inotify_watch_count,
-                   auditd_active, configured_paths
+                   auditd_active, configured_paths, path_stats
             FROM fim_coverage WHERE instance_id = %s
             """,
             (instance_id,),
@@ -1452,4 +1456,5 @@ def get_fim_coverage(instance_id: str) -> dict[str, Any] | None:
         "inotify_watch_count": int(row[9]),
         "auditd_active": bool(row[10]),
         "configured_paths": row[11] if row[11] else None,
+        "path_stats": row[12] if row[12] else None,
     }

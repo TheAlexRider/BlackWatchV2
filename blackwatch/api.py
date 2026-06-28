@@ -437,38 +437,60 @@ def fim_instance_view(instance_id: str) -> dict[str, Any]:
     baselines = storage.list_fim_baselines(instance_id)
     history = storage.list_fim_history(instance_id, limit=200)
 
-    # Build path summary — for each configured prefix, count how many files
-    # the baseline DB has matching it. Catches "scope vs reality" drift
-    # (e.g. /etc/sudoers.d configured but empty — no risk surface).
+    # Build path summary. The agent ships per-path file_count + total_size
+    # in the heartbeat (coverage.path_stats), computed from its local
+    # baseline SQLite — that's the SOURCE OF TRUTH because Postgres's
+    # fim_baselines table is only populated when changes occur.
+    #
+    # We fall back to baseline-derived counts only when path_stats is
+    # missing (e.g. agent hasn't shipped a coverage event yet, or it's
+    # an old agent pre-Part-3.5).
     configured = (coverage or {}).get("configured_paths") or {}
+    path_stats = (coverage or {}).get("path_stats") or {}
     summary = []
-    seen_paths: set[str] = set()
-    for category, label in (
-        ("critical_files", "Critical files"),
-        ("critical_dirs", "Critical directories"),
-        ("binary_dirs", "Binary directories"),
-    ):
+    category_labels = {
+        "critical_files": "Critical files",
+        "critical_dirs": "Critical directories",
+        "binary_dirs": "Binary directories",
+    }
+    for category, label in category_labels.items():
         for entry in configured.get(category) or []:
-            # Files match exactly; directories match by prefix.
-            if category == "critical_files":
-                matched = [b for b in baselines if b["path"] == entry]
+            stats = path_stats.get(entry)
+            if stats:
+                file_count = int(stats.get("file_count") or 0)
+                total_size = int(stats.get("total_size_bytes") or 0)
             else:
-                pref = entry.rstrip("/") + "/"
-                matched = [b for b in baselines if b["path"].startswith(pref)
-                           or b["path"] == entry]
-            for m in matched:
-                seen_paths.add(m["path"])
-            total_size = sum((m["size"] or 0) for m in matched)
+                # Fallback to baseline-derived count.
+                if category == "critical_files":
+                    matched = [b for b in baselines if b["path"] == entry]
+                else:
+                    pref = entry.rstrip("/") + "/"
+                    matched = [b for b in baselines
+                               if b["path"].startswith(pref) or b["path"] == entry]
+                file_count = len(matched)
+                total_size = sum((m["size"] or 0) for m in matched)
             summary.append({
                 "category": category,
                 "category_label": label,
                 "path": entry,
-                "file_count": len(matched),
+                "file_count": file_count,
                 "total_size_bytes": total_size,
             })
 
-    # Anything in baselines not covered by a configured prefix = stray data
-    # (e.g. operator removed a path from config but hasn't restarted agent).
+    # Stray baselines = files in our fim_baselines table whose path isn't
+    # under any currently-configured prefix. Means the operator changed
+    # the agent's config but the agent hasn't been restarted to clean up.
+    # Stray detection still uses Postgres baselines (the sparse ones — but
+    # they're the only baselines we know about server-side).
+    seen_paths = set()
+    for entry in (
+        (configured.get("critical_files") or [])
+        + (configured.get("critical_dirs") or [])
+        + (configured.get("binary_dirs") or [])
+    ):
+        for b in baselines:
+            if b["path"] == entry or b["path"].startswith(entry.rstrip("/") + "/"):
+                seen_paths.add(b["path"])
     stray = [b for b in baselines if b["path"] not in seen_paths]
 
     return {

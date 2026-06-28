@@ -395,12 +395,14 @@ class FimEngine:
 
         duration_ms = int((time.monotonic() - started) * 1000)
         files_tracked = self._count_baseline_paths()
+        path_stats = self._compute_path_stats()
         with self._coverage_lock:
             self._coverage.update({
                 "files_tracked": files_tracked,
                 "last_full_scan_at": _now_iso(),
                 "last_scan_duration_ms": duration_ms,
                 "scan_errors": scan_errors,
+                "path_stats": path_stats,
             })
 
     def _scan_one_path(self, path: str) -> FimChange | None:
@@ -523,6 +525,47 @@ class FimEngine:
         with sqlite3.connect(self._db_path) as conn:
             row = conn.execute("SELECT COUNT(*) FROM baseline").fetchone()
         return int(row[0]) if row else 0
+
+    def _compute_path_stats(self) -> dict:
+        """For each configured path, how many files + total bytes the
+        baseline currently has under it. The per-instance UI uses this so
+        it can show "X files in /etc/sudoers.d" without the backend having
+        to know the full baseline set. Single SQL pass per path — cheap.
+
+        Returns: {path: {file_count: N, total_size_bytes: N, category: str}}
+        """
+        stats: dict[str, dict] = {}
+        with sqlite3.connect(self._db_path) as conn:
+            # Critical files: exact-match.
+            for p in self.critical_files:
+                row = conn.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(size), 0) "
+                    "FROM baseline WHERE path = ?",
+                    (p,),
+                ).fetchone()
+                stats[p] = {
+                    "file_count": int(row[0]),
+                    "total_size_bytes": int(row[1]),
+                    "category": "critical_files",
+                }
+            # Directories: exact-match OR prefix-match.
+            for category, paths in (
+                ("critical_dirs", self.critical_dirs),
+                ("binary_dirs", self.binary_dirs),
+            ):
+                for p in paths:
+                    pref = p.rstrip("/") + "/"
+                    row = conn.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(size), 0) "
+                        "FROM baseline WHERE path = ? OR path LIKE ?",
+                        (p, pref + "%"),
+                    ).fetchone()
+                    stats[p] = {
+                        "file_count": int(row[0]),
+                        "total_size_bytes": int(row[1]),
+                        "category": category,
+                    }
+        return stats
 
     # -------- queue helpers ---------
 

@@ -167,6 +167,9 @@ def _project_fim_coverage(event: Event, instance_id: str) -> list[Event]:
     configured_paths = e.get("configured_paths")
     if not isinstance(configured_paths, dict):
         configured_paths = None
+    path_stats = e.get("path_stats")
+    if not isinstance(path_stats, dict):
+        path_stats = None
     storage.upsert_fim_coverage(
         instance_id,
         paths_configured=_safe_int(e.get("paths_configured")) or 0,
@@ -181,6 +184,7 @@ def _project_fim_coverage(event: Event, instance_id: str) -> list[Event]:
         inotify_watch_count=_safe_int(e.get("inotify_watch_count")) or 0,
         auditd_active=bool(e.get("auditd_active")),
         configured_paths=configured_paths,
+        path_stats=path_stats,
     )
     return []
 
