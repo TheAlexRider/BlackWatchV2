@@ -1168,10 +1168,45 @@ def main() -> None:
         try:
             global _FIM_ENGINE
             from fim_engine import FimEngine  # type: ignore[import-not-found]
-            _FIM_ENGINE = FimEngine(scan_interval_sec=FIM_SCAN_SEC)
+
+            # Per-host customization: operator can append paths via env vars
+            # (set in systemd drop-in) without touching the agent source. The
+            # UI's "configuration" section shows this pattern.
+            extra_files = [
+                p.strip() for p in
+                os.environ.get("BLACKWATCH_FIM_EXTRA_FILES", "").split(",")
+                if p.strip()
+            ]
+            extra_dirs = [
+                p.strip() for p in
+                os.environ.get("BLACKWATCH_FIM_EXTRA_DIRS", "").split(",")
+                if p.strip()
+            ]
+            kwargs: dict = {"scan_interval_sec": FIM_SCAN_SEC}
+            if extra_files or extra_dirs:
+                # Engine accepts iterables; we merge with defaults manually
+                # so operators see "defaults + my extras", not "only my list".
+                # Importing default lists privately is acceptable — they're
+                # part of the engine's public contract for tuning.
+                from fim_engine import (  # type: ignore[import-not-found]
+                    _DEFAULT_CRITICAL_FILES,
+                    _DEFAULT_CRITICAL_DIRS,
+                    _DEFAULT_BINARY_DIRS,
+                )
+                kwargs["critical_files"] = list(_DEFAULT_CRITICAL_FILES) + extra_files
+                kwargs["critical_dirs"] = list(_DEFAULT_CRITICAL_DIRS) + extra_dirs
+                kwargs["binary_dirs"] = list(_DEFAULT_BINARY_DIRS)
+
+            _FIM_ENGINE = FimEngine(**kwargs)
             _FIM_ENGINE.start()
+            extras_note = ""
+            if extra_files or extra_dirs:
+                extras_note = (
+                    f" extras=+{len(extra_files)}f/+{len(extra_dirs)}d"
+                )
             print(f"  fim=enabled scan_every={FIM_SCAN_SEC}s "
-                  f"paths_configured={_FIM_ENGINE.coverage()['paths_configured']}")
+                  f"paths_configured={_FIM_ENGINE.coverage()['paths_configured']}"
+                  f"{extras_note}")
         except Exception as exc:
             print(f"  fim=startup_failed reason={exc!r}", file=sys.stderr)
             _FIM_ENGINE = None

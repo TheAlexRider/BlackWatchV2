@@ -393,6 +393,94 @@ def host_detail(instance_id: str) -> dict[str, Any]:
     }
 
 
+# --- File Integrity Monitoring (FIM) top-level view -------------------------
+
+_HOST_STALE_AFTER_FIM = _HOST_STALE_AFTER  # share the EC2 staleness window
+
+
+@router.get("/fim")
+def fim_view() -> dict[str, Any]:
+    """Top-level FIM page. Returns every host with FIM data + recent FIM
+    history across all hosts. Drives /fim — the table at the top and the
+    activity table below."""
+    now = datetime.now(timezone.utc)
+    hosts = []
+    for row in storage.list_fim_hosts():
+        # Compute staleness off the host's last heartbeat — coverage updates
+        # ride heartbeats, so they're effectively the same number.
+        age = None
+        stale = False
+        if row.get("host_updated_at"):
+            try:
+                last = datetime.fromisoformat(
+                    row["host_updated_at"].replace("Z", "+00:00")
+                )
+                age = int((now - last).total_seconds())
+                stale = age > _HOST_STALE_AFTER_FIM
+            except ValueError:
+                pass
+        hosts.append({**row, "age_seconds": age, "stale": stale})
+    return {
+        "count": len(hosts),
+        "hosts": hosts,
+        "recent_changes": storage.list_recent_fim_history(limit=100),
+    }
+
+
+@router.get("/fim/{instance_id}")
+def fim_instance_view(instance_id: str) -> dict[str, Any]:
+    """Per-instance FIM detail. Coverage + paths-with-file-counts + recent
+    history. The path summary groups baselines under each configured
+    directory so the operator sees what's actually being hashed under each
+    monitored prefix."""
+    coverage = storage.get_fim_coverage(instance_id)
+    baselines = storage.list_fim_baselines(instance_id)
+    history = storage.list_fim_history(instance_id, limit=200)
+
+    # Build path summary — for each configured prefix, count how many files
+    # the baseline DB has matching it. Catches "scope vs reality" drift
+    # (e.g. /etc/sudoers.d configured but empty — no risk surface).
+    configured = (coverage or {}).get("configured_paths") or {}
+    summary = []
+    seen_paths: set[str] = set()
+    for category, label in (
+        ("critical_files", "Critical files"),
+        ("critical_dirs", "Critical directories"),
+        ("binary_dirs", "Binary directories"),
+    ):
+        for entry in configured.get(category) or []:
+            # Files match exactly; directories match by prefix.
+            if category == "critical_files":
+                matched = [b for b in baselines if b["path"] == entry]
+            else:
+                pref = entry.rstrip("/") + "/"
+                matched = [b for b in baselines if b["path"].startswith(pref)
+                           or b["path"] == entry]
+            for m in matched:
+                seen_paths.add(m["path"])
+            total_size = sum((m["size"] or 0) for m in matched)
+            summary.append({
+                "category": category,
+                "category_label": label,
+                "path": entry,
+                "file_count": len(matched),
+                "total_size_bytes": total_size,
+            })
+
+    # Anything in baselines not covered by a configured prefix = stray data
+    # (e.g. operator removed a path from config but hasn't restarted agent).
+    stray = [b for b in baselines if b["path"] not in seen_paths]
+
+    return {
+        "instance_id": instance_id,
+        "coverage": coverage,
+        "paths_summary": summary,
+        "stray_baselines": stray[:50],   # cap so UI doesn't get blown out
+        "stray_count": len(stray),
+        "recent_changes": history,
+    }
+
+
 @router.get("/services")
 def services_list() -> dict[str, Any]:
     """Probe-target inventory grouped by VPC, joined with current status, plus

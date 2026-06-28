@@ -27,6 +27,8 @@ import type {
   NotificationLogResponse,
   NotificationAcksResponse,
   LivePingResponse,
+  FimViewResponse,
+  FimInstanceResponse,
 } from "./types";
 
 export const API_BASE = process.env.BW_API_URL ?? "http://localhost:8000";
@@ -117,6 +119,25 @@ export async function fetchHostDetail(
     throw new Error(`fetchHostDetail failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as HostDetailResponse;
+}
+
+// --- File Integrity (FIM) -------------------------------------------------
+
+export async function fetchFimView(): Promise<FimViewResponse> {
+  const res = await fetch(`${API_BASE}/api/fim`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchFimView failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as FimViewResponse;
+}
+
+export async function fetchFimInstance(
+  instanceId: string,
+): Promise<FimInstanceResponse> {
+  const url = `${API_BASE}/api/fim/${encodeURIComponent(instanceId)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`fetchFimInstance failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as FimInstanceResponse;
 }
 
 // --- Services --------------------------------------------------------------

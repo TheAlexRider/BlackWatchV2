@@ -1305,6 +1305,125 @@ def upsert_fim_coverage(
         )
 
 
+def list_fim_hosts() -> list[dict[str, Any]]:
+    """Every host that has FIM data, joined with the host_status row so we
+    can show hostname / tags / liveness on the top-level FIM page. Ordered
+    by most-recently-active first."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.instance_id,
+                hs.hostname,
+                hs.account,
+                hs.region,
+                hs.extra,
+                hs.updated_at,
+                c.files_tracked,
+                c.paths_configured,
+                c.last_full_scan_at,
+                c.inotify_active,
+                c.inotify_watch_count,
+                c.auditd_active,
+                c.updated_at AS coverage_updated_at,
+                c.scan_errors
+            FROM fim_coverage c
+            LEFT JOIN host_status hs USING (instance_id)
+            ORDER BY hs.updated_at DESC NULLS LAST, c.instance_id
+            """
+        ).fetchall()
+    return [
+        {
+            "instance_id": r[0],
+            "hostname": r[1],
+            "account": r[2],
+            "region": r[3],
+            "tags": (r[4] or {}).get("tags") if isinstance(r[4], dict) else None,
+            "host_updated_at": r[5].isoformat() if r[5] else None,
+            "files_tracked": int(r[6]),
+            "paths_configured": int(r[7]),
+            "last_full_scan_at": r[8].isoformat() if r[8] else None,
+            "inotify_active": bool(r[9]),
+            "inotify_watch_count": int(r[10]),
+            "auditd_active": bool(r[11]),
+            "coverage_updated_at": r[12].isoformat() if r[12] else None,
+            "scan_errors": int(r[13]),
+        }
+        for r in rows
+    ]
+
+
+def list_recent_fim_history(limit: int = 100) -> list[dict[str, Any]]:
+    """Most-recent FIM changes across ALL hosts. Drives the cross-host
+    activity table on the top-level FIM page."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                instance_id, path, changed_at, change_type,
+                sha256_before, sha256_after,
+                size_before, size_after,
+                perm_before, perm_after,
+                owner_before, owner_after,
+                event_id, detection,
+                actor_uid, actor_gid, actor_pid,
+                actor_comm, actor_exe, actor_proctitle
+            FROM fim_history
+            ORDER BY changed_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "instance_id": r[0],
+            "path": r[1],
+            "changed_at": r[2].isoformat() if r[2] else None,
+            "change_type": r[3],
+            "sha256_before": r[4],
+            "sha256_after": r[5],
+            "size_before": r[6],
+            "size_after": r[7],
+            "perm_before": r[8],
+            "perm_after": r[9],
+            "owner_before": r[10],
+            "owner_after": r[11],
+            "event_id": str(r[12]) if r[12] else None,
+            "detection": r[13],
+            "actor_uid": r[14],
+            "actor_gid": r[15],
+            "actor_pid": r[16],
+            "actor_comm": r[17],
+            "actor_exe": r[18],
+            "actor_proctitle": r[19],
+        }
+        for r in rows
+    ]
+
+
+def list_fim_baselines(instance_id: str) -> list[dict[str, Any]]:
+    """Every file we've baselined on this host. Used by the per-instance
+    page to compute file-counts-per-directory."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT path, sha256, size, perm, owner_uid, owner_gid, last_seen_at "
+            "FROM fim_baselines WHERE instance_id = %s ORDER BY path",
+            (instance_id,),
+        ).fetchall()
+    return [
+        {
+            "path": r[0],
+            "sha256": r[1],
+            "size": int(r[2]),
+            "perm": int(r[3]),
+            "owner_uid": int(r[4]),
+            "owner_gid": int(r[5]),
+            "last_seen_at": r[6].isoformat() if r[6] else None,
+        }
+        for r in rows
+    ]
+
+
 def get_fim_coverage(instance_id: str) -> dict[str, Any] | None:
     with get_pool().connection() as conn:
         row = conn.execute(

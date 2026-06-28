@@ -410,6 +410,67 @@ export interface FimChange {
   actor_proctitle: string | null;
 }
 
+// FIM cross-host view (drives the /fim top-level page).
+
+export interface FimHostRow {
+  instance_id: string;
+  hostname: string | null;
+  account: string | null;
+  region: string | null;
+  tags: Record<string, string> | null;
+  host_updated_at: string | null;
+  age_seconds: number | null;
+  stale: boolean;
+  files_tracked: number;
+  paths_configured: number;
+  last_full_scan_at: string | null;
+  inotify_active: boolean;
+  inotify_watch_count: number;
+  auditd_active: boolean;
+  coverage_updated_at: string | null;
+  scan_errors: number;
+}
+
+// FIM history with instance_id attached (cross-host activity table).
+export interface FimChangeWithInstance extends FimChange {
+  instance_id: string;
+}
+
+export interface FimViewResponse {
+  count: number;
+  hosts: FimHostRow[];
+  recent_changes: FimChangeWithInstance[];
+}
+
+// Per-instance FIM detail page.
+
+export interface FimPathSummary {
+  category: "critical_files" | "critical_dirs" | "binary_dirs";
+  category_label: string;
+  path: string;
+  file_count: number;
+  total_size_bytes: number;
+}
+
+export interface FimStrayBaseline {
+  path: string;
+  sha256: string;
+  size: number;
+  perm: number;
+  owner_uid: number;
+  owner_gid: number;
+  last_seen_at: string | null;
+}
+
+export interface FimInstanceResponse {
+  instance_id: string;
+  coverage: FimCoverage | null;
+  paths_summary: FimPathSummary[];
+  stray_baselines: FimStrayBaseline[];
+  stray_count: number;
+  recent_changes: FimChange[];
+}
+
 export interface HostRecord {
   instance_id: string;
   hostname: string | null;
