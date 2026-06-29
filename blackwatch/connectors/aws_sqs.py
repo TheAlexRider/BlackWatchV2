@@ -7,10 +7,13 @@ AWS connector is actually used."""
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from .. import pipeline
 from .models import AwsCloudtrailSqsConfig
+
+_log = logging.getLogger(__name__)
 
 
 def _client(cfg: AwsCloudtrailSqsConfig):
@@ -50,8 +53,19 @@ def drain(cfg: AwsCloudtrailSqsConfig) -> dict[str, Any]:
                 to_delete.append(
                     {"Id": message["MessageId"], "ReceiptHandle": message["ReceiptHandle"]}
                 )
-            except Exception:
-                # leave the message on the queue for redelivery / DLQ
+            except Exception as exc:
+                # leave the message on the queue for redelivery / DLQ — but
+                # LOG the failure so silent-fail loops are visible. Includes
+                # the action/eventName so you can tell what kind of payload
+                # the adapter is choking on.
+                hint = ""
+                if isinstance(body, dict):
+                    detail = body.get("detail") if isinstance(body.get("detail"), dict) else body
+                    hint = f" action={detail.get('eventName') or detail.get('action') or '?'}"
+                _log.exception(
+                    "sqs.ingest_failed module=%s message_id=%s%s: %s",
+                    cfg.target_module, message.get("MessageId"), hint, exc,
+                )
                 continue
 
         if to_delete:
