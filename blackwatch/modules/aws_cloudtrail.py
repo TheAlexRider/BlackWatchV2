@@ -362,6 +362,8 @@ def _sg_ingress_signals(request_params: dict[str, Any]) -> dict[str, Any]:
     public_risky = False
     public_all = False
     public_ports: list[int] = []
+    public_cidrs: list[str] = []
+    public_proto: str | None = None
     for perm in perms:
         cidrs: list[str] = []
         ranges = perm.get("ipRanges")
@@ -381,7 +383,12 @@ def _sg_ingress_signals(request_params: dict[str, Any]) -> dict[str, Any]:
         if not any(c in ("0.0.0.0/0", "::/0") for c in cidrs):
             continue
         public = True
+        for c in cidrs:
+            if c in ("0.0.0.0/0", "::/0") and c not in public_cidrs:
+                public_cidrs.append(c)
         proto = perm.get("ipProtocol")
+        if public_proto is None and proto not in (None, -1, "-1"):
+            public_proto = str(proto)
         if proto in (-1, "-1", "all", None):
             public_all = True
             continue
@@ -414,6 +421,10 @@ def _sg_ingress_signals(request_params: dict[str, Any]) -> dict[str, Any]:
         out["public_ingress_all_traffic"] = True
     if public_ports:
         out["public_ports"] = public_ports[:50]
+    if public_cidrs:
+        out["public_cidrs"] = public_cidrs
+    if public_proto:
+        out["public_proto"] = public_proto
     return out
 
 
@@ -555,6 +566,128 @@ def _rds_param_changes_security(rp: dict[str, Any]) -> list[str]:
     return hits
 
 
+# ---------- Friendly-message synthesis --------------------------------------
+#
+# CloudTrail action names like `network.sg.ingress.add` are accurate but ugly
+# in Slack. For high-signal events we synthesize a one-line human-readable
+# description and stash it in `extra.message`. The notification template
+# (`event.extra.message or event.action`) picks it up automatically. None
+# return value means "no special message — let the template fall back to the
+# raw action name."
+
+def _friendly_message(action: str, extra: dict[str, Any], request_params: dict[str, Any],
+                      target_id: Any) -> str | None:
+    tgt = str(target_id) if target_id else None
+    tgt_or_q = tgt or "?"
+
+    # --- Network: SG ingress (the alert with no detail before this fix) ----
+    if action == "network.sg.ingress.add":
+        cidr = (extra.get("public_cidrs") or ["0.0.0.0/0"])[0]
+        proto = extra.get("public_proto") or "tcp"
+        on = f" on {tgt}" if tgt else ""
+        if extra.get("public_ingress_all_traffic"):
+            return f"ALL traffic opened to {cidr}{on}"
+        if extra.get("public_ingress_risky_port"):
+            ports = extra.get("public_ports") or []
+            port_str = ",".join(str(p) for p in ports[:3]) + ("…" if len(ports) > 3 else "")
+            return f"Risky public port {proto}/{port_str} opened to {cidr}{on}"
+        if extra.get("public_ingress"):
+            ports = extra.get("public_ports") or []
+            port_str = ",".join(str(p) for p in ports[:3]) + ("…" if len(ports) > 3 else "")
+            return f"Public ingress {proto}/{port_str} opened to {cidr}{on}"
+        return None  # private-only ingress — let action through
+
+    # --- IAM identity / credentials / policy -------------------------------
+    if action == "iam.user.create":      return f"IAM user created: {tgt_or_q}"
+    if action == "iam.user.delete":      return f"IAM user deleted: {tgt_or_q}"
+    if action == "iam.role.create":      return f"IAM role created: {tgt_or_q}"
+    if action == "iam.role.delete":      return f"IAM role deleted: {tgt_or_q}"
+    if action == "iam.role.update_trust":
+        return f"Role trust policy modified on {tgt_or_q}"
+    if action == "iam.access_key.create":
+        user = request_params.get("userName")
+        return f"Access key created for {user}" if user else "Access key created"
+    if action == "iam.login_profile.create":
+        return f"Console password set on IAM user {tgt_or_q}"
+    if action == "iam.mfa.deactivate":   return f"MFA device deactivated: {tgt_or_q}"
+    if action == "iam.mfa.delete":       return f"MFA device deleted: {tgt_or_q}"
+    if action == "iam.policy.attach":
+        if tgt and "AdministratorAccess" in tgt:
+            return "AdministratorAccess policy attached"
+        return None
+    if action == "iam.policy.put_inline" and extra.get("wildcard_policy"):
+        return f"Wildcard (*) inline policy applied to {tgt_or_q}"
+    if action == "iam.policy.create_version" and extra.get("wildcard_policy"):
+        return f"Wildcard (*) policy version created on {tgt_or_q}"
+
+    # --- CloudTrail tamper -------------------------------------------------
+    if action == "cloudtrail.logging.stop":
+        return f"CloudTrail logging stopped on {tgt_or_q}"
+    if action == "cloudtrail.trail.delete":
+        return f"CloudTrail trail deleted: {tgt_or_q}"
+    if action == "cloudtrail.trail.update":
+        return f"CloudTrail trail modified: {tgt_or_q}"
+
+    # --- KMS ---------------------------------------------------------------
+    if action == "kms.key.disable":
+        return f"KMS key disabled: {tgt_or_q}"
+    if action == "kms.key.delete_scheduled":
+        return f"KMS key scheduled for deletion: {tgt_or_q}"
+    if action == "kms.policy.put" and extra.get("kms_wildcard_policy"):
+        return f"KMS key policy granted to wildcard principal on {tgt_or_q}"
+    if action == "kms.grant.create":
+        return f"KMS grant created on {tgt_or_q}"
+
+    # --- Storage / compute exposure ----------------------------------------
+    if action == "storage.snapshot.modify" and extra.get("snapshot_made_public"):
+        return f"EBS snapshot shared publicly: {tgt_or_q}"
+    if action == "compute.ami.modify" and extra.get("ami_made_public"):
+        return f"AMI made public: {tgt_or_q}"
+    if action == "compute.imds.modify" and extra.get("imdsv1_enabled"):
+        return f"IMDSv1 enabled on instance {tgt_or_q} (SSRF risk)"
+
+    # --- RDS ---------------------------------------------------------------
+    if action in ("rds.instance.create", "rds.instance.modify",
+                  "rds.cluster.create", "rds.cluster.modify"):
+        if extra.get("rds_publicly_accessible"):
+            return f"RDS publicly accessible: {tgt_or_q}"
+        if extra.get("rds_backups_disabled"):
+            return f"RDS automated backups disabled: {tgt_or_q}"
+        if extra.get("rds_deletion_protection_off"):
+            return f"RDS deletion protection disabled: {tgt_or_q}"
+        if extra.get("rds_master_password_change"):
+            return f"RDS master password rotated on {tgt_or_q}"
+    if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify") and extra.get("rds_snapshot_made_public"):
+        return f"RDS snapshot shared publicly: {tgt_or_q}"
+
+    # --- S3 ----------------------------------------------------------------
+    if action == "s3.bucket.policy.put" and extra.get("public_policy"):
+        return f"S3 bucket policy made public: {tgt_or_q}"
+    if action == "s3.bucket.acl.put" and extra.get("public_acl"):
+        return f"S3 bucket ACL made public: {tgt_or_q}"
+    if action == "s3.bucket.bpa.put" and extra.get("bpa_weakened"):
+        return f"S3 Block Public Access weakened on {tgt_or_q}"
+    if action == "s3.bucket.bpa.delete":
+        return f"S3 Block Public Access removed from {tgt_or_q}"
+    if action == "s3.bucket.encryption.delete":
+        return f"S3 bucket encryption removed from {tgt_or_q}"
+    if action == "s3.bucket.delete":
+        return f"S3 bucket deleted: {tgt_or_q}"
+
+    # --- Auth --------------------------------------------------------------
+    if action == "auth.console.login":
+        kind = extra.get("login_kind", "iam")
+        if extra.get("error_code"):
+            return f"Console login FAILED ({kind})"
+        return f"Console login succeeded ({kind})"
+    if action == "auth.federated.login":
+        if extra.get("error_code"):
+            return "Federated SSO login FAILED"
+        return "Federated SSO login"
+
+    return None
+
+
 def _extract_sg_ids_from_modify(request_params: dict[str, Any]) -> list[str]:
     """ModifyInstanceAttribute carries the new SG list in `groupSet.items[].groupId`
     on the EC2-classic-flavored shape, or sometimes as a flat `groups[]` list.
@@ -635,6 +768,24 @@ class AwsCloudTrailAdapter(Adapter):
             or request_params.get("dBClusterSnapshotIdentifier")
             or request_params.get("dBParameterGroupName")
             or request_params.get("dBSubnetGroupName")
+            # Network — VPC / SG / IGW / route / NAT / NACL / peering ids.
+            or request_params.get("groupId")
+            or request_params.get("vpcId")
+            or request_params.get("subnetId")
+            or request_params.get("internetGatewayId")
+            or request_params.get("natGatewayId")
+            or request_params.get("routeTableId")
+            or request_params.get("networkAclId")
+            or request_params.get("vpcPeeringConnectionId")
+            # EC2 compute / storage.
+            or request_params.get("instanceId")
+            or request_params.get("imageId")
+            or request_params.get("snapshotId")
+            or request_params.get("volumeId")
+            # KMS — keyId is the UUID or ARN of the key.
+            or request_params.get("keyId")
+            # CloudTrail — trail mgmt events use `name` for the trail name.
+            or (request_params.get("name") if str(event_source).startswith("cloudtrail.") else None)
         )
 
         observables: list[Observable] = []
@@ -740,6 +891,14 @@ class AwsCloudTrailAdapter(Adapter):
                 # something meaningful (instance id, not the SG ARNs).
                 if not target_id:
                     target_id = request_params.get("instanceId")
+
+        # Friendly headline for Slack/Discord/etc. Notification templates use
+        # `event.extra.message or event.action`, so this is what humans see.
+        # Synthesized AFTER all signal flags + the compute.instance.modify
+        # override above, so the message reflects the FINAL action + target.
+        friendly = _friendly_message(action, extra, request_params, target_id)
+        if friendly:
+            extra["message"] = friendly
 
         event_id_src = detail.get("eventID")
         kwargs: dict[str, Any] = {}

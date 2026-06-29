@@ -244,7 +244,17 @@ def parse_auth_lines(lines: list, server: str, account: str | None = None) -> li
                 actor=Actor(principal=user, source_ip=source_ip),
                 target=Target(id=server, type="vpn.server", name=server),
                 observables=observables,
-                extra={"server": server, "log_line": message},
+                extra={
+                    "server": server,
+                    "log_line": message,
+                    # Friendly headline for Slack/Discord/etc. Templates use
+                    # `event.extra.message or event.action`.
+                    "message": (
+                        f"VPN authentication FAILED for {user}"
+                        if outcome == Outcome.failure
+                        else f"VPN login: {user}"
+                    ) + (f" from {source_ip}" if source_ip else ""),
+                },
                 raw=entry,
             )
         )
