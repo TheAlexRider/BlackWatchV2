@@ -54,18 +54,22 @@ export interface EventsResponse {
 
 // --- Posture findings ------------------------------------------------------
 
-// --- IAM (centerpiece module — logins, IAM changes, SGs, KMS, AssumeRole) -
+// --- IAM (AWS control-plane: logins, IAM, network, KMS, storage, CT) -----
+// Sourced exclusively from CloudTrail → EventBridge → Lambda → SQS. Host
+// SSH/sudo + VPN auth + host posture live on /hosts and /vpn — they're not
+// AWS-API events and don't belong on this page.
 
 export interface IamCounts {
   logins_ok: number;
   logins_failed: number;
-  host_vpn_auth_failed: number;
+  logins_root: number;
+  logins_sso: number;
   iam_changes: number;
+  mfa_disabled: number;
   sg_changes: number;
+  network_topology: number;
   kms_changes: number;
   storage_exposure: number;
-  host_changes: number;
-  assume_roles: number;
   ct_tamper: number;
   posture_findings_new: number;
 }
@@ -73,13 +77,11 @@ export interface IamCounts {
 export interface IamViewResponse {
   counts: IamCounts;
   logins: EventEnvelope[];
-  host_vpn_auth: EventEnvelope[];
   iam_changes: EventEnvelope[];
   sg_changes: EventEnvelope[];
+  network_topology: EventEnvelope[];
   storage_exposure: EventEnvelope[];
   kms_changes: EventEnvelope[];
-  host_changes: EventEnvelope[];
-  assume_roles: EventEnvelope[];
   posture_findings_new: EventEnvelope[];
   ct_tamper: EventEnvelope[];
 }

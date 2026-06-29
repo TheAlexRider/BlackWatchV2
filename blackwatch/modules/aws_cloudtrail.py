@@ -33,28 +33,60 @@ _IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:]+$")
 
 # eventName -> (normalized action, category)
 _ACTION_MAP: dict[str, tuple[str, Category]] = {
+    # --- IAM identity ----------------------------------------------------
+    "CreateUser": ("iam.user.create", Category.iam),
+    "DeleteUser": ("iam.user.delete", Category.iam),
+    "UpdateUser": ("iam.user.update", Category.iam),
+    "CreateRole": ("iam.role.create", Category.iam),
+    "DeleteRole": ("iam.role.delete", Category.iam),
+    "CreateGroup": ("iam.group.create", Category.iam),
+    "DeleteGroup": ("iam.group.delete", Category.iam),
+    "AddUserToGroup": ("iam.group.add_user", Category.iam),
+    "RemoveUserFromGroup": ("iam.group.remove_user", Category.iam),
+    # --- IAM credentials -------------------------------------------------
+    "CreateLoginProfile": ("iam.login_profile.create", Category.iam),
+    "UpdateLoginProfile": ("iam.login_profile.update", Category.iam),
+    "DeleteLoginProfile": ("iam.login_profile.delete", Category.iam),
+    "CreateAccessKey": ("iam.access_key.create", Category.iam),
+    "UpdateAccessKey": ("iam.access_key.update", Category.iam),
+    "DeleteAccessKey": ("iam.access_key.delete", Category.iam),
+    "EnableMFADevice": ("iam.mfa.enable", Category.iam),
+    "DeactivateMFADevice": ("iam.mfa.deactivate", Category.iam),
+    "DeleteVirtualMFADevice": ("iam.mfa.delete", Category.iam),
+    # --- IAM policy ------------------------------------------------------
     "AttachUserPolicy": ("iam.policy.attach", Category.iam),
     "AttachRolePolicy": ("iam.policy.attach", Category.iam),
     "AttachGroupPolicy": ("iam.policy.attach", Category.iam),
+    "DetachUserPolicy": ("iam.policy.detach", Category.iam),
+    "DetachRolePolicy": ("iam.policy.detach", Category.iam),
+    "DetachGroupPolicy": ("iam.policy.detach", Category.iam),
     "PutUserPolicy": ("iam.policy.put_inline", Category.iam),
     "PutRolePolicy": ("iam.policy.put_inline", Category.iam),
     "PutGroupPolicy": ("iam.policy.put_inline", Category.iam),
+    "DeleteUserPolicy": ("iam.policy.delete_inline", Category.iam),
+    "DeleteRolePolicy": ("iam.policy.delete_inline", Category.iam),
+    "DeleteGroupPolicy": ("iam.policy.delete_inline", Category.iam),
+    "CreatePolicy": ("iam.policy.create", Category.iam),
+    "DeletePolicy": ("iam.policy.delete", Category.iam),
     "CreatePolicyVersion": ("iam.policy.create_version", Category.iam),
-    "CreateUser": ("iam.user.create", Category.iam),
-    "CreateRole": ("iam.role.create", Category.iam),
-    "CreateLoginProfile": ("iam.login_profile.create", Category.iam),
-    "UpdateLoginProfile": ("iam.login_profile.update", Category.iam),
-    "CreateAccessKey": ("iam.access_key.create", Category.iam),
-    "UpdateAccessKey": ("iam.access_key.update", Category.iam),
-    "DeactivateMFADevice": ("iam.mfa.deactivate", Category.iam),
-    "DeleteVirtualMFADevice": ("iam.mfa.delete", Category.iam),
+    "DeletePolicyVersion": ("iam.policy.delete_version", Category.iam),
     "UpdateAssumeRolePolicy": ("iam.role.update_trust", Category.iam),
-    "AddUserToGroup": ("iam.group.add_user", Category.iam),
+    "PutRolePermissionsBoundary": ("iam.role.boundary.put", Category.iam),
+    "DeleteRolePermissionsBoundary": ("iam.role.boundary.delete", Category.iam),
+    "PutUserPermissionsBoundary": ("iam.user.boundary.put", Category.iam),
+    "DeleteUserPermissionsBoundary": ("iam.user.boundary.delete", Category.iam),
+    # --- Auth ------------------------------------------------------------
+    # AssumeRole proper is excluded: too noisy (every service hop fires it).
+    # SAML / WebIdentity are KEPT — those are human SSO sign-ins.
     "ConsoleLogin": ("auth.console.login", Category.auth),
-    "AssumeRole": ("auth.assume_role", Category.auth),
+    "AssumeRoleWithSAML": ("auth.federated.login", Category.auth),
+    "AssumeRoleWithWebIdentity": ("auth.federated.login", Category.auth),
+    # --- CloudTrail tamper ----------------------------------------------
     "StopLogging": ("cloudtrail.logging.stop", Category.audit),
+    "StartLogging": ("cloudtrail.logging.start", Category.audit),
     "DeleteTrail": ("cloudtrail.trail.delete", Category.audit),
     "UpdateTrail": ("cloudtrail.trail.update", Category.audit),
+    "CreateTrail": ("cloudtrail.trail.create", Category.audit),
     # S3 management events — bucket-level changes that matter for security.
     # Adapter additionally sets extra.public_acl / public_policy / bpa_weakened /
     # versioning_status / mfa_delete_status / logging_disabled where applicable
@@ -94,12 +126,47 @@ _ACTION_MAP: dict[str, tuple[str, Category]] = {
     "ModifyVolume":                         ("storage.volume.modify", Category.storage),
     "CreateVolume":                         ("storage.volume.create", Category.storage),
     "DeleteSnapshot":                       ("storage.snapshot.delete", Category.storage),
-    # KMS.
+    # KMS — key lifecycle + grants (cross-account decrypt vector).
+    "CreateKey":                            ("kms.key.create", Category.iam),
+    "EnableKey":                            ("kms.key.enable", Category.iam),
+    "DisableKey":                           ("kms.key.disable", Category.iam),
     "DisableKeyRotation":                   ("kms.rotation.disable", Category.iam),
     "EnableKeyRotation":                    ("kms.rotation.enable", Category.iam),
     "PutKeyPolicy":                         ("kms.policy.put", Category.iam),
     "ScheduleKeyDeletion":                  ("kms.key.delete_scheduled", Category.iam),
     "CancelKeyDeletion":                    ("kms.key.delete_cancelled", Category.iam),
+    "CreateGrant":                          ("kms.grant.create", Category.iam),
+    "RetireGrant":                          ("kms.grant.retire", Category.iam),
+    "RevokeGrant":                          ("kms.grant.revoke", Category.iam),
+    # --- Network topology (VPC / IGW / NAT / route / peering) ----------
+    # Not security-group rules — these are the SHAPE of the network. Adding
+    # an IGW or accepting a peering connection is how you build a new exfil
+    # path, so we track them all.
+    "CreateVpc":                            ("network.vpc.create", Category.network),
+    "DeleteVpc":                            ("network.vpc.delete", Category.network),
+    "ModifyVpcAttribute":                   ("network.vpc.modify", Category.network),
+    "CreateSubnet":                         ("network.subnet.create", Category.network),
+    "DeleteSubnet":                         ("network.subnet.delete", Category.network),
+    "CreateInternetGateway":                ("network.igw.create", Category.network),
+    "DeleteInternetGateway":                ("network.igw.delete", Category.network),
+    "AttachInternetGateway":                ("network.igw.attach", Category.network),
+    "DetachInternetGateway":                ("network.igw.detach", Category.network),
+    "CreateNatGateway":                     ("network.nat.create", Category.network),
+    "DeleteNatGateway":                     ("network.nat.delete", Category.network),
+    "CreateRouteTable":                     ("network.route_table.create", Category.network),
+    "DeleteRouteTable":                     ("network.route_table.delete", Category.network),
+    "AssociateRouteTable":                  ("network.route_table.associate", Category.network),
+    "CreateRoute":                          ("network.route.create", Category.network),
+    "DeleteRoute":                          ("network.route.delete", Category.network),
+    "ReplaceRoute":                         ("network.route.replace", Category.network),
+    "CreateNetworkAclEntry":                ("network.nacl.entry.create", Category.network),
+    "ReplaceNetworkAclEntry":               ("network.nacl.entry.replace", Category.network),
+    "DeleteNetworkAclEntry":                ("network.nacl.entry.delete", Category.network),
+    "CreateVpcPeeringConnection":           ("network.peering.create", Category.network),
+    "AcceptVpcPeeringConnection":           ("network.peering.accept", Category.network),
+    "DeleteVpcPeeringConnection":           ("network.peering.delete", Category.network),
+    "CreateTransitGatewayPeeringAttachment": ("network.tgw_peering.create", Category.network),
+    "AcceptTransitGatewayPeeringAttachment": ("network.tgw_peering.accept", Category.network),
     # RDS — adapter flags signals (publicly_accessible, snapshot_made_public,
     # backups_disabled, deletion_protection_off, master_password_change) so
     # detection rules can match the SIGNAL, not just the API call.
@@ -129,6 +196,13 @@ _ACTION_MAP: dict[str, tuple[str, Category]] = {
     "ModifyDBCluster":                      ("rds.cluster.modify", Category.storage),
     "ModifyDBClusterSnapshotAttribute":     ("rds.cluster_snapshot.modify", Category.storage),
 }
+
+
+# The set of CloudTrail eventName values this adapter knows how to normalize.
+# The EventBridge rule in front of the Lambda MUST forward exactly these — any
+# other eventName is noise that wastes SQS quota, DB rows, and projector cycles.
+# Print the JSON form with `python -m scripts.iam_lambda_allowlist`.
+LAMBDA_ALLOWLIST: tuple[str, ...] = tuple(sorted(_ACTION_MAP.keys()))
 
 
 # Ports that should never be exposed to 0.0.0.0/0 — open these to the world and
@@ -589,6 +663,13 @@ class AwsCloudTrailAdapter(Adapter):
         }
         if action in ("iam.policy.put_inline", "iam.policy.create_version") and _wildcard_policy(request_params):
             extra["wildcard_policy"] = True
+
+        # Login kind — lets the /iam UI tag rows as IAM user / root / SSO
+        # without having to introspect userIdentity again client-side.
+        if action == "auth.console.login":
+            extra["login_kind"] = "root" if is_root else "iam"
+        elif action == "auth.federated.login":
+            extra["login_kind"] = "sso"
 
         # S3-specific detection signals — flagged so rules in s3.yaml can match
         # the SIGNAL not just the API name. Each is a one-shot pure-data check

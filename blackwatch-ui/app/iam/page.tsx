@@ -22,34 +22,25 @@ export default async function IamPage() {
       <AutoRefresh intervalMs={10_000} />
 
       <PageHeader
-        title="IAM · security activity"
-        subtitle="Logins · IAM · network · storage · KMS · host posture · audit integrity — every security-relevant event in one feed."
+        title="IAM · AWS control plane"
+        subtitle="Everything CloudTrail records — logins, IAM, network, storage, KMS, audit integrity. Host SSH/sudo and VPN auth live on /hosts and /vpn."
       />
 
       <CountersStrip counts={data.counts} />
 
       <EventsSection
-        title="console logins"
-        subtitle="AWS console sign-ins · success + failure"
+        title="console + sso logins"
+        subtitle="AWS console sign-ins (IAM + root) and federated SAML / WebIdentity logins"
         events={data.logins}
         showOutcome
         showSourceIp
-        emptyHint="No console logins captured in the recent window."
-      />
-
-      <EventsSection
-        title="host & vpn access"
-        subtitle="SSH · sudo · OpenVPN — anyone authenticating to a host or VPN"
-        events={data.host_vpn_auth}
-        showOutcome
-        showSourceIp
-        showTarget
-        emptyHint="No host or VPN auth attempts captured."
+        showLoginKind
+        emptyHint="No console or federated logins captured in the recent window."
       />
 
       <EventsSection
         title="iam changes"
-        subtitle="users · roles · policies · access keys · MFA · login profiles"
+        subtitle="users · roles · groups · policies · access keys · MFA · login profiles · permission boundaries"
         events={data.iam_changes}
         showTarget
         emptyHint="No IAM changes in the recent window."
@@ -65,6 +56,15 @@ export default async function IamPage() {
       />
 
       <EventsSection
+        title="network topology"
+        subtitle="vpc · igw · nat · route · nacl · peering — the SHAPE of the network, not its rules"
+        events={data.network_topology}
+        showTarget
+        emptyHint="No topology changes — VPCs, gateways, routes, and peerings are stable."
+        emptyTone="ok"
+      />
+
+      <EventsSection
         title="storage / compute exposure"
         subtitle="S3 ACL · S3 policy · BPA · snapshot public · AMI public · IMDSv1 enabled"
         events={data.storage_exposure}
@@ -76,27 +76,10 @@ export default async function IamPage() {
 
       <EventsSection
         title="kms / secrets"
-        subtitle="key policy puts · rotation · scheduled deletion"
+        subtitle="key create · enable / disable · key policy · grants · rotation · scheduled deletion"
         events={data.kms_changes}
         showTarget
         emptyHint="No KMS changes in the recent window."
-      />
-
-      <EventsSection
-        title="host posture changes"
-        subtitle="SSH keys · users · sudoers · listening ports · SUID · cron · FIM · packages"
-        events={data.host_changes}
-        showHostChangeDetail
-        emptyHint="No host state changes captured."
-      />
-
-      <EventsSection
-        title="assumerole"
-        subtitle="role hops — who pivoted into what"
-        events={data.assume_roles}
-        showTarget
-        showSourceIp
-        emptyHint="No AssumeRole events captured."
       />
 
       <PostureFindingsSection events={data.posture_findings_new} />
@@ -137,15 +120,19 @@ function CountersStrip({ counts }: { counts: IamCounts }) {
         }
       />
       <CounterCell
-        label="Host/VPN auth · failed"
-        value={counts.host_vpn_auth_failed}
-        accent={
-          counts.host_vpn_auth_failed >= 5
-            ? "critical"
-            : counts.host_vpn_auth_failed > 0
-              ? "medium"
-              : "ok"
-        }
+        label="Logins · root"
+        value={counts.logins_root}
+        accent={counts.logins_root > 0 ? "critical" : "ok"}
+      />
+      <CounterCell
+        label="Logins · sso"
+        value={counts.logins_sso}
+        accent="neutral"
+      />
+      <CounterCell
+        label="MFA disabled"
+        value={counts.mfa_disabled}
+        accent={counts.mfa_disabled > 0 ? "critical" : "ok"}
       />
       <CounterCell
         label="IAM changes"
@@ -158,6 +145,11 @@ function CountersStrip({ counts }: { counts: IamCounts }) {
         accent={counts.sg_changes > 0 ? "neutral" : "ok"}
       />
       <CounterCell
+        label="Network topology"
+        value={counts.network_topology}
+        accent={counts.network_topology > 0 ? "medium" : "ok"}
+      />
+      <CounterCell
         label="Storage exposure"
         value={counts.storage_exposure}
         accent={
@@ -168,16 +160,6 @@ function CountersStrip({ counts }: { counts: IamCounts }) {
         label="KMS changes"
         value={counts.kms_changes}
         accent={counts.kms_changes > 0 ? "medium" : "ok"}
-      />
-      <CounterCell
-        label="Host changes"
-        value={counts.host_changes}
-        accent={counts.host_changes > 0 ? "neutral" : "ok"}
-      />
-      <CounterCell
-        label="AssumeRole"
-        value={counts.assume_roles}
-        accent="neutral"
       />
       <CounterCell
         label="CT tamper"
@@ -244,7 +226,7 @@ interface EventsSectionProps {
   showTarget?: boolean;
   showSgDetail?: boolean;
   showExposureDetail?: boolean;
-  showHostChangeDetail?: boolean;
+  showLoginKind?: boolean;
   emptyHint?: string;
   emptyTone?: "neutral" | "ok";
 }
@@ -258,7 +240,7 @@ function EventsSection({
   showTarget,
   showSgDetail,
   showExposureDetail,
-  showHostChangeDetail,
+  showLoginKind,
   emptyHint,
   emptyTone = "neutral",
 }: EventsSectionProps) {
@@ -288,7 +270,7 @@ function EventsSection({
             showTarget={showTarget}
             showSgDetail={showSgDetail}
             showExposureDetail={showExposureDetail}
-            showHostChangeDetail={showHostChangeDetail}
+            showLoginKind={showLoginKind}
           />
         )}
       </DataPanel>
@@ -303,7 +285,7 @@ function EventsTable({
   showTarget,
   showSgDetail,
   showExposureDetail,
-  showHostChangeDetail,
+  showLoginKind,
 }: {
   events: EventEnvelope[];
   showOutcome?: boolean;
@@ -311,7 +293,7 @@ function EventsTable({
   showTarget?: boolean;
   showSgDetail?: boolean;
   showExposureDetail?: boolean;
-  showHostChangeDetail?: boolean;
+  showLoginKind?: boolean;
 }) {
   return (
     <table className="w-full table-fixed text-sm">
@@ -320,6 +302,9 @@ function EventsTable({
           <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
           <th className="w-24 px-4 py-2 text-left font-normal">Severity</th>
           <th className="w-56 px-4 py-2 text-left font-normal">Action</th>
+          {showLoginKind && (
+            <th className="w-20 px-4 py-2 text-left font-normal">Kind</th>
+          )}
           <th className="w-44 px-4 py-2 text-left font-normal">Actor</th>
           {showOutcome && (
             <th className="w-24 px-4 py-2 text-left font-normal">Result</th>
@@ -327,9 +312,7 @@ function EventsTable({
           {showSourceIp && (
             <th className="w-36 px-4 py-2 text-left font-normal">Source IP</th>
           )}
-          {showHostChangeDetail ? (
-            <th className="px-4 py-2 text-left font-normal">Host · detail</th>
-          ) : showTarget ? (
+          {showTarget ? (
             <th className="px-4 py-2 text-left font-normal">
               {showSgDetail
                 ? "Target / detail"
@@ -352,7 +335,7 @@ function EventsTable({
             showTarget={showTarget}
             showSgDetail={showSgDetail}
             showExposureDetail={showExposureDetail}
-            showHostChangeDetail={showHostChangeDetail}
+            showLoginKind={showLoginKind}
           />
         ))}
       </tbody>
@@ -367,7 +350,7 @@ function EventRow({
   showTarget,
   showSgDetail,
   showExposureDetail,
-  showHostChangeDetail,
+  showLoginKind,
 }: {
   event: EventEnvelope;
   showOutcome?: boolean;
@@ -375,7 +358,7 @@ function EventRow({
   showTarget?: boolean;
   showSgDetail?: boolean;
   showExposureDetail?: boolean;
-  showHostChangeDetail?: boolean;
+  showLoginKind?: boolean;
 }) {
   const severity = (event.severity as string | null | undefined) ?? null;
   const sourceIp = (event.actor as { source_ip?: string } | undefined)?.source_ip;
@@ -404,6 +387,11 @@ function EventRow({
           {event.action}
         </Link>
       </td>
+      {showLoginKind && (
+        <td className="px-4 py-2.5">
+          <LoginKindPill event={event} />
+        </td>
+      )}
       <td className="truncate px-4 py-2.5 text-xs text-fg">
         {event.actor?.principal ?? <span className="text-fg-disabled">—</span>}
       </td>
@@ -417,11 +405,7 @@ function EventRow({
           <IpCell value={sourceIp} className="text-xs text-fg-muted" />
         </td>
       )}
-      {showHostChangeDetail ? (
-        <td className="truncate px-4 py-2.5 font-mono text-[11px] text-fg-muted">
-          <HostChangeDetail event={event} fallback={target} />
-        </td>
-      ) : showTarget ? (
+      {showTarget ? (
         <td className="truncate px-4 py-2.5 font-mono text-[11px] text-fg-muted">
           {showSgDetail ? (
             <SgDetail event={event} fallback={target} />
@@ -437,6 +421,27 @@ function EventRow({
         </td>
       )}
     </tr>
+  );
+}
+
+function LoginKindPill({ event }: { event: EventEnvelope }) {
+  const extra = (event.extra as Record<string, unknown> | undefined) ?? {};
+  const kind = String(extra.login_kind ?? "iam").toLowerCase();
+  const cls =
+    kind === "root"
+      ? "border-sev-critical/40 bg-sev-critical/10 text-sev-critical"
+      : kind === "sso"
+        ? "border-signal/30 bg-signal/10 text-signal"
+        : "border-line-soft bg-surface-1 text-fg-muted";
+  return (
+    <span
+      className={clsx(
+        "inline-flex h-5 items-center rounded-sm border px-1.5 font-mono text-[10px] uppercase tracking-[0.08em]",
+        cls,
+      )}
+    >
+      {kind}
+    </span>
   );
 }
 
@@ -542,47 +547,6 @@ function ExposureDetail({
         <span className="ml-2 text-sev-critical">
           · {flags.join(" · ")}
         </span>
-      )}
-    </>
-  );
-}
-
-function HostChangeDetail({
-  event,
-  fallback,
-}: {
-  event: EventEnvelope;
-  fallback: string;
-}) {
-  const extra = (event.extra as Record<string, unknown> | undefined) ?? {};
-  const host = event.target?.name ?? event.target?.id ?? "—";
-  const action = event.action ?? "";
-
-  // Synthesize a one-line detail per host action shape
-  const detail: string[] = [];
-  if (extra.path) detail.push(String(extra.path));
-  if (extra.user) detail.push(`user=${extra.user}`);
-  if (extra.fingerprint)
-    detail.push(`fp=${String(extra.fingerprint).slice(0, 12)}`);
-  if (extra.port) detail.push(`${extra.proto ?? "tcp"}/${extra.port}`);
-  if (extra.address) detail.push(`on ${extra.address}`);
-  if (extra.unit) detail.push(`unit=${extra.unit}`);
-  if (extra.change) detail.push(String(extra.change));
-  if (extra.added_count !== undefined) {
-    detail.push(`+${extra.added_count} / −${extra.removed_count ?? 0} packages`);
-  }
-  if (detail.length === 0 && fallback) detail.push(fallback);
-
-  return (
-    <>
-      <code className="text-fg">{String(host)}</code>
-      <span className="mx-1 text-fg-subtle">·</span>
-      <span>{action.replace(/^host\./, "")}</span>
-      {detail.length > 0 && (
-        <>
-          <span className="mx-1 text-fg-subtle">·</span>
-          <span>{detail.join(" · ")}</span>
-        </>
       )}
     </>
   );

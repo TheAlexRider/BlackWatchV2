@@ -739,11 +739,18 @@ _STORAGE_EXPOSURE_ACTIONS = {
 
 @router.get("/iam")
 def iam_view() -> dict[str, Any]:
-    """The security activity centerpiece. Everything that's identity, access,
-    network policy, key management, storage exposure, host auth, host posture,
-    audit-trail integrity — all surfaced here.
+    """The AWS control-plane view. Everything that flows in through
+    CloudTrail → EventBridge → Lambda → SQS lands here: console + federated
+    logins, IAM identity / credential / policy changes, security-group rule
+    changes, VPC/IGW/route/peering topology changes, KMS key & grant changes,
+    storage-exposure flips, CloudTrail-tamper.
 
-    Single broad query → filter in Python per bucket. One DB hit, ten buckets.
+    Explicitly EXCLUDED here: host SSH/sudo auth, OpenVPN auth, host posture
+    changes — those don't come from CloudTrail. The /hosts and /vpn pages own
+    those signals; mixing them here would dilute the "what did AWS itself
+    record?" view.
+
+    Single broad query → filter in Python per bucket. One DB hit.
     """
     now = datetime.now(timezone.utc)
     since_24h = now - timedelta(hours=24)
@@ -765,19 +772,34 @@ def iam_view() -> dict[str, Any]:
             return parsed >= since_24h
         return False
 
+    def _login_kind(row: dict[str, Any]) -> str:
+        """iam | root | sso. The adapter sets extra.login_kind; fall back to
+        actor.is_root for older events that pre-date that field."""
+        extra = row.get("extra") or {}
+        if isinstance(extra, dict) and extra.get("login_kind"):
+            return str(extra["login_kind"])
+        actor = row.get("actor") or {}
+        if isinstance(actor, dict) and actor.get("is_root"):
+            return "root"
+        return "iam"
+
+    def _mfa_disabled(row: dict[str, Any]) -> bool:
+        return row.get("action") in ("iam.mfa.deactivate", "iam.mfa.delete")
+
     recent_24h = [r for r in recent if _ts_in_window(r)]
 
-    # 24h counters
+    # 24h counters — CloudTrail-sourced only.
     counts = {
         "logins_ok": 0,
         "logins_failed": 0,
-        "host_vpn_auth_failed": 0,
+        "logins_root": 0,
+        "logins_sso": 0,
         "iam_changes": 0,
+        "mfa_disabled": 0,
         "sg_changes": 0,
+        "network_topology": 0,
         "kms_changes": 0,
         "storage_exposure": 0,
-        "host_changes": 0,
-        "assume_roles": 0,
         "ct_tamper": 0,
         "posture_findings_new": 0,
     }
@@ -789,21 +811,24 @@ def iam_view() -> dict[str, Any]:
                 counts["logins_ok"] += 1
             else:
                 counts["logins_failed"] += 1
-        elif action == "auth.assume_role":
-            counts["assume_roles"] += 1
-        elif action in _HOST_AUTH_ACTIONS or action in _VPN_AUTH_ACTIONS:
+            if _login_kind(e) == "root":
+                counts["logins_root"] += 1
+        elif action == "auth.federated.login":
+            counts["logins_sso"] += 1
             if outcome != "success":
-                counts["host_vpn_auth_failed"] += 1
+                counts["logins_failed"] += 1
         elif action.startswith("iam."):
             counts["iam_changes"] += 1
+            if _mfa_disabled(e):
+                counts["mfa_disabled"] += 1
         elif action.startswith("kms."):
             counts["kms_changes"] += 1
         elif action.startswith("network.sg."):
             counts["sg_changes"] += 1
+        elif action.startswith("network."):
+            counts["network_topology"] += 1
         elif action in _STORAGE_EXPOSURE_ACTIONS:
             counts["storage_exposure"] += 1
-        elif action.startswith(_HOST_CHANGE_PREFIXES):
-            counts["host_changes"] += 1
         elif action.startswith("cloudtrail."):
             counts["ct_tamper"] += 1
         elif action == "aws.posture.finding.new":
@@ -812,11 +837,8 @@ def iam_view() -> dict[str, Any]:
     def _bucket(predicate, cap: int) -> list[dict[str, Any]]:
         return [r for r in recent if predicate(r)][:cap]
 
-    logins = _bucket(lambda r: r.get("action") == "auth.console.login", 50)
-
-    host_vpn_auth = _bucket(
-        lambda r: r.get("action") in _HOST_AUTH_ACTIONS
-        or r.get("action") in _VPN_AUTH_ACTIONS,
+    logins = _bucket(
+        lambda r: r.get("action") in ("auth.console.login", "auth.federated.login"),
         50,
     )
 
@@ -830,6 +852,13 @@ def iam_view() -> dict[str, Any]:
         50,
     )
 
+    # network topology = network.* MINUS network.sg.* (which has its own bucket)
+    network_topology = _bucket(
+        lambda r: (a := r.get("action", "")).startswith("network.")
+        and not a.startswith("network.sg."),
+        50,
+    )
+
     storage_exposure = _bucket(
         lambda r: r.get("action") in _STORAGE_EXPOSURE_ACTIONS,
         30,
@@ -837,16 +866,6 @@ def iam_view() -> dict[str, Any]:
 
     kms_changes = _bucket(
         lambda r: r.get("action", "").startswith("kms."),
-        30,
-    )
-
-    host_changes = _bucket(
-        lambda r: r.get("action", "").startswith(_HOST_CHANGE_PREFIXES),
-        50,
-    )
-
-    assume_roles = _bucket(
-        lambda r: r.get("action") == "auth.assume_role",
         30,
     )
 
@@ -863,13 +882,11 @@ def iam_view() -> dict[str, Any]:
     return {
         "counts": counts,
         "logins": logins,
-        "host_vpn_auth": host_vpn_auth,
         "iam_changes": iam_changes,
         "sg_changes": sg_changes,
+        "network_topology": network_topology,
         "storage_exposure": storage_exposure,
         "kms_changes": kms_changes,
-        "host_changes": host_changes,
-        "assume_roles": assume_roles,
         "posture_findings_new": posture_findings_new,
         "ct_tamper": ct_tamper,
     }

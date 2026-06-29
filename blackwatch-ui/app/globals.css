@@ -34,9 +34,10 @@
   --color-sev-low:       #60A5FA;
   --color-sev-resolved:  #34D399;
 
-  /* typography */
-  --font-sans:           var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono:           var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", monospace;
+  /* typography — fonts ship via @fontsource (woff2 bundled in node_modules,
+     so the build has no network dependency on Google Fonts). */
+  --font-sans:           "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:           "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
   /* motion */
   --animate-signal-pulse: signal-pulse 1.6s ease-in-out infinite;

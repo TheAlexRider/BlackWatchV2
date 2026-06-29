@@ -24,7 +24,11 @@
       "Bash(bash -n deploy/ec2/install-agent.sh)",
       "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('rules/host.yaml'\\)\\); print\\('host.yaml OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/notify/channels.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/api.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('blackwatch/api.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.modules.aws_cloudtrail import LAMBDA_ALLOWLIST, _ACTION_MAP; print\\(f'allowlist: {len\\(LAMBDA_ALLOWLIST\\)} names; map: {len\\(_ACTION_MAP\\)}'\\); print\\('AssumeRole in map:', 'AssumeRole' in _ACTION_MAP\\); print\\('CreateVpc in map:', 'CreateVpc' in _ACTION_MAP\\); print\\('CreateKey in map:', 'CreateKey' in _ACTION_MAP\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.api import iam_view; print\\('iam_view importable'\\)\")",
+      "Bash(.venv/Scripts/python.exe -m scripts.iam_lambda_allowlist --rule)",
+      "Bash(npm install *)"
     ]
   }
 }
