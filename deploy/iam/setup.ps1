@@ -120,14 +120,16 @@ foreach ($legacy in $LEGACY_READ_POLICIES) {
     aws iam delete-user-policy --user-name $BW_USER --policy-name $legacy 2>$null | Out-Null
 }
 $polPath = Join-Path $env:TEMP "bw_read_policy.json"
-# Wildcard region — one policy covers every region's blackwatch-cloudtrail queue.
+# Wildcard region + suffix — covers every region's blackwatch-cloudtrail queue
+# AND its DLQ (`blackwatch-cloudtrail-dlq`), so the same credential can be
+# used for inspection / redrive operations.
 Write-Json @{
     Version   = "2012-10-17"
     Statement = @(@{
         Sid      = "BlackWatchReadCloudTrailQueues"
         Effect   = "Allow"
         Action   = @("sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes")
-        Resource = "arn:aws:sqs:*:${ACCOUNT_ID}:${QUEUE_NAME}"
+        Resource = "arn:aws:sqs:*:${ACCOUNT_ID}:${QUEUE_NAME}*"
     })
 } $polPath
 aws iam put-user-policy --user-name $BW_USER --policy-name $READ_POLICY_NAME --policy-document "file://$polPath" | Out-Null

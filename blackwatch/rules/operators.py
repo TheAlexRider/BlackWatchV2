@@ -30,6 +30,15 @@ def op_in(field: Any, expected: Any) -> bool:
     return field in choices
 
 
+def op_not_in(field: Any, expected: Any) -> bool:
+    """Inverse of op_in. A None / missing field counts as "not in" — useful for
+    "field is in this allowlist of expected values" rules where the event
+    legitimately lacks the field (don't fire), vs an unexpected value (fire)."""
+    if field is None:
+        return False
+    return not op_in(field, expected)
+
+
 def op_contains(field: Any, expected: Any) -> bool:
     if field is None:
         return False
@@ -85,6 +94,7 @@ OPERATORS = {
     "equals": op_equals,
     "not_equals": op_not_equals,
     "in": op_in,
+    "not_in": op_not_in,
     "contains": op_contains,
     "icontains": op_icontains,
     "regex": op_regex,
