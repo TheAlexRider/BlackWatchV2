@@ -577,102 +577,101 @@ def _rds_param_changes_security(rp: dict[str, Any]) -> list[str]:
 
 def _friendly_message(action: str, extra: dict[str, Any], request_params: dict[str, Any],
                       target_id: Any) -> str | None:
-    tgt = str(target_id) if target_id else None
-    tgt_or_q = tgt or "?"
+    """Return a short one-line description of WHAT happened. The template
+    appends ` — {actor.principal} from {actor.source_ip} on {target}` after
+    this, so the message should NOT repeat those — only describe the event."""
 
     # --- Network: SG ingress (the alert with no detail before this fix) ----
+    # CIDR stays in the message because it's the *exposure*, not the target.
+    # The target (sg-id) is appended automatically by the template.
     if action == "network.sg.ingress.add":
         cidr = (extra.get("public_cidrs") or ["0.0.0.0/0"])[0]
         proto = extra.get("public_proto") or "tcp"
-        on = f" on {tgt}" if tgt else ""
         if extra.get("public_ingress_all_traffic"):
-            return f"ALL traffic opened to {cidr}{on}"
+            return f"ALL traffic opened to {cidr}"
         if extra.get("public_ingress_risky_port"):
             ports = extra.get("public_ports") or []
             port_str = ",".join(str(p) for p in ports[:3]) + ("…" if len(ports) > 3 else "")
-            return f"Risky public port {proto}/{port_str} opened to {cidr}{on}"
+            return f"Risky public port {proto}/{port_str} opened to {cidr}"
         if extra.get("public_ingress"):
             ports = extra.get("public_ports") or []
             port_str = ",".join(str(p) for p in ports[:3]) + ("…" if len(ports) > 3 else "")
-            return f"Public ingress {proto}/{port_str} opened to {cidr}{on}"
+            return f"Public ingress {proto}/{port_str} opened to {cidr}"
         return None  # private-only ingress — let action through
 
     # --- IAM identity / credentials / policy -------------------------------
-    if action == "iam.user.create":      return f"IAM user created: {tgt_or_q}"
-    if action == "iam.user.delete":      return f"IAM user deleted: {tgt_or_q}"
-    if action == "iam.role.create":      return f"IAM role created: {tgt_or_q}"
-    if action == "iam.role.delete":      return f"IAM role deleted: {tgt_or_q}"
+    if action == "iam.user.create":      return "IAM user created"
+    if action == "iam.user.delete":      return "IAM user deleted"
+    if action == "iam.role.create":      return "IAM role created"
+    if action == "iam.role.delete":      return "IAM role deleted"
     if action == "iam.role.update_trust":
-        return f"Role trust policy modified on {tgt_or_q}"
-    if action == "iam.access_key.create":
-        user = request_params.get("userName")
-        return f"Access key created for {user}" if user else "Access key created"
+        return "Role trust policy modified"
+    if action == "iam.access_key.create": return "IAM access key created"
+    if action == "iam.access_key.delete": return "IAM access key deleted"
     if action == "iam.login_profile.create":
-        return f"Console password set on IAM user {tgt_or_q}"
-    if action == "iam.mfa.deactivate":   return f"MFA device deactivated: {tgt_or_q}"
-    if action == "iam.mfa.delete":       return f"MFA device deleted: {tgt_or_q}"
+        return "Console password set on IAM user"
+    if action == "iam.mfa.deactivate":   return "MFA device deactivated"
+    if action == "iam.mfa.delete":       return "MFA device deleted"
     if action == "iam.policy.attach":
-        if tgt and "AdministratorAccess" in tgt:
+        tgt = str(target_id) if target_id else ""
+        if "AdministratorAccess" in tgt:
             return "AdministratorAccess policy attached"
         return None
     if action == "iam.policy.put_inline" and extra.get("wildcard_policy"):
-        return f"Wildcard (*) inline policy applied to {tgt_or_q}"
+        return "Wildcard (*) inline policy applied"
     if action == "iam.policy.create_version" and extra.get("wildcard_policy"):
-        return f"Wildcard (*) policy version created on {tgt_or_q}"
+        return "Wildcard (*) policy version created"
 
     # --- CloudTrail tamper -------------------------------------------------
     if action == "cloudtrail.logging.stop":
-        return f"CloudTrail logging stopped on {tgt_or_q}"
+        return "CloudTrail logging stopped"
     if action == "cloudtrail.trail.delete":
-        return f"CloudTrail trail deleted: {tgt_or_q}"
+        return "CloudTrail trail deleted"
     if action == "cloudtrail.trail.update":
-        return f"CloudTrail trail modified: {tgt_or_q}"
+        return "CloudTrail trail modified"
 
     # --- KMS ---------------------------------------------------------------
-    if action == "kms.key.disable":
-        return f"KMS key disabled: {tgt_or_q}"
-    if action == "kms.key.delete_scheduled":
-        return f"KMS key scheduled for deletion: {tgt_or_q}"
+    if action == "kms.key.disable":             return "KMS key disabled"
+    if action == "kms.key.delete_scheduled":    return "KMS key scheduled for deletion"
     if action == "kms.policy.put" and extra.get("kms_wildcard_policy"):
-        return f"KMS key policy granted to wildcard principal on {tgt_or_q}"
-    if action == "kms.grant.create":
-        return f"KMS grant created on {tgt_or_q}"
+        return "KMS key policy granted to wildcard principal"
+    if action == "kms.grant.create":            return "KMS grant created"
 
     # --- Storage / compute exposure ----------------------------------------
     if action == "storage.snapshot.modify" and extra.get("snapshot_made_public"):
-        return f"EBS snapshot shared publicly: {tgt_or_q}"
+        return "EBS snapshot shared publicly"
     if action == "compute.ami.modify" and extra.get("ami_made_public"):
-        return f"AMI made public: {tgt_or_q}"
+        return "AMI made public"
     if action == "compute.imds.modify" and extra.get("imdsv1_enabled"):
-        return f"IMDSv1 enabled on instance {tgt_or_q} (SSRF risk)"
+        return "IMDSv1 re-enabled (SSRF risk)"
 
     # --- RDS ---------------------------------------------------------------
     if action in ("rds.instance.create", "rds.instance.modify",
                   "rds.cluster.create", "rds.cluster.modify"):
         if extra.get("rds_publicly_accessible"):
-            return f"RDS publicly accessible: {tgt_or_q}"
+            return "RDS instance set to publicly accessible"
         if extra.get("rds_backups_disabled"):
-            return f"RDS automated backups disabled: {tgt_or_q}"
+            return "RDS automated backups disabled"
         if extra.get("rds_deletion_protection_off"):
-            return f"RDS deletion protection disabled: {tgt_or_q}"
+            return "RDS deletion protection disabled"
         if extra.get("rds_master_password_change"):
-            return f"RDS master password rotated on {tgt_or_q}"
+            return "RDS master password rotated"
     if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify") and extra.get("rds_snapshot_made_public"):
-        return f"RDS snapshot shared publicly: {tgt_or_q}"
+        return "RDS snapshot shared publicly"
 
     # --- S3 ----------------------------------------------------------------
     if action == "s3.bucket.policy.put" and extra.get("public_policy"):
-        return f"S3 bucket policy made public: {tgt_or_q}"
+        return "S3 bucket policy made public"
     if action == "s3.bucket.acl.put" and extra.get("public_acl"):
-        return f"S3 bucket ACL made public: {tgt_or_q}"
+        return "S3 bucket ACL made public"
     if action == "s3.bucket.bpa.put" and extra.get("bpa_weakened"):
-        return f"S3 Block Public Access weakened on {tgt_or_q}"
+        return "S3 Block Public Access weakened"
     if action == "s3.bucket.bpa.delete":
-        return f"S3 Block Public Access removed from {tgt_or_q}"
+        return "S3 Block Public Access removed"
     if action == "s3.bucket.encryption.delete":
-        return f"S3 bucket encryption removed from {tgt_or_q}"
+        return "S3 bucket encryption removed"
     if action == "s3.bucket.delete":
-        return f"S3 bucket deleted: {tgt_or_q}"
+        return "S3 bucket deleted"
 
     # --- Auth --------------------------------------------------------------
     if action == "auth.console.login":

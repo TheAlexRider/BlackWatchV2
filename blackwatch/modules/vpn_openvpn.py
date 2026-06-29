@@ -247,13 +247,14 @@ def parse_auth_lines(lines: list, server: str, account: str | None = None) -> li
                 extra={
                     "server": server,
                     "log_line": message,
-                    # Friendly headline for Slack/Discord/etc. Templates use
-                    # `event.extra.message or event.action`.
+                    # Friendly headline for Slack/Discord/etc. Templates already
+                    # append "— {actor.principal} from {source_ip} on {target}"
+                    # after this string, so we just describe WHAT happened.
                     "message": (
-                        f"VPN authentication FAILED for {user}"
+                        "VPN authentication FAILED"
                         if outcome == Outcome.failure
-                        else f"VPN login: {user}"
-                    ) + (f" from {source_ip}" if source_ip else ""),
+                        else "VPN login"
+                    ),
                 },
                 raw=entry,
             )
