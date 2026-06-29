@@ -30,7 +30,7 @@
     to a risky port — SSH, RDP, DB ports, Docker daemon, etc. The classic
     AWS breach precursor. Catches the change in real time.
   severity: critical
-  tags: [aws, network, public-exposure]
+  tags: [aws, network, public-exposure, "notify:critical"]
   match:
     all:
       - {field: action, op: equals, value: network.sg.ingress.add}
@@ -42,7 +42,7 @@
     AuthorizeSecurityGroupIngress with protocol=-1 OR full-port-range (0-65535+)
     targeting 0.0.0.0/0. Always wrong on prod.
   severity: critical
-  tags: [aws, network, public-exposure]
+  tags: [aws, network, public-exposure, "notify:critical"]
   match:
     all:
       - {field: action, op: equals, value: network.sg.ingress.add}
@@ -54,7 +54,7 @@
     Public 80/443 = expected web traffic. Public anything else = at least worth
     a look. Lower severity than the risky-port rule above.
   severity: high
-  tags: [aws, network, public-exposure]
+  tags: [aws, network, public-exposure, "notify:high"]
   match:
     all:
       - {field: action, op: equals, value: network.sg.ingress.add}
@@ -69,7 +69,7 @@
     ModifyInstanceMetadataOptions set HttpTokens=optional, re-enabling the
     SSRF-vulnerable IMDSv1 endpoint. Strong signal — almost never legitimate.
   severity: high
-  tags: [aws, compute, hardening]
+  tags: [aws, compute, hardening, "notify:high"]
   match:
     all:
       - {field: action, op: equals, value: compute.imds.modify}
@@ -82,7 +82,7 @@
     anyone in any AWS account can now restore the snapshot in their account.
     A direct data-exfiltration path.
   severity: critical
-  tags: [aws, storage, data-exfil]
+  tags: [aws, storage, data-exfil, "notify:critical"]
   match:
     all:
       - {field: action, op: equals, value: storage.snapshot.modify}
@@ -94,7 +94,7 @@
     ModifyImageAttribute added 'all' to launch permissions. Sometimes intentional
     (open-source AMI release) but always worth knowing.
   severity: high
-  tags: [aws, compute]
+  tags: [aws, compute, "notify:high"]
   match:
     all:
       - {field: action, op: equals, value: compute.ami.modify}
@@ -107,7 +107,7 @@
     scoping Condition. Anyone can use the key — basically equivalent to having
     no key at all. Cross-account exfil possible.
   severity: critical
-  tags: [aws, encryption, kms]
+  tags: [aws, encryption, kms, "notify:critical"]
   match:
     all:
       - {field: action, op: equals, value: kms.policy.put}
@@ -117,7 +117,7 @@
   title: KMS key rotation disabled
   description: DisableKeyRotation on a customer-managed key. Compliance + key-leakage-risk reduction.
   severity: medium
-  tags: [aws, encryption, kms, compliance]
+  tags: [aws, encryption, kms, compliance, "notify:medium"]
   match: {field: action, op: equals, value: kms.rotation.disable}
 
 - id: aws-kms-key-deletion-scheduled
@@ -128,7 +128,7 @@
     deletion window is configurable (7-30 days); cancel via CancelKeyDeletion
     if unintended.
   severity: high
-  tags: [aws, encryption, kms, destruction]
+  tags: [aws, encryption, kms, destruction, "notify:critical"]
   match: {field: action, op: equals, value: kms.key.delete_scheduled}
 
 # === RDS change-event rules =================================================
@@ -145,7 +145,7 @@
     password stand between attackers and the data. Almost never legitimate
     for production.
   severity: critical
-  tags: [aws, rds, public-exposure, data]
+  tags: [aws, rds, public-exposure, data, "notify:critical"]
   match:
     all:
       - {field: action, op: in, value: [rds.instance.create, rds.instance.modify, rds.cluster.create, rds.cluster.modify]}
@@ -158,7 +158,7 @@
     any AWS account can now restore the snapshot. A direct data-exfiltration
     path identical to making an EBS snapshot public.
   severity: critical
-  tags: [aws, rds, data-exfil]
+  tags: [aws, rds, data-exfil, "notify:critical"]
   match:
     all:
       - {field: action, op: in, value: [rds.snapshot.modify, rds.cluster_snapshot.modify]}
@@ -171,7 +171,7 @@
     DB dies or is encrypted by ransomware, recovery is on whatever manual
     snapshots happen to exist.
   severity: high
-  tags: [aws, rds, recoverability]
+  tags: [aws, rds, recoverability, "notify:high"]
   match:
     all:
       - {field: action, op: in, value: [rds.instance.create, rds.instance.modify, rds.cluster.create, rds.cluster.modify]}
@@ -183,7 +183,7 @@
     DeletionProtection=false explicitly set. The DB can now be deleted with a
     single API call. Common precursor to destructive actions.
   severity: medium
-  tags: [aws, rds, destruction]
+  tags: [aws, rds, destruction, "notify:medium"]
   match:
     all:
       - {field: action, op: in, value: [rds.instance.modify, rds.cluster.modify]}
@@ -196,7 +196,7 @@
     be set at creation — fixing this later means create-new + restore-from-
     snapshot + cutover. Catch it on day zero.
   severity: high
-  tags: [aws, rds, encryption, compliance]
+  tags: [aws, rds, encryption, compliance, "notify:high"]
   match:
     all:
       - {field: action, op: in, value: [rds.instance.create, rds.cluster.create]}
@@ -209,7 +209,7 @@
     rotation OR account takeover. Always worth a look — the actor identity
     tells you which.
   severity: medium
-  tags: [aws, rds, credential]
+  tags: [aws, rds, credential, "notify:medium"]
   match:
     all:
       - {field: action, op: in, value: [rds.instance.modify, rds.cluster.modify]}
@@ -223,7 +223,7 @@
     These are the knobs that decide whether traffic is encrypted and whether
     queries are audited.
   severity: high
-  tags: [aws, rds, tls, auditing]
+  tags: [aws, rds, tls, auditing, "notify:high"]
   match:
     all:
       - {field: action, op: equals, value: rds.parameter_group.modify}
@@ -235,7 +235,7 @@
     DeleteDBInstance fired. Destructive — fires regardless of skip-final-snapshot
     setting. The actor + time + source IP tell you whether this was planned.
   severity: high
-  tags: [aws, rds, destruction]
+  tags: [aws, rds, destruction, "notify:high"]
   match: {field: action, op: in, value: [rds.instance.delete, rds.cluster.delete]}
 
 # === Drift findings (from aws_posture_drift connector) ========================
@@ -247,7 +247,7 @@
     Fires once per (resource, finding_type); resolves silently when the issue
     clears (a separate aws.posture.finding.resolved event marks closure).
   severity: critical
-  tags: [aws, posture, drift]
+  tags: [aws, posture, drift, "notify:critical"]
   match:
     all:
       - {field: action, op: equals, value: aws.posture.finding.new}
@@ -256,7 +256,7 @@
 - id: aws-posture-finding-new-high
   title: New AWS posture finding (high)
   severity: high
-  tags: [aws, posture, drift]
+  tags: [aws, posture, drift, "notify:high"]
   match:
     all:
       - {field: action, op: equals, value: aws.posture.finding.new}
@@ -265,7 +265,7 @@
 - id: aws-posture-finding-new-medium
   title: New AWS posture finding (medium)
   severity: medium
-  tags: [aws, posture, drift]
+  tags: [aws, posture, drift, "notify:medium"]
   match:
     all:
       - {field: action, op: equals, value: aws.posture.finding.new}

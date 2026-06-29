@@ -30,7 +30,10 @@
       "Bash(.venv/Scripts/python.exe -m scripts.iam_lambda_allowlist --rule)",
       "Bash(npm install *)",
       "Bash(.venv/Scripts/python.exe -m scripts.iam_lambda_allowlist --rule-global)",
-      "Bash(.venv/Scripts/python.exe -m scripts.iam_lambda_allowlist --rule-regional)"
+      "Bash(.venv/Scripts/python.exe -m scripts.iam_lambda_allowlist --rule-regional)",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import RuleEngine; e = RuleEngine\\(\\); e.load_rules_dir\\('rules'\\); print\\(f'Loaded {len\\(e.rules\\)} rules across all yaml files'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import load_rules; rules = load_rules\\('rules'\\); print\\(f'Loaded {len\\(rules\\)} rules'\\); ids = [r.id for r in rules if 'notify:' in ' '.join\\(r.tags or []\\)]; print\\(f'Rules with notify: tag = {len\\(ids\\)}'\\); from collections import Counter; tier = Counter\\(\\); [tier.update\\([t for t in \\(r.tags or []\\) if t.startswith\\('notify:'\\)]\\) for r in rules]; print\\(dict\\(tier\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import load_rules; from collections import Counter; rules = load_rules\\('rules'\\); print\\(f'Total rules: {len\\(rules\\)}'\\); tier = Counter\\(\\); [tier.update\\([t for t in \\(r.tags or []\\) if t.startswith\\('notify:'\\)]\\) for r in rules]; print\\('Notify tiers:', dict\\(tier\\)\\); print\\('No-notify rules \\(log only\\):', sum\\(1 for r in rules if not any\\(t.startswith\\('notify:'\\) for t in \\(r.tags or []\\)\\)\\)\\)\")"
     ]
   }
 }

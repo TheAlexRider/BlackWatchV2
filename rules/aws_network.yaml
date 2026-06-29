@@ -1,15 +1,30 @@
-# AWS network exposure detections.
+# AWS network topology detections — IGW attach, VPC peering acceptance.
+#
+# SG ingress rules and IMDS-related detections live in rules/aws_posture.yaml
+# (which has matching "extra.public_ingress_*" + "extra.imdsv1_enabled" flags
+# already wired up). This file covers topology changes that posture.yaml
+# doesn't already handle.
+#
+# Tag convention: see rules/aws_iam.yaml.
 
-- id: aws-sg-public-ingress
-  title: Security group opened to the internet
-  description: An ingress rule allowing 0.0.0.0/0 or ::/0 was authorized.
+- id: aws-vpc-peering-accepted
+  title: VPC peering connection accepted
+  description: >
+    A VPC peering connection was accepted — your VPC is now reachable from
+    another VPC. Verify both ends are yours.
   severity: high
-  tags: [network, exposure, aws]
+  tags: [network, lateral-movement, aws, "notify:high"]
   match:
-    all:
-      - field: action
-        op: equals
-        value: network.sg.authorize_ingress
-      - field: observables.value
-        op: in
-        value: ["0.0.0.0/0", "::/0"]
+    field: action
+    op: in
+    value: [network.peering.accept, network.tgw_peering.accept]
+
+- id: aws-igw-attached
+  title: Internet gateway attached
+  description: An internet gateway was attached to a VPC — this VPC now has a path to the public internet.
+  severity: medium
+  tags: [network, exfil, aws, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: network.igw.attach

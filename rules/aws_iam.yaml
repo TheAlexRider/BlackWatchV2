@@ -1,12 +1,57 @@
-# AWS IAM detections. Matched on normalized `action` verbs that the AWS
-# CloudTrail module (Phase 1, next) will emit. They also fire today on events
-# injected via the generic adapter using the same action vocabulary.
+# AWS IAM / KMS / CloudTrail-tamper detections.
+#
+# Tag convention for routing:
+#   notify:critical  — page immediately (should be ~0/month from a healthy account)
+#   notify:high      — Slack warn within the hour
+#   notify:medium    — Slack review channel; OK to batch
+#   (no notify:* tag) — log only, no Slack
+#
+# Create 3 notification rules in the UI:
+#   • tags contains "notify:critical" → #bw-critical channel
+#   • tags contains "notify:high"     → #bw-warnings channel
+#   • tags contains "notify:medium"   → #bw-review channel (or quiet daily-digest)
+
+# =========================================================================
+# notify:critical — wake someone up
+# =========================================================================
+
+- id: aws-cloudtrail-tampering
+  title: CloudTrail logging tampered with
+  description: CloudTrail was stopped, deleted, or modified — likely anti-forensics.
+  severity: critical
+  tags: [audit, anti-forensics, aws, "notify:critical"]
+  match:
+    field: action
+    op: in
+    value: [cloudtrail.logging.stop, cloudtrail.trail.delete, cloudtrail.trail.update]
+
+- id: aws-mfa-removed
+  title: MFA device removed
+  description: An MFA device was deactivated or deleted — identity is now weaker.
+  severity: critical
+  tags: [iam, mfa, aws, "notify:critical"]
+  match:
+    field: action
+    op: in
+    value: [iam.mfa.deactivate, iam.mfa.delete]
+
+- id: aws-role-trust-modified
+  title: Role trust policy modified
+  description: >
+    An assume-role trust policy was changed — possible silent backdoor or
+    cross-account access expansion.
+  severity: critical
+  tags: [iam, privilege-escalation, persistence, aws, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: iam.role.update_trust
 
 - id: aws-admin-policy-attached
   title: Administrator-level policy attached
-  description: An admin or wildcard IAM policy was attached to a principal.
-  severity: high
-  tags: [iam, privilege-escalation, aws]
+  description: An AdministratorAccess policy was attached — instant god-mode.
+  severity: critical
+  tags: [iam, privilege-escalation, aws, "notify:critical"]
   match:
     all:
       - field: action
@@ -16,30 +61,38 @@
         op: icontains
         value: AdministratorAccess
 
+- id: aws-kms-key-delete-scheduled
+  title: KMS key deletion scheduled
+  description: >
+    A KMS key is scheduled for deletion. Any data encrypted under it becomes
+    permanently inaccessible after the waiting period — recoverable only via
+    CancelKeyDeletion before then.
+  severity: critical
+  tags: [kms, data-loss, aws, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: kms.key.delete_scheduled
+
+# =========================================================================
+# notify:high — Slack warn, look within an hour
+# =========================================================================
+
 - id: aws-access-key-created
   title: IAM access key created
   description: A long-lived access key was created; review whether it is needed.
-  severity: medium
-  tags: [iam, credentials, aws]
+  severity: high
+  tags: [iam, credentials, aws, "notify:high"]
   match:
     field: action
     op: equals
     value: iam.access_key.create
 
-- id: aws-iam-user-created
-  title: IAM user created
-  severity: low
-  tags: [iam, aws]
-  match:
-    field: action
-    op: equals
-    value: iam.user.create
-
 - id: aws-login-profile-created
   title: Console login profile created
-  description: A console password was set for an IAM user — possible persistence.
-  severity: medium
-  tags: [iam, persistence, aws]
+  description: A console password was set on an IAM user — possible persistence.
+  severity: high
+  tags: [iam, persistence, aws, "notify:high"]
   match:
     field: action
     op: equals
@@ -49,7 +102,7 @@
   title: Inline policy granting wildcard permissions
   description: An inline policy with Action/Resource "*" was attached to a principal.
   severity: high
-  tags: [iam, privilege-escalation, aws]
+  tags: [iam, privilege-escalation, aws, "notify:high"]
   match:
     all:
       - field: action
@@ -59,91 +112,65 @@
         op: equals
         value: true
 
-- id: aws-role-trust-modified
-  title: Role trust policy modified
-  description: An assume-role trust policy was changed — possible backdoor / cross-account access.
-  severity: high
-  tags: [iam, privilege-escalation, persistence, aws]
-  match:
-    field: action
-    op: equals
-    value: iam.role.update_trust
-
-- id: aws-mfa-removed
-  title: MFA device removed
-  description: An MFA device was deactivated or deleted — weakens an identity.
-  severity: high
-  tags: [iam, mfa, aws]
-  match:
-    field: action
-    op: in
-    value: [iam.mfa.deactivate, iam.mfa.delete]
-
-- id: aws-cloudtrail-tampering
-  title: CloudTrail logging tampered with
-  description: CloudTrail was stopped, deleted, or modified — likely anti-forensics.
-  severity: critical
-  tags: [audit, anti-forensics, aws]
-  match:
-    field: action
-    op: in
-    value: [cloudtrail.logging.stop, cloudtrail.trail.delete, cloudtrail.trail.update]
-
-- id: aws-root-activity
-  title: Root account activity
-  description: >
-    The root account did something. Root should be locked away in a vault —
-    anything it does is worth a look, success or failure.
-  severity: high
-  tags: [iam, root, aws]
-  match:
-    field: actor.is_root
-    op: equals
-    value: true
-
 - id: aws-kms-key-disabled
   title: KMS key disabled
   description: A KMS key was disabled — data encrypted under it can no longer be decrypted until re-enabled.
   severity: high
-  tags: [kms, data-loss, aws]
+  tags: [kms, data-loss, aws, "notify:high"]
   match:
     field: action
     op: equals
     value: kms.key.disable
 
+# =========================================================================
+# notify:medium — daily review channel
+# =========================================================================
+
+- id: aws-iam-user-created
+  title: IAM user created
+  description: A new IAM user was created — review who and why.
+  severity: medium
+  tags: [iam, aws, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: iam.user.create
+
+- id: aws-iam-role-created
+  title: IAM role created
+  description: A new IAM role was created — review the trust policy.
+  severity: medium
+  tags: [iam, aws, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: iam.role.create
+
+- id: aws-iam-boundary-changed
+  title: IAM permissions boundary changed
+  description: A permissions boundary was set or removed on a user/role — subtle privilege expansion.
+  severity: medium
+  tags: [iam, privilege-escalation, aws, "notify:medium"]
+  match:
+    field: action
+    op: in
+    value:
+      - iam.role.boundary.put
+      - iam.role.boundary.delete
+      - iam.user.boundary.put
+      - iam.user.boundary.delete
+
 - id: aws-kms-grant-created
   title: KMS grant created
   description: >
-    A KMS grant was issued — this gives the grantee principal cross-account
-    decrypt rights without modifying the key policy. Sneaky data-access vector.
+    A KMS grant was issued — gives the grantee principal cross-account decrypt
+    rights without modifying the key policy. Sneaky data-access vector.
   severity: medium
-  tags: [kms, persistence, aws]
+  tags: [kms, persistence, aws, "notify:medium"]
   match:
     field: action
     op: equals
     value: kms.grant.create
-
-- id: aws-igw-attached
-  title: Internet gateway attached
-  description: An internet gateway was attached to a VPC — this VPC now has a path to the public internet.
-  severity: medium
-  tags: [network, exfil, aws]
-  match:
-    field: action
-    op: equals
-    value: network.igw.attach
-
-- id: aws-vpc-peering-accepted
-  title: VPC peering connection accepted
-  description: >
-    A VPC peering connection was accepted — your VPC is now talking to another VPC.
-    Make sure both ends are yours.
-  severity: high
-  tags: [network, lateral-movement, aws]
-  match:
-    field: action
-    op: equals
-    value: network.peering.accept
 
 - id: aws-cloudtrail-region-deviation
   title: Activity in unexpected region
@@ -152,7 +179,7 @@
     teammate is testing somewhere new, or someone is using a fresh region to
     avoid your detections.
   severity: medium
-  tags: [audit, aws]
+  tags: [audit, aws, "notify:medium"]
   match:
     all:
       - field: source.module

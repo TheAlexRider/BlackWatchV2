@@ -4,7 +4,7 @@
   title: Root account used
   description: Any activity by the AWS root identity is high-signal by default.
   severity: critical
-  tags: [auth, root, aws]
+  tags: [auth, root, aws, "notify:critical"]
   match:
     field: actor.is_root
     op: equals
@@ -28,7 +28,7 @@
   title: Console login without MFA
   description: A successful console login where MFA was not used.
   severity: high
-  tags: [auth, mfa, aws]
+  tags: [auth, mfa, aws, "notify:high"]
   match:
     all:
       - field: action
