@@ -204,6 +204,11 @@ _TIERS = {"http_alive": check_http_alive, "tcp": check_tcp}
 async def run_all_checks() -> list[dict]:
     tasks = []
     for t in _targets:
+        # Skip targets discovery flagged as un-probeable (no Cloud Map DNS,
+        # desiredCount=0, etc.). They still exist in BW's inventory but
+        # there's no productive probe to run against them.
+        if t.get("enabled") is False:
+            continue
         fn = _TIERS.get(t.get("tier"))
         if fn is None:
             continue

@@ -42,7 +42,8 @@
       "Bash(python -c \"from blackwatch import storage, api; from blackwatch.services import projection; print\\('imports OK'\\)\")",
       "Bash(python -c \"from blackwatch import api; from scripts import ecs_discover; print\\('imports OK'\\)\")",
       "Bash(python -c \"from scripts import ecs_probe, ecs_discover; from blackwatch.connectors import aws_ecs_probe_sqs; print\\('imports OK'\\)\")",
-      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('syntax OK'\\)\")"
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('OK'\\)\")"
     ]
   }
 }

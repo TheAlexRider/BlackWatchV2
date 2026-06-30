@@ -63,6 +63,9 @@ def _sync_targets_from_ssm(cfg: AwsEcsProbeSqsConfig, session) -> None:
             continue
         tid = t.get("id") or _derive_target_id(cfg.vpc, name)
         seen_ids.add(tid)
+        # `enabled` comes from discovery: false when the target has no
+        # resolvable DNS or AWS desiredCount==0. Probe respects this and
+        # skips, but the row stays visible in BW for inventory.
         storage.upsert_probe_target(
             tid,
             name=name,
@@ -71,7 +74,7 @@ def _sync_targets_from_ssm(cfg: AwsEcsProbeSqsConfig, session) -> None:
             config=t.get("config") or {},
             severity_when_down=t.get("severity_when_down") or "medium",
             tags=t.get("tags") or {},
-            enabled=True,
+            enabled=bool(t.get("enabled", True)),
         )
     # Anything left in probe_targets for this VPC that SSM no longer lists:
     # mark disabled so it stops showing up as a live target but its history

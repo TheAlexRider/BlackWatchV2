@@ -212,8 +212,10 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
 
             # Cloud Map service discovery — resolves to the real DNS name the
             # probe should hit (e.g. `web-backend.dev.local`). Bare service
-            # names don't resolve, so falling back to them would produce
-            # uniformly DOWN targets.
+            # names don't resolve. Services WITHOUT a Cloud Map registration
+            # are flagged disabled below so the probe doesn't waste cycles
+            # forever-failing on them (the row stays visible in BW so the
+            # operator can see it exists).
             cloudmap_name: str | None = None
             for reg in svc.get("serviceRegistries") or []:
                 arn = reg.get("registryArn")
@@ -228,6 +230,13 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
             role = _role_tag(name)
             sev = _severity(vpc, role)
 
+            # Disable services we know we cannot meaningfully probe:
+            #   * No Cloud Map registration (bare-name targets DNS-fail forever)
+            #   * desiredCount == 0 (intentionally not running)
+            # Disabled targets stay in BW for inventory but the probe skips them.
+            probeable = bool(cloudmap_name) and aws_desired > 0
+            no_dns = (tier in ("http_alive", "tcp")) and not cloudmap_name
+
             # Build a per-service target row. Tags carry AWS state so the BW
             # archive predicate can use them without needing its own ECS perms.
             row: dict[str, Any] = {
@@ -235,11 +244,13 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
                 "vpc": vpc,
                 "tier": tier,
                 "severity_when_down": sev,
+                "enabled": probeable,
                 "tags": {
                     "env": vpc,
                     "role": role,
                     "aws_desired": str(aws_desired),
                     "aws_running": str(aws_running),
+                    **({"no_dns": "true"} if no_dns else {}),
                 },
             }
             if tier == "http_alive":
@@ -343,6 +354,7 @@ def _ssm_payload(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "config": t["config"],
             "tags": t.get("tags") or {},
             "severity_when_down": t.get("severity_when_down") or "medium",
+            "enabled": bool(t.get("enabled", True)),
         })
     return out
 
