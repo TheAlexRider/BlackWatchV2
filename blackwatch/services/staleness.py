@@ -26,6 +26,7 @@ def check() -> None:
         if age <= STALE_AFTER_SECONDS:
             continue
         vpc = a["vpc"]
+        age_min = int(age // 60)
         event = Event(
             source=Source(module="ecs.probe", transport=Transport.poll),
             event_time=now,
@@ -37,6 +38,12 @@ def check() -> None:
                 "vpc": vpc,
                 "last_report": updated.isoformat(),
                 "age_seconds": int(age),
+                # Friendly headline -- the entire VPC's HTTP/TCP visibility
+                # depends on this probe; failure here is high-leverage signal.
+                "message": (
+                    f"{vpc}: probe agent went silent — no reports for "
+                    f"{age_min} min (whole VPC's probe-based monitoring is offline)"
+                ),
             },
             raw={"derived": "staleness"},
         )

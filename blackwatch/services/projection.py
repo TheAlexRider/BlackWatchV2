@@ -26,6 +26,34 @@ from ..event import Category, Event, Outcome, Source, Target, Transport
 
 _MODULE = "ecs.probe"
 
+
+def _friendly_service_message(action: str, vpc: str, name: str,
+                              error: str | None) -> str:
+    """Produce a Slack/Discord-friendly headline so alerts don't read as
+    `service.down on api`. We include VPC + service name + a short hint
+    about the failure mode so the recipient can triage without opening BW."""
+    err_l = (error or "").lower()
+    if action == "service.down":
+        if "timed out" in err_l or "timeout" in err_l:
+            hint = "timeout"
+        elif "refused" in err_l or "reset" in err_l:
+            hint = "connection refused"
+        elif "name or service not known" in err_l or "name resolution" in err_l:
+            hint = "DNS lookup failed"
+        elif error and error.startswith("HTTP 5"):
+            hint = error
+        elif error:
+            hint = error[:60]
+        else:
+            hint = "no response"
+        return f"{vpc}: {name} went DOWN ({hint})"
+    if action == "service.degraded":
+        suffix = f" ({error})" if error else ""
+        return f"{vpc}: {name} is degraded{suffix}"
+    if action == "service.up":
+        return f"{vpc}: {name} recovered (UP)"
+    return action
+
 # How many consecutive failed probes before declaring a target `down`.
 # 2 = first jitter absorbed, second confirms — fast enough but kills noise.
 DOWN_THRESHOLD = 2
@@ -143,6 +171,10 @@ def _project_result(event: Event) -> list[Event]:
                 "target_id": target_id, "prev_status": prev_status,
                 "status": effective, "latency_ms": latency_ms,
                 "error": e.get("error"),
+                # Friendly headline -- the notification templates render
+                # `event.extra.message` ahead of `event.action`, so this is
+                # what shows up in Slack/Discord/Teams.
+                "message": _friendly_service_message(action, vpc, name, e.get("error")),
             }
             # Promote target's tags onto the derived event so per-env routing
             # works (e.g. service-down-prod-critical rule).
