@@ -279,7 +279,9 @@ function ServiceStatusPill({ status }: { status: string }) {
     up: { color: "bg-sev-resolved", label: "up" },
     down: { color: "bg-sev-critical", label: "DOWN" },
     degraded: { color: "bg-sev-medium", label: "degraded" },
-    unknown: { color: "bg-fg-subtle", label: "unknown" },
+    // unknown = unprobeable but AWS still wants it running. Yellow to
+    // signal "we can't see, look at AWS state".
+    unknown: { color: "bg-sev-medium", label: "unknown" },
     disabled: { color: "bg-fg-disabled", label: "disabled" },
   };
   const { color, label } = map[status] ?? map.unknown;

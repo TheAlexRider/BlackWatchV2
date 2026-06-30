@@ -230,12 +230,20 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
             role = _role_tag(name)
             sev = _severity(vpc, role)
 
-            # Disable services we know we cannot meaningfully probe:
-            #   * No Cloud Map registration (bare-name targets DNS-fail forever)
-            #   * desiredCount == 0 (intentionally not running)
-            # Disabled targets stay in BW for inventory but the probe skips them.
-            probeable = bool(cloudmap_name) and aws_desired > 0
+            # Two reasons a target won't be probed:
+            #   (a) Unprobeable: no port (ecs_running) or no Cloud Map DNS.
+            #       AWS may still consider it running -- the BW UI renders it
+            #       as `unknown` (yellow) in the live table so operator sees
+            #       aws_desired/aws_running without us pretending it's DOWN.
+            #   (b) Intentionally off: desiredCount == 0. The operator scaled
+            #       it to zero -- BW renders as `disabled` and ships to archive.
+            unprobeable = (tier == "ecs_running") or (
+                tier in ("http_alive", "tcp") and not cloudmap_name
+            )
             no_dns = (tier in ("http_alive", "tcp")) and not cloudmap_name
+            # `enabled=False` tells the probe to skip; the API uses aws_desired
+            # to decide whether to render as `unknown` (live) or `disabled` (archive).
+            probeable = (not unprobeable) and aws_desired > 0
 
             # Build a per-service target row. Tags carry AWS state so the BW
             # archive predicate can use them without needing its own ECS perms.
@@ -335,27 +343,30 @@ def _emit_env_block(vpc: str, cluster: str, region: str, info: dict[str, Any]) -
 def _ssm_payload(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Shape the targets list the way the in-VPC probe + BW connector expect.
 
-    The parameter is bounded to 8KB (SSM Advanced). Keep it tight:
-      * `id` is OMITTED -- both consumers re-derive it as uuid5(NAMESPACE_URL,
-        f"bw-ecs-probe::{vpc}::{name}"). Saves ~45 bytes/target.
-      * `vpc` is OMITTED -- it's implicit in the parameter path, and the
-        consumer's config supplies its own VPC label.
-
-    Carried fields: name (probe needs it for logging + id derivation), tier
-    (probe routes to the right check), config (probe runs the actual check),
-    tags + severity (BW-side metadata for UI + notification routing)."""
+    Bounded to 8KB (SSM Advanced ceiling). Every byte saved is one less risk
+    of hitting the limit as service counts grow:
+      * `id` OMITTED -- both consumers re-derive via uuid5(NAMESPACE_URL,
+        f"bw-ecs-probe::{vpc}::{name}").
+      * `vpc` OMITTED -- implicit in the parameter path.
+      * `tags.env` OMITTED -- always equals VPC. Connector re-adds it.
+      * `enabled` OMITTED when True (default). Only emit when False.
+      * `severity_when_down` OMITTED -- connector re-derives from (vpc, role).
+    Tags that *are* carried: role (for notification routing), aws_desired,
+    aws_running (for archive logic and UI), no_dns when set."""
     out: list[dict[str, Any]] = []
     for t in targets:
-        if t["tier"] not in ("http_alive", "tcp"):
-            continue  # ecs_running tier is handled by BW-side reader, not probe
-        out.append({
+        # Strip tags.env -- the connector pins VPC from its own config.
+        tags = dict(t.get("tags") or {})
+        tags.pop("env", None)
+        row: dict[str, Any] = {
             "name": t["name"],
             "tier": t["tier"],
             "config": t["config"],
-            "tags": t.get("tags") or {},
-            "severity_when_down": t.get("severity_when_down") or "medium",
-            "enabled": bool(t.get("enabled", True)),
-        })
+            "tags": tags,
+        }
+        if not t.get("enabled", True):
+            row["enabled"] = False
+        out.append(row)
     return out
 
 

@@ -26,6 +26,25 @@ def _derive_target_id(vpc: str, name: str) -> str:
     stay under the 8KB ceiling; both sides re-derive the same UUID."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"bw-ecs-probe::{vpc}::{name}"))
 
+
+# Default per-target severity_when_down. Mirrors scripts/ecs_discover.py so
+# the connector can compute a sensible default when SSM omits the field (SSM
+# 8KB limit -- carrying severity per-target was eating ~25 bytes/target).
+_DEFAULT_SEVERITY = {
+    ("prod", "api"):     "critical",
+    ("prod", "db"):      "critical",
+    ("prod", "worker"):  "high",
+    ("prod", "other"):   "high",
+    ("dev", "api"):      "high",
+    ("dev", "db"):       "high",
+    ("dev", "worker"):   "medium",
+    ("dev", "other"):    "medium",
+}
+
+
+def _default_severity(vpc: str, role: str | None) -> str:
+    return _DEFAULT_SEVERITY.get((vpc, role or "other"), "medium")
+
 _log = logging.getLogger(__name__)
 
 
@@ -63,17 +82,22 @@ def _sync_targets_from_ssm(cfg: AwsEcsProbeSqsConfig, session) -> None:
             continue
         tid = t.get("id") or _derive_target_id(cfg.vpc, name)
         seen_ids.add(tid)
-        # `enabled` comes from discovery: false when the target has no
-        # resolvable DNS or AWS desiredCount==0. Probe respects this and
-        # skips, but the row stays visible in BW for inventory.
+        # SSM payload may omit env tag (always == vpc), enabled when True
+        # (default), and severity_when_down (computed here). Re-hydrate before
+        # writing into probe_targets so the UI + notification routing see the
+        # full picture.
+        tags = dict(t.get("tags") or {})
+        tags.setdefault("env", cfg.vpc)
+        role = tags.get("role")
+        severity = t.get("severity_when_down") or _default_severity(cfg.vpc, role)
         storage.upsert_probe_target(
             tid,
             name=name,
             vpc=cfg.vpc,                   # pin VPC to the connector, not the payload
             tier=t.get("tier") or "unknown",
             config=t.get("config") or {},
-            severity_when_down=t.get("severity_when_down") or "medium",
-            tags=t.get("tags") or {},
+            severity_when_down=severity,
+            tags=tags,
             enabled=bool(t.get("enabled", True)),
         )
     # Anything left in probe_targets for this VPC that SSM no longer lists:

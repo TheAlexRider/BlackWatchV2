@@ -699,19 +699,29 @@ def services_list() -> dict[str, Any]:
             "down_since": down_since_dt.isoformat() if down_since_dt else None,
         })
 
-    # Effective status: disabled targets render as 'disabled' regardless of
-    # what their last probed status was (the probe stopped checking them, so
-    # the stored 'down' is stale by definition).
+    # Effective status for non-probed targets:
+    #   * desiredCount=0   -> 'disabled' (operator turned it off -> archive)
+    #   * everything else  -> 'unknown'  (we can't probe it, but AWS still
+    #                                     wants it running -> stays in live
+    #                                     table with aws_desired/aws_running
+    #                                     visible)
+    # The stored 'down' from before we flagged them is stale by definition,
+    # so we overwrite here.
     for r in rows:
         if not r.get("enabled"):
-            r["status"] = "disabled"
+            aws_desired = (r.get("tags") or {}).get("aws_desired", "1")
+            r["status"] = "disabled" if aws_desired == "0" else "unknown"
 
     def _is_archived(r: dict[str, Any]) -> bool:
+        # Disabled = aws_desired==0 = operator turned it off -> archive.
+        # Unknown stays in the live table (operator wants to see AWS state).
+        if r["status"] == "disabled":
+            return True
         if r["status"] not in ("down", "degraded"):
             return False
-        # Fast path: AWS says this service is intentionally not running
-        # (desiredCount==0). No reason to wait out the down-since timer --
-        # an operator scaled it to zero, treat it as archived from the start.
+        # Fast path retained for safety: an enabled target whose tag still
+        # says aws_desired==0 (e.g. a stale row before the next sync) is
+        # still treated as archived.
         if (r.get("tags") or {}).get("aws_desired") == "0":
             return True
         ds = (statuses.get(r["id"]) or {}).get("down_since")
