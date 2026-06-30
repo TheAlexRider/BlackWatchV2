@@ -36,7 +36,8 @@
       "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import load_rules; from collections import Counter; rules = load_rules\\('rules'\\); print\\(f'Total rules: {len\\(rules\\)}'\\); tier = Counter\\(\\); [tier.update\\([t for t in \\(r.tags or []\\) if t.startswith\\('notify:'\\)]\\) for r in rules]; print\\('Notify tiers:', dict\\(tier\\)\\); print\\('No-notify rules \\(log only\\):', sum\\(1 for r in rules if not any\\(t.startswith\\('notify:'\\) for t in \\(r.tags or []\\)\\)\\)\\)\")",
       "Bash(aws ecs *)",
       "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import load_rules; from collections import Counter; rules = load_rules\\('rules'\\); tier = Counter\\(\\); [tier.update\\([t for t in \\(r.tags or []\\) if t.startswith\\('notify:'\\)]\\) for r in rules]; print\\(f'Total: {len\\(rules\\)} rules. Notify tiers: {dict\\(tier\\)}'\\)\")",
-      "Bash(python -c \"from blackwatch import config, api; from blackwatch.connectors import runner, aws_ecs_probe_sqs, models; print\\('imports OK'\\)\")"
+      "Bash(python -c \"from blackwatch import config, api; from blackwatch.connectors import runner, aws_ecs_probe_sqs, models; print\\('imports OK'\\)\")",
+      "Bash(python -c \"from blackwatch.connectors import aws_ecs_probe_sqs, models, runner; from scripts import ecs_discover; print\\('imports OK'\\)\")"
     ]
   }
 }

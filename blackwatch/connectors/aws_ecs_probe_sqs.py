@@ -16,23 +16,73 @@ import json
 import logging
 from typing import Any
 
-from .. import pipeline
+from .. import pipeline, storage
 from .models import AwsEcsProbeSqsConfig
 
 _log = logging.getLogger(__name__)
 
 
-def _client(cfg: AwsEcsProbeSqsConfig):
+def _session(cfg: AwsEcsProbeSqsConfig):
     import boto3  # lazy import — keeps the app runnable without boto3 installed
 
-    session = boto3.session.Session(
+    return boto3.session.Session(
         profile_name=cfg.aws_profile or None, region_name=cfg.aws_region
     )
-    return session.client("sqs")
+
+
+def _sync_targets_from_ssm(cfg: AwsEcsProbeSqsConfig, session) -> None:
+    """Mirror the per-VPC SSM targets parameter into the probe_targets table.
+
+    The probe runs off the SSM list directly; BW stores a copy because the UI
+    joins probe_targets WITH service_status, and because the projection reads
+    each target's tags off probe_targets to route notifications correctly.
+    Targets removed from SSM are disabled (not deleted) so their status row
+    sticks around for forensic reads."""
+    param_name = cfg.ssm_targets_param or f"/blackwatch/ecs-probe/{cfg.vpc}/targets"
+    try:
+        resp = session.client("ssm").get_parameter(Name=param_name)
+        ssm_targets = json.loads(resp["Parameter"]["Value"])
+        if not isinstance(ssm_targets, list):
+            return
+    except Exception as exc:
+        _log.warning("ecs_probe_sqs.ssm_sync_failed vpc=%s param=%s: %s",
+                     cfg.vpc, param_name, exc)
+        return
+
+    seen_ids: set[str] = set()
+    for t in ssm_targets:
+        tid = t.get("id")
+        if not tid:
+            continue
+        seen_ids.add(tid)
+        storage.upsert_probe_target(
+            tid,
+            name=t.get("name") or tid,
+            vpc=cfg.vpc,                   # pin VPC to the connector, not the payload
+            tier=t.get("tier") or "unknown",
+            config=t.get("config") or {},
+            severity_when_down=t.get("severity_when_down") or "medium",
+            tags=t.get("tags") or {},
+            enabled=True,
+        )
+    # Anything left in probe_targets for this VPC that SSM no longer lists:
+    # mark disabled so it stops showing up as a live target but its history
+    # remains queryable.
+    for existing in storage.list_probe_targets(vpc=cfg.vpc):
+        if existing["id"] not in seen_ids and existing.get("enabled"):
+            storage.upsert_probe_target(
+                existing["id"],
+                name=existing["name"], vpc=existing["vpc"],
+                tier=existing["tier"], config=existing.get("config") or {},
+                severity_when_down=existing.get("severity_when_down") or "medium",
+                tags=existing.get("tags") or {}, enabled=False,
+            )
 
 
 def drain(cfg: AwsEcsProbeSqsConfig) -> dict[str, Any]:
-    sqs = _client(cfg)
+    session = _session(cfg)
+    _sync_targets_from_ssm(cfg, session)
+    sqs = session.client("sqs")
     total_messages = 0
     total_ingested = 0
 

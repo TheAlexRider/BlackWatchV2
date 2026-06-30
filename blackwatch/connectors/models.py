@@ -61,6 +61,11 @@ class AwsEcsProbeSqsConfig(BaseModel):
     aws_region: str = "us-west-1"
     aws_profile: str | None = None
     vpc: str                          # which VPC label this queue represents (stamped onto every report)
+    # The connector also mirrors the per-VPC SSM targets parameter into the
+    # probe_targets table on each drain cycle, so the UI and notification
+    # routing see the canonical target list. Defaults to the path setup.ps1
+    # writes; override if you store targets under a different prefix.
+    ssm_targets_param: str | None = None
     interval_seconds: int = 60
     wait_seconds: int = 10            # SQS long-poll wait
     max_batches: int = 5              # safety cap on receive loops per run

@@ -271,21 +271,27 @@ def _emit_env_block(vpc: str, cluster: str, region: str, info: dict[str, Any]) -
 def _ssm_payload(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Shape the targets list the way the in-VPC probe expects.
 
-    The probe only cares about: id, name, tier, config. We assign a stable UUID
-    per target (deterministic on (vpc, name)) so re-running discovery keeps the
-    same id, which keeps the projection's status history continuous.
+    The probe only reads id/name/tier/config to actually run checks. We also
+    include vpc/tags/severity_when_down so the BW-side connector can mirror
+    these into the probe_targets table (the UI and the notification routing
+    both rely on those fields existing per-target). The probe itself ignores
+    the extra keys -- they ride along but don't change probe behavior.
+
+    Deterministic UUID per (vpc, name) keeps re-discovery from resetting IDs.
     """
     out: list[dict[str, Any]] = []
     for t in targets:
         if t["tier"] not in ("http_alive", "tcp"):
             continue  # ecs_running tier is handled by BW-side reader, not probe
-        # Deterministic UUID from (vpc, name) so re-discovery doesn't reset IDs.
         tid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bw-ecs-probe::{t['vpc']}::{t['name']}"))
         out.append({
             "id": tid,
             "name": t["name"],
+            "vpc": t["vpc"],
             "tier": t["tier"],
             "config": t["config"],
+            "tags": t.get("tags") or {},
+            "severity_when_down": t.get("severity_when_down") or "medium",
         })
     return out
 

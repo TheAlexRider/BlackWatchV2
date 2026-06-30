@@ -186,7 +186,7 @@ Write-Host "NEXT -- run discovery to populate the targets parameter:" -Foregroun
 Write-Host "  python -m scripts.ecs_discover --cluster ${CLUSTER}:${VPC} --region $REGION --emit-ssm"
 Write-Host ""
 Write-Host "NEXT -- on the BlackWatch (Lightsail) side, register the connector ONCE:" -ForegroundColor Yellow
-Write-Host "  docker compose exec app python -c `"from blackwatch import storage; import uuid; storage.upsert_connector(str(uuid.uuid4()), 'ECS probe reports ($VPC)', 'aws_ecs_probe_sqs', {'queue_url': '$QUEUE_URL', 'aws_region': '$REGION', 'aws_profile': 'blackwatch', 'vpc': '$VPC', 'interval_seconds': 60, 'wait_seconds': 10, 'max_batches': 5})`""
+Write-Host "  docker compose exec app python -c `"from blackwatch import db, storage; import uuid; db.init_pool(); storage.upsert_connector(str(uuid.uuid4()), 'ECS probe reports ($VPC)', 'aws_ecs_probe_sqs', {'queue_url': '$QUEUE_URL', 'aws_region': '$REGION', 'aws_profile': 'blackwatch', 'vpc': '$VPC', 'interval_seconds': 60, 'wait_seconds': 10, 'max_batches': 5})`""
 Write-Host ""
 Write-Host "Then in the BW UI: enable + test the connector. Verify-on-test reads"
 Write-Host "from the queue once; the scheduler then polls every interval_seconds."
