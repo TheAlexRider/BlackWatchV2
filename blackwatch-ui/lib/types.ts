@@ -656,6 +656,7 @@ export interface ServiceCounts {
   down: number;
   degraded: number;
   unknown: number;
+  disabled: number;
 }
 
 export interface ServicesListResponse {

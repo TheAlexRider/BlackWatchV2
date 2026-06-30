@@ -201,6 +201,13 @@ function CountsLine({ counts }: { counts: ServiceCounts | undefined }) {
           <span className="font-mono">{counts.unknown}</span> unknown
         </>
       )}
+      {counts.disabled > 0 && (
+        <>
+          {" · "}
+          <span className="font-mono text-fg-disabled">{counts.disabled}</span>{" "}
+          disabled
+        </>
+      )}
     </span>
   );
 }
@@ -273,6 +280,7 @@ function ServiceStatusPill({ status }: { status: string }) {
     down: { color: "bg-sev-critical", label: "DOWN" },
     degraded: { color: "bg-sev-medium", label: "degraded" },
     unknown: { color: "bg-fg-subtle", label: "unknown" },
+    disabled: { color: "bg-fg-disabled", label: "disabled" },
   };
   const { color, label } = map[status] ?? map.unknown;
   const emphatic = status === "down";

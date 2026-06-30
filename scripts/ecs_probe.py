@@ -231,6 +231,14 @@ def build_report(results: list[dict]) -> dict:
 
 
 def send(payload: dict) -> None:
+    # Log each failure inline so CloudWatch shows the real error string
+    # without needing to dig through BW's stored state. Bounded: at most one
+    # log line per failing target per cycle.
+    for r in payload["results"]:
+        if r["status"] in ("down", "degraded"):
+            err = r.get("error") or "(no error msg)"
+            print(f"  {r['status']:8} {r['name']} ({r['tier']}): {err}",
+                  file=sys.stderr)
     try:
         _sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps(payload))
         up = sum(1 for r in payload["results"] if r["status"] == "up")

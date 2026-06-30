@@ -699,6 +699,13 @@ def services_list() -> dict[str, Any]:
             "down_since": down_since_dt.isoformat() if down_since_dt else None,
         })
 
+    # Effective status: disabled targets render as 'disabled' regardless of
+    # what their last probed status was (the probe stopped checking them, so
+    # the stored 'down' is stale by definition).
+    for r in rows:
+        if not r.get("enabled"):
+            r["status"] = "disabled"
+
     def _is_archived(r: dict[str, Any]) -> bool:
         if r["status"] not in ("down", "degraded"):
             return False
@@ -716,18 +723,21 @@ def services_list() -> dict[str, Any]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for r in live:
         grouped.setdefault(r["vpc"], []).append(r)
-    # Sort each VPC's table: DOWN/degraded first, then by tier alpha, then name alpha.
-    _STATUS_ORDER = {"down": 0, "degraded": 1, "unknown": 2, "up": 3}
+    # Sort each VPC's table: DOWN/degraded first, unknown next, up next,
+    # disabled sinks to the bottom (it's inventory, not a live signal).
+    _STATUS_ORDER = {"down": 0, "degraded": 1, "unknown": 2, "up": 3, "disabled": 9}
     for vpc_rows in grouped.values():
         vpc_rows.sort(key=lambda r: (
-            _STATUS_ORDER.get(r["status"], 9), r["tier"], r["name"].lower(),
+            _STATUS_ORDER.get(r["status"], 5), r["tier"], r["name"].lower(),
         ))
     archived.sort(key=lambda r: (r["vpc"], r["tier"], r["name"].lower()))
 
-    # Per-VPC count summary for the panel headers.
+    # Per-VPC count summary for the panel headers. Disabled is its own bucket
+    # so the user can see "5 disabled" without it muddying the up/down ratio.
     counts: dict[str, dict[str, int]] = {}
     for vpc, vpc_rows in grouped.items():
-        c = {"total": len(vpc_rows), "up": 0, "down": 0, "degraded": 0, "unknown": 0}
+        c = {"total": len(vpc_rows), "up": 0, "down": 0, "degraded": 0,
+             "unknown": 0, "disabled": 0}
         for r in vpc_rows:
             c[r["status"]] = c.get(r["status"], 0) + 1
         counts[vpc] = c
