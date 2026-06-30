@@ -646,12 +646,24 @@ export interface ServiceTarget {
   stale: boolean;
   latency_ms: number | null;
   consecutive_fails: number;
+  down_since: string | null;
   config?: Record<string, unknown> | null;
+}
+
+export interface ServiceCounts {
+  total: number;
+  up: number;
+  down: number;
+  degraded: number;
+  unknown: number;
 }
 
 export interface ServicesListResponse {
   agents: ProbeAgent[];
   grouped: Record<string, ServiceTarget[]>;
+  counts: Record<string, ServiceCounts>;
+  archived: ServiceTarget[];
+  archive_threshold_days: number;
 }
 
 // --- Rules + noise --------------------------------------------------------

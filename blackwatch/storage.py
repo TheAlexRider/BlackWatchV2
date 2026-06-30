@@ -810,7 +810,7 @@ def delete_probe_target(target_id: str) -> None:
 
 
 _SS_COLS = ("target_id, vpc, name, tier, status, last_seen, latency_ms, "
-            "consecutive_fails, consecutive_success, extra")
+            "consecutive_fails, consecutive_success, down_since, extra")
 
 
 def _ss_row(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -818,7 +818,8 @@ def _ss_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "target_id": str(row[0]), "vpc": row[1], "name": row[2], "tier": row[3],
         "status": row[4], "last_seen": row[5], "latency_ms": row[6],
         "consecutive_fails": row[7], "consecutive_success": row[8],
-        "extra": row[9] or {},
+        "down_since": row[9],
+        "extra": row[10] or {},
     }
 
 
@@ -845,6 +846,7 @@ def upsert_service_status(
     target_id: str, *, vpc: str, name: str, tier: str,
     status: str, last_seen: datetime, latency_ms: int | None,
     consecutive_fails: int, consecutive_success: int,
+    down_since: datetime | None,
     extra: dict[str, Any] | None,
 ) -> None:
     with get_pool().connection() as conn:
@@ -852,18 +854,19 @@ def upsert_service_status(
             """
             INSERT INTO service_status
               (target_id, vpc, name, tier, status, last_seen, latency_ms,
-               consecutive_fails, consecutive_success, extra)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               consecutive_fails, consecutive_success, down_since, extra)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (target_id) DO UPDATE
               SET vpc=EXCLUDED.vpc, name=EXCLUDED.name, tier=EXCLUDED.tier,
                   status=EXCLUDED.status, last_seen=EXCLUDED.last_seen,
                   latency_ms=EXCLUDED.latency_ms,
                   consecutive_fails=EXCLUDED.consecutive_fails,
                   consecutive_success=EXCLUDED.consecutive_success,
+                  down_since=EXCLUDED.down_since,
                   extra=EXCLUDED.extra
             """,
             (target_id, vpc, name, tier, status, last_seen, latency_ms,
-             consecutive_fails, consecutive_success, Jsonb(extra or {})),
+             consecutive_fails, consecutive_success, down_since, Jsonb(extra or {})),
         )
 
 

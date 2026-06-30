@@ -662,10 +662,18 @@ def _validate_perf_payload(p: dict[str, Any]) -> None:
         raise HTTPException(status_code=400, detail="throttle_seconds must be >= 0")
 
 
+_SERVICE_ARCHIVE_AFTER = timedelta(days=7)
+
+
 @router.get("/services")
 def services_list() -> dict[str, Any]:
     """Probe-target inventory grouped by VPC, joined with current status, plus
-    the per-VPC probe-agent health table."""
+    the per-VPC probe-agent health table.
+
+    Services in `down`/`degraded` for >= _SERVICE_ARCHIVE_AFTER are split out
+    into a single `archived` list so the per-VPC tables stay focused on the
+    live surface. Archived services rejoin their VPC's grouping the moment
+    they probe `up` again (down_since clears, archive predicate fails)."""
     now = datetime.now(timezone.utc)
     targets = {t["id"]: t for t in storage.list_probe_targets()}
     statuses = {s["target_id"]: s for s in storage.list_service_status()}
@@ -673,6 +681,7 @@ def services_list() -> dict[str, Any]:
     for tid, t in targets.items():
         s = statuses.get(tid)
         last_seen_dt = (s or {}).get("last_seen")
+        down_since_dt = (s or {}).get("down_since")
         if last_seen_dt:
             age = int((now - last_seen_dt).total_seconds())
             stale = age > _HOST_STALE_AFTER
@@ -687,11 +696,37 @@ def services_list() -> dict[str, Any]:
             "stale": stale,
             "latency_ms": (s or {}).get("latency_ms"),
             "consecutive_fails": (s or {}).get("consecutive_fails") or 0,
+            "down_since": down_since_dt.isoformat() if down_since_dt else None,
         })
-    rows.sort(key=lambda x: (x["vpc"], x["name"]))
+
+    def _is_archived(r: dict[str, Any]) -> bool:
+        if r["status"] not in ("down", "degraded"):
+            return False
+        ds = (statuses.get(r["id"]) or {}).get("down_since")
+        return bool(ds and (now - ds) >= _SERVICE_ARCHIVE_AFTER)
+
+    archived = [r for r in rows if _is_archived(r)]
+    live = [r for r in rows if not _is_archived(r)]
+
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
+    for r in live:
         grouped.setdefault(r["vpc"], []).append(r)
+    # Sort each VPC's table: DOWN/degraded first, then by tier alpha, then name alpha.
+    _STATUS_ORDER = {"down": 0, "degraded": 1, "unknown": 2, "up": 3}
+    for vpc_rows in grouped.values():
+        vpc_rows.sort(key=lambda r: (
+            _STATUS_ORDER.get(r["status"], 9), r["tier"], r["name"].lower(),
+        ))
+    archived.sort(key=lambda r: (r["vpc"], r["tier"], r["name"].lower()))
+
+    # Per-VPC count summary for the panel headers.
+    counts: dict[str, dict[str, int]] = {}
+    for vpc, vpc_rows in grouped.items():
+        c = {"total": len(vpc_rows), "up": 0, "down": 0, "degraded": 0, "unknown": 0}
+        for r in vpc_rows:
+            c[r["status"]] = c.get(r["status"], 0) + 1
+        counts[vpc] = c
+
     agents = []
     for a in storage.list_probe_agents():
         last_report = a["last_report"].isoformat() if a.get("last_report") else None
@@ -701,7 +736,13 @@ def services_list() -> dict[str, Any]:
             "agent_version": a.get("agent_version"),
             "last_report": last_report,
         })
-    return {"agents": agents, "grouped": grouped}
+    return {
+        "agents": agents,
+        "grouped": grouped,
+        "counts": counts,
+        "archived": archived,
+        "archive_threshold_days": int(_SERVICE_ARCHIVE_AFTER.total_seconds() // 86400),
+    }
 
 
 _HOST_AUTH_ACTIONS = {

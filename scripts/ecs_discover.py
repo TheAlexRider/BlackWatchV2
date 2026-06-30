@@ -112,10 +112,47 @@ def _yaml_escape(v: str) -> str:
     return v if re.match(r"^[A-Za-z0-9_./-]+$", v) else f'"{v}"'
 
 
+def _resolve_cloudmap_dns(registry_arn: str, sd, ns_cache: dict[str, str]) -> str | None:
+    """Turn a service-registry ARN into the actual DNS hostname the probe should
+    use. Cloud Map private namespaces register `<service>.<namespace>` in the
+    VPC's resolver, but the ECS API only exposes the registry ARN, so we have
+    to follow it through servicediscovery to get the namespace name.
+
+    Returns None if the ARN can't be resolved (rare -- usually means the
+    service uses an A-record namespace we don't support yet)."""
+    # registryArn: arn:aws:servicediscovery:region:acct:service/srv-xxxxx
+    try:
+        srv_id = registry_arn.rsplit("/", 1)[1]
+    except IndexError:
+        return None
+    try:
+        srv = sd.get_service(Id=srv_id).get("Service") or {}
+    except Exception:
+        return None
+    ns_id = srv.get("NamespaceId")
+    srv_name = srv.get("Name")
+    if not ns_id or not srv_name:
+        return None
+    ns_name = ns_cache.get(ns_id)
+    if ns_name is None:
+        try:
+            ns = sd.get_namespace(Id=ns_id).get("Namespace") or {}
+            ns_name = ns.get("Name") or ""
+            ns_cache[ns_id] = ns_name
+        except Exception:
+            ns_cache[ns_id] = ""
+            return None
+    if not ns_name:
+        return None
+    return f"{srv_name}.{ns_name}"
+
+
 def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
     """Returns a dict with: subnets, security_groups, targets (list of dicts)."""
     import boto3
     ecs = boto3.client("ecs", region_name=region)
+    sd = boto3.client("servicediscovery", region_name=region)
+    ns_cache: dict[str, str] = {}  # namespace id -> name, shared across the run
 
     arns = []
     paginator = ecs.get_paginator("list_services")
@@ -167,15 +204,19 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
                         ports.append(p)
             ports = sorted(set(ports))
 
-            # Cloud Map service discovery — gives us a usable internal hostname.
-            sr = svc.get("serviceRegistries") or []
+            # Cloud Map service discovery — resolves to the real DNS name the
+            # probe should hit (e.g. `web-backend.dev.local`). Bare service
+            # names don't resolve, so falling back to them would produce
+            # uniformly DOWN targets.
             cloudmap_name: str | None = None
-            if sr:
-                # registryArn looks like:
-                #   arn:aws:servicediscovery:region:acct:service/srv-xxxxx
-                # The actual DNS name has to be looked up separately; we record
-                # the fact that it has Cloud Map so the URL hint is sensible.
-                cloudmap_name = name
+            for reg in svc.get("serviceRegistries") or []:
+                arn = reg.get("registryArn")
+                if not arn:
+                    continue
+                resolved = _resolve_cloudmap_dns(arn, sd, ns_cache)
+                if resolved:
+                    cloudmap_name = resolved
+                    break
 
             tier = "ecs_running" if not ports else _tier_for_port(ports[0])
             role = _role_tag(name)

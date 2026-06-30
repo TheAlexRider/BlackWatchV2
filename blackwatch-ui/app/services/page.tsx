@@ -1,7 +1,11 @@
 import clsx from "clsx";
 
 import { fetchServices } from "@/lib/api";
-import type { ProbeAgent, ServiceTarget } from "@/lib/types";
+import type {
+  ProbeAgent,
+  ServiceCounts,
+  ServiceTarget,
+} from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
@@ -10,10 +14,12 @@ import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 
 export default async function ServicesPage() {
-  const { agents, grouped } = await fetchServices();
+  const { agents, grouped, counts, archived, archive_threshold_days } =
+    await fetchServices();
   const vpcs = Object.keys(grouped).sort();
-  const totalServices = vpcs.reduce(
-    (acc, vpc) => acc + grouped[vpc].length,
+  const totalLive = vpcs.reduce((acc, vpc) => acc + grouped[vpc].length, 0);
+  const totalDown = vpcs.reduce(
+    (acc, vpc) => acc + (counts[vpc]?.down ?? 0) + (counts[vpc]?.degraded ?? 0),
     0,
   );
 
@@ -22,7 +28,7 @@ export default async function ServicesPage() {
       <AutoRefresh intervalMs={15_000} />
       <PageHeader
         title="Services"
-        subtitle={`${totalServices} service${totalServices === 1 ? "" : "s"} across ${vpcs.length} VPC${vpcs.length === 1 ? "" : "s"}`}
+        subtitle={`${totalLive} live · ${totalDown} down · ${archived.length} archived · ${vpcs.length} VPC${vpcs.length === 1 ? "" : "s"}`}
       />
 
       <section className="space-y-2">
@@ -55,9 +61,17 @@ export default async function ServicesPage() {
               key={vpc}
               vpc={vpc}
               services={grouped[vpc]}
+              counts={counts[vpc]}
             />
           ))}
         </div>
+      )}
+
+      {archived.length > 0 && (
+        <ArchivePanel
+          archived={archived}
+          thresholdDays={archive_threshold_days}
+        />
       )}
     </>
   );
@@ -124,17 +138,17 @@ function AgentPill({ active }: { active: boolean }) {
 function VpcPanel({
   vpc,
   services,
+  counts,
 }: {
   vpc: string;
   services: ServiceTarget[];
+  counts: ServiceCounts | undefined;
 }) {
   return (
     <section className="space-y-2">
       <div className="flex items-baseline justify-between">
         <SectionLabel>{vpc}</SectionLabel>
-        <span className="text-[11px] text-fg-subtle">
-          {services.length} service{services.length === 1 ? "" : "s"}
-        </span>
+        <CountsLine counts={counts} />
       </div>
       <DataPanel className="overflow-hidden">
         <table className="w-full table-fixed text-sm">
@@ -158,6 +172,36 @@ function VpcPanel({
         </table>
       </DataPanel>
     </section>
+  );
+}
+
+function CountsLine({ counts }: { counts: ServiceCounts | undefined }) {
+  if (!counts) {
+    return <span className="text-[11px] text-fg-subtle">—</span>;
+  }
+  const bad = counts.down + counts.degraded;
+  return (
+    <span className="text-[11px] text-fg-subtle">
+      <span className="font-mono text-fg-muted">{counts.total}</span> total
+      {bad > 0 && (
+        <>
+          {" · "}
+          <span className="font-mono text-sev-critical">{bad}</span> down
+        </>
+      )}
+      {counts.up > 0 && (
+        <>
+          {" · "}
+          <span className="font-mono text-sev-resolved">{counts.up}</span> up
+        </>
+      )}
+      {counts.unknown > 0 && (
+        <>
+          {" · "}
+          <span className="font-mono">{counts.unknown}</span> unknown
+        </>
+      )}
+    </span>
   );
 }
 
@@ -240,6 +284,117 @@ function ServiceStatusPill({ status }: { status: string }) {
       </span>
     </span>
   );
+}
+
+// =========================================================================
+// archive panel — one collapsible table for services down >= threshold,
+// rendered below all VPC panels regardless of which VPC they belong to.
+// =========================================================================
+
+function ArchivePanel({
+  archived,
+  thresholdDays,
+}: {
+  archived: ServiceTarget[];
+  thresholdDays: number;
+}) {
+  return (
+    <section className="mt-6 space-y-2">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-baseline justify-between rounded-md border border-line-soft bg-surface-1 px-4 py-2.5 hover:bg-surface-2">
+          <span className="flex items-baseline gap-2">
+            <span
+              aria-hidden
+              className="text-fg-subtle transition-transform group-open:rotate-90"
+            >
+              ▸
+            </span>
+            <span className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+              archive
+            </span>
+            <span className="text-xs text-fg-muted">
+              services down for ≥ {thresholdDays} day{thresholdDays === 1 ? "" : "s"}
+            </span>
+          </span>
+          <span className="text-[11px] text-fg-subtle">
+            <span className="font-mono text-fg-muted">{archived.length}</span>{" "}
+            archived
+          </span>
+        </summary>
+        <DataPanel className="mt-2 overflow-hidden">
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                <th className="w-20 px-4 py-2 text-left font-normal">VPC</th>
+                <th className="w-56 px-4 py-2 text-left font-normal">Service</th>
+                <th className="w-32 px-4 py-2 text-left font-normal">Tier</th>
+                <th className="w-32 px-4 py-2 text-left font-normal">Status</th>
+                <th className="w-36 px-4 py-2 text-left font-normal">Down for</th>
+                <th className="w-28 px-4 py-2 text-left font-normal">Sev</th>
+                <th className="px-4 py-2 text-left font-normal">Tags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {archived.map((s) => (
+                <ArchiveRow key={s.id} service={s} />
+              ))}
+            </tbody>
+          </table>
+        </DataPanel>
+      </details>
+    </section>
+  );
+}
+
+function ArchiveRow({ service }: { service: ServiceTarget }) {
+  return (
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
+      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+        {service.vpc}
+      </td>
+      <td className="truncate px-4 py-2.5 text-fg-muted">{service.name}</td>
+      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+        {service.tier}
+      </td>
+      <td className="px-4 py-2.5">
+        <ServiceStatusPill status={service.status} />
+      </td>
+      <td className="px-4 py-2.5 font-mono text-xs text-fg-muted">
+        {formatDownDuration(service.down_since)}
+      </td>
+      <td className="px-4 py-2.5">
+        <SeverityBadge severity={service.severity_when_down} />
+      </td>
+      <td className="truncate px-4 py-2.5 font-mono text-[11px] text-fg-muted">
+        {service.tags && Object.keys(service.tags).length > 0 ? (
+          <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+            {Object.entries(service.tags).map(([k, v]) => (
+              <code key={k}>
+                {k}={v}
+              </code>
+            ))}
+          </span>
+        ) : (
+          "—"
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function formatDownDuration(downSince: string | null): string {
+  if (!downSince) return "—";
+  const since = new Date(downSince).getTime();
+  if (Number.isNaN(since)) return "—";
+  const secs = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  const days = Math.floor(secs / 86400);
+  if (days >= 1) {
+    const hours = Math.floor((secs % 86400) / 3600);
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  const hours = Math.floor(secs / 3600);
+  if (hours >= 1) return `${hours}h`;
+  return `${Math.floor(secs / 60)}m`;
 }
 
 // =========================================================================

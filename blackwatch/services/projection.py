@@ -84,6 +84,7 @@ def _project_result(event: Event) -> list[Event]:
     prev_status = prev["status"] if prev else None
     fails = (prev["consecutive_fails"] if prev else 0)
     succs = (prev["consecutive_success"] if prev else 0)
+    prev_down_since = (prev.get("down_since") if prev else None)
 
     # Hysteresis bookkeeping.
     if incoming_status == "up":
@@ -100,10 +101,20 @@ def _project_result(event: Event) -> list[Event]:
     elif incoming_status in ("down", "degraded") and fails >= DOWN_THRESHOLD:
         effective = incoming_status
 
+    # Track how long the service has been continuously down. Set on the
+    # transition INTO down/degraded (so it survives subsequent down probes),
+    # cleared on transition back to up. Lazy-backfill for pre-migration rows
+    # that came up as down without ever crossing the edge.
+    if effective in ("down", "degraded"):
+        down_since = prev_down_since or when
+    else:
+        down_since = None
+
     storage.upsert_service_status(
         target_id, vpc=vpc, name=name, tier=tier,
         status=effective, last_seen=when, latency_ms=latency_ms,
         consecutive_fails=fails, consecutive_success=succs,
+        down_since=down_since,
         extra={
             "last_raw_status": incoming_status,
             "last_error": e.get("error"),

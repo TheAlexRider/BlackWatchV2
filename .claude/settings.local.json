@@ -37,7 +37,9 @@
       "Bash(aws ecs *)",
       "Bash(.venv/Scripts/python.exe -c \"from blackwatch.rules.engine import load_rules; from collections import Counter; rules = load_rules\\('rules'\\); tier = Counter\\(\\); [tier.update\\([t for t in \\(r.tags or []\\) if t.startswith\\('notify:'\\)]\\) for r in rules]; print\\(f'Total: {len\\(rules\\)} rules. Notify tiers: {dict\\(tier\\)}'\\)\")",
       "Bash(python -c \"from blackwatch import config, api; from blackwatch.connectors import runner, aws_ecs_probe_sqs, models; print\\('imports OK'\\)\")",
-      "Bash(python -c \"from blackwatch.connectors import aws_ecs_probe_sqs, models, runner; from scripts import ecs_discover; print\\('imports OK'\\)\")"
+      "Bash(python -c \"from blackwatch.connectors import aws_ecs_probe_sqs, models, runner; from scripts import ecs_discover; print\\('imports OK'\\)\")",
+      "Bash(python -c \"from scripts import ecs_discover; print\\('OK'\\)\")",
+      "Bash(python -c \"from blackwatch import storage, api; from blackwatch.services import projection; print\\('imports OK'\\)\")"
     ]
   }
 }
