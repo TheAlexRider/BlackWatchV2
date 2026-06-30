@@ -14,10 +14,17 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from .. import pipeline, storage
 from .models import AwsEcsProbeSqsConfig
+
+
+def _derive_target_id(vpc: str, name: str) -> str:
+    """Mirrors the probe agent's id derivation. SSM payload omits `id` to
+    stay under the 8KB ceiling; both sides re-derive the same UUID."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"bw-ecs-probe::{vpc}::{name}"))
 
 _log = logging.getLogger(__name__)
 
@@ -51,13 +58,14 @@ def _sync_targets_from_ssm(cfg: AwsEcsProbeSqsConfig, session) -> None:
 
     seen_ids: set[str] = set()
     for t in ssm_targets:
-        tid = t.get("id")
-        if not tid:
+        name = t.get("name")
+        if not name:
             continue
+        tid = t.get("id") or _derive_target_id(cfg.vpc, name)
         seen_ids.add(tid)
         storage.upsert_probe_target(
             tid,
-            name=t.get("name") or tid,
+            name=name,
             vpc=cfg.vpc,                   # pin VPC to the connector, not the payload
             tier=t.get("tier") or "unknown",
             config=t.get("config") or {},

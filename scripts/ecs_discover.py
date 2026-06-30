@@ -185,6 +185,12 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
         for svc in services:
             name = svc["serviceName"]
             td = td_map.get(svc.get("taskDefinition"), {})
+            # Capture AWS's view of the service so the BW side can archive
+            # "intentionally not running" services immediately instead of
+            # waiting out the 7-day timer. desiredCount == 0 means an operator
+            # explicitly scaled it to nothing -- it's a decision, not a fault.
+            aws_desired = int(svc.get("desiredCount") or 0)
+            aws_running = int(svc.get("runningCount") or 0)
 
             # Network — capture subnets and SGs we'll reuse for the probe agent.
             netcfg = ((svc.get("networkConfiguration") or {})
@@ -222,13 +228,19 @@ def discover(cluster: str, vpc: str, region: str) -> dict[str, Any]:
             role = _role_tag(name)
             sev = _severity(vpc, role)
 
-            # Build a per-service target row.
+            # Build a per-service target row. Tags carry AWS state so the BW
+            # archive predicate can use them without needing its own ECS perms.
             row: dict[str, Any] = {
                 "name": name,
                 "vpc": vpc,
                 "tier": tier,
                 "severity_when_down": sev,
-                "tags": {"env": vpc, "role": role},
+                "tags": {
+                    "env": vpc,
+                    "role": role,
+                    "aws_desired": str(aws_desired),
+                    "aws_running": str(aws_running),
+                },
             }
             if tier == "http_alive":
                 # Prefer Cloud Map name; fall back to bare service name (operator can fix).
@@ -310,25 +322,23 @@ def _emit_env_block(vpc: str, cluster: str, region: str, info: dict[str, Any]) -
 
 
 def _ssm_payload(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Shape the targets list the way the in-VPC probe expects.
+    """Shape the targets list the way the in-VPC probe + BW connector expect.
 
-    The probe only reads id/name/tier/config to actually run checks. We also
-    include vpc/tags/severity_when_down so the BW-side connector can mirror
-    these into the probe_targets table (the UI and the notification routing
-    both rely on those fields existing per-target). The probe itself ignores
-    the extra keys -- they ride along but don't change probe behavior.
+    The parameter is bounded to 8KB (SSM Advanced). Keep it tight:
+      * `id` is OMITTED -- both consumers re-derive it as uuid5(NAMESPACE_URL,
+        f"bw-ecs-probe::{vpc}::{name}"). Saves ~45 bytes/target.
+      * `vpc` is OMITTED -- it's implicit in the parameter path, and the
+        consumer's config supplies its own VPC label.
 
-    Deterministic UUID per (vpc, name) keeps re-discovery from resetting IDs.
-    """
+    Carried fields: name (probe needs it for logging + id derivation), tier
+    (probe routes to the right check), config (probe runs the actual check),
+    tags + severity (BW-side metadata for UI + notification routing)."""
     out: list[dict[str, Any]] = []
     for t in targets:
         if t["tier"] not in ("http_alive", "tcp"):
             continue  # ecs_running tier is handled by BW-side reader, not probe
-        tid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bw-ecs-probe::{t['vpc']}::{t['name']}"))
         out.append({
-            "id": tid,
             "name": t["name"],
-            "vpc": t["vpc"],
             "tier": t["tier"],
             "config": t["config"],
             "tags": t.get("tags") or {},

@@ -42,6 +42,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,12 @@ def _write_cache(targets: list[dict[str, Any]]) -> None:
         print(f"targets cache write failed (non-fatal): {exc}", file=sys.stderr)
 
 
+def _target_id(name: str) -> str:
+    """Deterministic UUID per (VPC, service name). Must match the BW connector's
+    derivation so the same probe target_id flows end-to-end."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"bw-ecs-probe::{VPC}::{name}"))
+
+
 def fetch_targets() -> None:
     """Pull the targets list from SSM. On failure, keep whatever's in memory
     so a temporary SSM blip never causes a 'no targets' false-recovery storm.
@@ -96,6 +103,11 @@ def fetch_targets() -> None:
         if not isinstance(parsed, list):
             print(f"targets param is not a JSON list (got {type(parsed).__name__})", file=sys.stderr)
             return
+        # Re-derive `id` per-target here so the SSM payload can drop it
+        # (saves ~45 bytes/target -- meaningful at the 8KB SSM ceiling).
+        for t in parsed:
+            if isinstance(t, dict) and t.get("name"):
+                t["id"] = _target_id(t["name"])
         _targets = parsed
         _targets_fetched_at = time.time()
         _write_cache(parsed)

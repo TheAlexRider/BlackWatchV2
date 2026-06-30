@@ -702,6 +702,11 @@ def services_list() -> dict[str, Any]:
     def _is_archived(r: dict[str, Any]) -> bool:
         if r["status"] not in ("down", "degraded"):
             return False
+        # Fast path: AWS says this service is intentionally not running
+        # (desiredCount==0). No reason to wait out the down-since timer --
+        # an operator scaled it to zero, treat it as archived from the start.
+        if (r.get("tags") or {}).get("aws_desired") == "0":
+            return True
         ds = (statuses.get(r["id"]) or {}).get("down_since")
         return bool(ds and (now - ds) >= _SERVICE_ARCHIVE_AFTER)
 
