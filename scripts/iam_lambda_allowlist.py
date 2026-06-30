@@ -30,21 +30,33 @@ import sys
 from blackwatch.modules.aws_cloudtrail import LAMBDA_ALLOWLIST
 
 
-# Global services — events always fire in us-east-1 regardless of where the
-# API was called from. Put these in the us-east-1 rule only.
-_GLOBAL_EVENT_PREFIXES = ("iam.", "auth.", "cloudtrail.")
+# Global services — events ONLY fire in us-east-1 regardless of where the API
+# was called from. IAM identity events and CloudTrail trail mgmt events live
+# here because the underlying services are still global.
+_GLOBAL_ONLY_PREFIXES = ("iam.", "cloudtrail.")
+
+# Ubiquitous services — events fire in the REGION the caller connects from
+# (AWS changed sign-in event routing ~2022). Put these in EVERY region's rule
+# so we catch the event wherever it fires.
+_UBIQUITOUS_PREFIXES = ("auth.",)
 
 
 def _categorize() -> tuple[list[str], list[str]]:
     """Return (global_events, regional_events) by re-deriving the action
     prefix from the adapter map — keeps the script in lockstep with the
-    adapter without a second source of truth."""
+    adapter without a second source of truth.
+
+    auth.* events go in BOTH buckets because sign-in event routing is
+    region-of-caller, not fixed to us-east-1."""
     from blackwatch.modules.aws_cloudtrail import _ACTION_MAP
 
     global_names: list[str] = []
     regional_names: list[str] = []
     for event_name, (action, _category) in _ACTION_MAP.items():
-        if action.startswith(_GLOBAL_EVENT_PREFIXES):
+        if action.startswith(_UBIQUITOUS_PREFIXES):
+            global_names.append(event_name)
+            regional_names.append(event_name)
+        elif action.startswith(_GLOBAL_ONLY_PREFIXES):
             global_names.append(event_name)
         else:
             regional_names.append(event_name)
@@ -65,8 +77,11 @@ def _eventbridge_rule(event_names: list[str]) -> dict:
 
 
 def _print_rule(event_names: list[str], label: str) -> None:
-    """Print the rule and assert it fits under EventBridge's 2048-char limit."""
-    pattern = json.dumps(_eventbridge_rule(event_names), indent=2)
+    """Print the rule and assert it fits under EventBridge's 2048-char limit.
+
+    Output is COMPACT JSON (no whitespace) — AWS measures the actual byte
+    count of the pattern, so indented JSON wastes characters against the
+    2048 cap. The compact form is what gets uploaded."""
     compact = json.dumps(_eventbridge_rule(event_names), separators=(",", ":"))
     size = len(compact)
     if size > 2048:
@@ -78,7 +93,7 @@ def _print_rule(event_names: list[str], label: str) -> None:
     else:
         print(f"# {label}: {len(event_names)} events, {size} chars (limit 2048)",
               file=sys.stderr)
-    print(pattern)
+    print(compact)
 
 
 def main() -> int:

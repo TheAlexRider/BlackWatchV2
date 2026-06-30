@@ -1,22 +1,14 @@
 # ECS service detections. Transitions are emitted by the service projection
 # after hysteresis (2 consecutive failed probes -> down; 1 success -> up), so
 # each event represents a real state change, not a single bad probe.
-
-- id: service-down
-  title: ECS service down
-  description: A monitored ECS service crossed the down threshold (2 consecutive failed probes).
-  severity: high
-  tags: [ecs, availability]
-  match:
-    field: action
-    op: equals
-    value: service.down
+#
+# Tag convention: see rules/aws_iam.yaml for the notify:* routing scheme.
 
 - id: service-down-prod-critical
-  title: PROD ECS service down — critical override
-  description: Promotes any prod-tagged service.down to critical. Match tag promoted via probe_targets.tags.
+  title: PROD ECS service down
+  description: A production-tagged ECS service is down. Promotes any prod service.down to critical.
   severity: critical
-  tags: [ecs, prod, availability]
+  tags: [ecs, prod, availability, "notify:critical"]
   match:
     all:
       - field: action
@@ -26,11 +18,26 @@
         op: equals
         value: prod
 
+- id: service-down
+  title: ECS service down
+  description: A monitored ECS service crossed the down threshold (2 consecutive failed probes).
+  severity: high
+  tags: [ecs, availability, "notify:high"]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: service.down
+      # Suppress overlap — the prod-critical rule above already fired if applicable.
+      - field: extra.tags.env
+        op: not_equals
+        value: prod
+
 - id: service-degraded
   title: ECS service degraded
   description: Some tasks healthy / some unhealthy, or runningCount under desired but not fully zero.
   severity: medium
-  tags: [ecs, availability]
+  tags: [ecs, availability, "notify:medium"]
   match:
     field: action
     op: equals
@@ -49,8 +56,8 @@
 - id: probe-agent-stale
   title: VPC probe agent went silent
   description: A per-VPC probe agent stopped reporting. The whole VPC's http/tcp monitoring is offline until it comes back.
-  severity: high
-  tags: [ecs, monitoring, meta]
+  severity: critical
+  tags: [ecs, monitoring, meta, "notify:critical"]
   match:
     field: action
     op: equals
@@ -68,7 +75,7 @@
 - id: probe-agent-first-seen
   title: New probe agent registered
   description: A probe agent reported in for the first time. Verify it's expected.
-  severity: informational
+  severity: low
   tags: [ecs, monitoring]
   match:
     field: action

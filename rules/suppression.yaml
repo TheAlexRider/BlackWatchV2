@@ -23,3 +23,27 @@
           - iam.user.create
           - network.sg.authorize_ingress
           - storage.s3.policy.put
+
+- id: suppress-aws-managed-kms-grants
+  title: Suppress KMS grants by AWS-managed service roles
+  description: >
+    AWS Backup, Data Lifecycle Manager, RDS, etc. routinely create KMS grants
+    as part of normal operation (every snapshot, every backup). These are
+    noise — only IAM-user / non-AWS-managed grants are signal worth alerting on.
+    Matches AWS-managed role naming conventions: AWS*DefaultServiceRole,
+    AWS*DefaultRole, AWSServiceRoleFor*.
+  action: suppress
+  enabled: true
+  tags: [expected-automation, kms]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: kms.grant.create
+      - field: actor.principal
+        op: regex
+        # Matches AWS-managed role naming conventions:
+        #   AWSServiceRoleForBackup           (service-linked roles)
+        #   AWSBackupDefaultServiceRole       (default service roles)
+        #   AWSDataLifecycleManagerDefaultRole (default roles)
+        value: ":assumed-role/AWS(?:ServiceRoleFor|[A-Za-z]+Default(?:ServiceRole|Role))"

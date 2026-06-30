@@ -48,6 +48,24 @@ class AwsCloudtrailSqsConfig(BaseModel):
     max_batches: int = 5  # safety cap on receive loops per run
 
 
+class AwsEcsProbeSqsConfig(BaseModel):
+    """SQS-backed in-VPC probe drain. Each in-VPC ECS probe agent (one per VPC)
+    pushes its result reports to a per-VPC queue with IAM auth — see
+    `scripts/ecs_probe.py`. This connector polls that queue and feeds each
+    report into the `ecs.probe` adapter (same one the legacy HTTP /ingest path
+    fed). The connector stamps each report's `vpc` field from its own config so
+    a compromised probe in one VPC cannot forge reports for another VPC even
+    if it manages to write to its own queue with a different body."""
+
+    queue_url: str
+    aws_region: str = "us-west-1"
+    aws_profile: str | None = None
+    vpc: str                          # which VPC label this queue represents (stamped onto every report)
+    interval_seconds: int = 60
+    wait_seconds: int = 10            # SQS long-poll wait
+    max_batches: int = 5              # safety cap on receive loops per run
+
+
 class AwsEcsHealthConfig(BaseModel):
     """ECS health-status reader. For each enabled probe_target with tier in
     {ecs_health, ecs_running}, calls ecs:DescribeTasks to read AWS's view of

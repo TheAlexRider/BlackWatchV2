@@ -2,18 +2,16 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "BlackWatchEcsProbeReadOnly",
+      "Sid": "SendReportsToOwnQueue",
       "Effect": "Allow",
-      "Action": [
-        "ecs:DescribeServices",
-        "ecs:ListServices",
-        "ecs:DescribeTasks",
-        "ecs:ListTasks",
-        "ecs:DescribeClusters",
-        "elasticloadbalancing:DescribeTargetHealth",
-        "elasticloadbalancing:DescribeTargetGroups"
-      ],
-      "Resource": "*"
+      "Action": ["sqs:SendMessage"],
+      "Resource": "__QUEUE_ARN__"
+    },
+    {
+      "Sid": "ReadOwnTargetsParameter",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter"],
+      "Resource": "__SSM_PARAM_ARN__"
     }
   ]
 }

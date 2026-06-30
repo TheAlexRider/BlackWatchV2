@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .. import storage
-from . import aws_ecs, aws_posture_drift, aws_s3_drift, aws_sqs, cert_probe
+from . import aws_ecs, aws_ecs_probe_sqs, aws_posture_drift, aws_s3_drift, aws_sqs, cert_probe
 from .models import (
-    AwsCloudtrailSqsConfig, AwsEcsHealthConfig,
+    AwsCloudtrailSqsConfig, AwsEcsHealthConfig, AwsEcsProbeSqsConfig,
     AwsPostureDriftConfig, AwsS3DriftConfig,
     CertProbeConfig,
 )
@@ -32,6 +32,10 @@ def run_connector(connector_id: str) -> dict[str, Any]:
             cfg = AwsEcsHealthConfig(**connector["config"])
             stats = aws_ecs.poll(cfg)
             outcome = {"ingested": stats["ingested"], "results": stats["results"]}
+        elif ctype == "aws_ecs_probe_sqs":
+            cfg = AwsEcsProbeSqsConfig(**connector["config"])
+            stats = aws_ecs_probe_sqs.drain(cfg)
+            outcome = {"ingested": stats["ingested"], "messages": stats["messages"]}
         elif ctype == "aws_s3_drift":
             cfg = AwsS3DriftConfig(**connector["config"])
             stats = aws_s3_drift.poll(cfg)
