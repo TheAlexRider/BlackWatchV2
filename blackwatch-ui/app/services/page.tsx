@@ -213,15 +213,13 @@ function CountsLine({ counts }: { counts: ServiceCounts | undefined }) {
 }
 
 function ServiceRow({ service }: { service: ServiceTarget }) {
+  // `unknown` means BW can't see this service for some reason -- any latency /
+  // fails / last_seen we may have stored is meaningless. Dash them out.
+  const hideMetrics = service.status === "unknown";
   return (
     <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
       <td className="truncate px-4 py-2.5">
         <span className="text-fg">{service.name}</span>
-        {!service.enabled && (
-          <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-subtle">
-            disabled
-          </span>
-        )}
       </td>
       <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
         {service.tier}
@@ -230,18 +228,22 @@ function ServiceRow({ service }: { service: ServiceTarget }) {
         <ServiceStatusPill status={service.status} />
       </td>
       <td className="px-4 py-2.5 text-right font-mono text-xs text-fg-muted">
-        {service.latency_ms != null ? `${service.latency_ms}ms` : "—"}
+        {hideMetrics || service.latency_ms == null
+          ? "—"
+          : `${service.latency_ms}ms`}
       </td>
       <td
         className={clsx(
           "px-4 py-2.5 text-right font-mono text-xs",
-          service.consecutive_fails > 0 ? "text-sev-critical" : "text-fg-muted",
+          !hideMetrics && service.consecutive_fails > 0
+            ? "text-sev-critical"
+            : "text-fg-muted",
         )}
       >
-        {service.consecutive_fails}
+        {hideMetrics ? "—" : service.consecutive_fails}
       </td>
       <td className="px-4 py-2.5 font-mono text-xs">
-        {service.age_seconds == null ? (
+        {hideMetrics || service.age_seconds == null ? (
           <span className="text-fg-disabled">—</span>
         ) : (
           <>

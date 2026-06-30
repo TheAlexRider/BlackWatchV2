@@ -86,13 +86,16 @@ def _project_result(event: Event) -> list[Event]:
     succs = (prev["consecutive_success"] if prev else 0)
     prev_down_since = (prev.get("down_since") if prev else None)
 
-    # Hysteresis bookkeeping.
+    # Hysteresis bookkeeping. `unknown` resets both counters since it
+    # represents indeterminate state -- neither "this attempt confirmed
+    # down" nor "this attempt confirmed up", so prior fails/successes
+    # no longer mean anything definite.
     if incoming_status == "up":
         succs += 1; fails = 0
     elif incoming_status in ("down", "degraded"):
         fails += 1; succs = 0
-    else:  # 'unknown' — don't touch the counters, just record it
-        pass
+    else:  # 'unknown'
+        fails = 0; succs = 0
 
     # Decide what the *effective* status should be after hysteresis.
     effective = prev_status if prev_status else incoming_status
@@ -100,6 +103,10 @@ def _project_result(event: Event) -> list[Event]:
         effective = "up"
     elif incoming_status in ("down", "degraded") and fails >= DOWN_THRESHOLD:
         effective = incoming_status
+    elif incoming_status == "unknown":
+        # Unknown takes effect immediately -- no hysteresis. It's not a
+        # signal we're confident enough to delay; it IS the confidence level.
+        effective = "unknown"
 
     # Track how long the service has been continuously down. Set on the
     # transition INTO down/degraded (so it survives subsequent down probes),

@@ -705,12 +705,17 @@ def services_list() -> dict[str, Any]:
     #                                     wants it running -> stays in live
     #                                     table with aws_desired/aws_running
     #                                     visible)
-    # The stored 'down' from before we flagged them is stale by definition,
-    # so we overwrite here.
+    # The stored last_seen / latency / fails are stale by definition once we
+    # stopped probing -- clear them so the UI doesn't display ghost data.
     for r in rows:
         if not r.get("enabled"):
             aws_desired = (r.get("tags") or {}).get("aws_desired", "1")
             r["status"] = "disabled" if aws_desired == "0" else "unknown"
+            r["latency_ms"] = None
+            r["consecutive_fails"] = 0
+            r["last_seen"] = None
+            r["age_seconds"] = None
+            r["stale"] = False
 
     def _is_archived(r: dict[str, Any]) -> bool:
         # Disabled = aws_desired==0 = operator turned it off -> archive.

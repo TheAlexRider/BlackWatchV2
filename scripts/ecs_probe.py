@@ -142,14 +142,18 @@ async def check_http_alive(target: dict) -> dict:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return ("up", r.status, None)
         except urllib.error.HTTPError as e:
-            # 401/403/404 = alive and answering; 5xx = degraded.
+            # The service ANSWERED -- 4xx is up (alive, refusing), 5xx is the
+            # only case where we definitively know the service is broken.
             if 500 <= e.code < 600:
                 return ("degraded", e.code, f"HTTP {e.code}")
             return ("up", e.code, None)
         except (urllib.error.URLError, TimeoutError, ConnectionResetError) as e:
-            return ("down", None, str(e)[:120])
+            # Network-layer failure: timeout, DNS, connection refused, etc.
+            # We can't distinguish "service down" from "SG blocking" from
+            # "wrong port configured" -- honest answer is unknown, not down.
+            return ("unknown", None, str(e)[:120])
         except Exception as e:
-            return ("down", None, str(e)[:120])
+            return ("unknown", None, str(e)[:120])
 
     status, code, err = await loop.run_in_executor(None, _do)
     return _result(target, status, latency_ms=int((time.perf_counter() - started) * 1000),
@@ -173,7 +177,11 @@ async def check_tcp(target: dict) -> dict:
             s.connect((host, port))
             return ("up", None)
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            return ("down", str(e)[:120])
+            # TCP has no "degraded" -- either you connected or you didn't. The
+            # failure case can be any number of things (SG block, wrong port,
+            # service restarting, DNS failure, etc.) and we can't tell which.
+            # `unknown` is the truthful answer for raw TCP failures.
+            return ("unknown", str(e)[:120])
         finally:
             try:
                 s.close()
@@ -231,11 +239,11 @@ def build_report(results: list[dict]) -> dict:
 
 
 def send(payload: dict) -> None:
-    # Log each failure inline so CloudWatch shows the real error string
-    # without needing to dig through BW's stored state. Bounded: at most one
-    # log line per failing target per cycle.
+    # Log each non-up result so CloudWatch shows the real error string
+    # without digging through BW state. Includes unknown -- those are the
+    # ones we usually need to diagnose (SG/port/DNS).
     for r in payload["results"]:
-        if r["status"] in ("down", "degraded"):
+        if r["status"] != "up":
             err = r.get("error") or "(no error msg)"
             print(f"  {r['status']:8} {r['name']} ({r['tier']}): {err}",
                   file=sys.stderr)

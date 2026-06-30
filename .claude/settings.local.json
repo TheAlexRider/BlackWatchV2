@@ -46,7 +46,8 @@
       "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('OK'\\)\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','blackwatch/api.py']]; print\\('OK'\\)\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_discover.py','blackwatch/api.py']]; print\\('OK'\\)\")",
-      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('OK'\\)\")"
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_discover.py','blackwatch/connectors/aws_ecs_probe_sqs.py']]; print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['scripts/ecs_probe.py','blackwatch/services/projection.py','blackwatch/api.py']]; print\\('OK'\\)\")"
     ]
   }
 }
