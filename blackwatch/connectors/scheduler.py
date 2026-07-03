@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from .. import storage
 from ..hosts import staleness as host_staleness
+from ..rds import staleness as rds_staleness
 from ..services import staleness as probe_staleness
 from .runner import run_connector
 
@@ -43,6 +44,8 @@ def _loop() -> None:
         # Absence detection: alert on hosts/probe-agents whose agent went quiet.
         host_staleness.check()
         probe_staleness.check()
+        # Long-idle RDS sessions (leaked creds / forgotten psql windows).
+        rds_staleness.check()
 
 
 def start() -> None:

@@ -11,7 +11,7 @@
 
 - id: rds-auth-failure
   title: RDS authentication failure
-  description: One failed login. Not by itself an alert -- the burst rule below
+  description: One failed login. Informational -- the burst rule below is what
     escalates when this pattern repeats.
   severity: low
   tags: [rds, auth]
@@ -19,6 +19,44 @@
     field: action
     op: equals
     value: rds.auth.failure
+
+- id: rds-auth-burst
+  title: RDS auth failure burst
+  description: 5+ failed logins for the same user within 5 minutes -- likely
+    a brute-force attempt or a broken service repeatedly retrying with the
+    wrong password. Emitted by the projection.
+  severity: high
+  tags: [rds, auth, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: rds.auth.burst
+
+# ---- Session anomalies ----------------------------------------------------
+
+- id: rds-session-concurrent
+  title: RDS session opened from multiple IPs
+  description: The same DB user is connected from more than one source IP at
+    the same time. Legitimate for pool workers on the same host; suspicious
+    when the IPs are on different subnets / networks. Investigate.
+  severity: high
+  tags: [rds, session, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: rds.session.concurrent
+
+- id: rds-session-long-idle
+  title: RDS session idle > 24h
+  description: A session has been open more than 24h without a matching
+    disconnection. Usually a leaked / forgotten psql window OR an app whose
+    connection pool never released this worker. Investigate the source IP.
+  severity: medium
+  tags: [rds, session, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: rds.session.long_idle
 
 # ---- Privileged queries (pgaudit) ----------------------------------------
 
