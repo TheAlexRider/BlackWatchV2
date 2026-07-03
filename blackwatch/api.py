@@ -1580,7 +1580,10 @@ def rds_summary() -> dict[str, Any]:
                                   since=since, limit=500)
     fails_per_db: dict[str, int] = {}
     for f in fails:
-        db = ((f.get("extra") or {}).get("db_instance") or f.get("target_id") or "unknown")
+        # query_events returns the envelope, so target is nested.
+        db = ((f.get("extra") or {}).get("db_instance")
+              or (f.get("target") or {}).get("id")
+              or "unknown")
         fails_per_db[db] = fails_per_db.get(db, 0) + 1
     for row in dbs:
         row["last_activity"] = row["last_activity"].isoformat() if row.get("last_activity") else None
@@ -1625,7 +1628,11 @@ def rds_auth_failures(
     hours: int = Query(default=24, ge=1, le=720),
     limit: int = Query(default=200, ge=1, le=2000),
 ) -> dict[str, Any]:
-    """Recent auth failure events. Optional filter by DB."""
+    """Recent auth failure events. Optional filter by DB.
+
+    query_events returns the stored `envelope` (a JSON blob), so all fields
+    are nested (actor.principal, target.id) and event_time is already a
+    string. Don't try to call datetime methods on it."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = storage.query_events(
         module="aws.rds", action="rds.auth.failure",
@@ -1633,17 +1640,20 @@ def rds_auth_failures(
     )
     if db:
         rows = [r for r in rows
-                if ((r.get("extra") or {}).get("db_instance") or r.get("target_id")) == db]
+                if ((r.get("extra") or {}).get("db_instance")
+                    or (r.get("target") or {}).get("id")) == db]
     out = []
     for r in rows:
         extra = r.get("extra") or {}
+        actor = r.get("actor") or {}
+        target = r.get("target") or {}
         out.append({
             "event_id": r.get("event_id"),
-            "event_time": r["event_time"].isoformat() if r.get("event_time") else None,
-            "db_instance": extra.get("db_instance") or r.get("target_id"),
+            "event_time": r.get("event_time"),      # already ISO-string in envelope
+            "db_instance": extra.get("db_instance") or target.get("id"),
             "source_type": extra.get("source_type"),
-            "user": extra.get("user") or r.get("actor_principal"),
-            "source_ip": extra.get("source_ip") or r.get("actor_source_ip"),
+            "user": extra.get("user") or actor.get("principal"),
+            "source_ip": extra.get("source_ip") or actor.get("source_ip"),
             "reason": extra.get("reason"),
             "message": extra.get("message"),
         })
