@@ -110,8 +110,10 @@ foreach ($lg in $groups) {
         --action lambda:InvokeFunction --principal "logs.$REGION.amazonaws.com" `
         --source-arn "arn:aws:logs:${REGION}:${ACCT}:log-group:${lg}:*" --region $REGION | Out-Null
 
+    # PowerShell strips bare "" when passing to native exes, so wrap it as
+    # '""' — CLI receives a literal empty string (matches every log line).
     aws logs put-subscription-filter --log-group-name $lg --filter-name "bw-forwarder" `
-        --filter-pattern "" --destination-arn $LAMBDA_ARN --region $REGION
+        --filter-pattern '""' --destination-arn $LAMBDA_ARN --region $REGION
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  subscribed: $lg" -ForegroundColor Green
     } else {
