@@ -1610,3 +1610,131 @@ def get_fim_coverage(instance_id: str) -> dict[str, Any] | None:
         "configured_paths": row[11] if row[11] else None,
         "path_stats": row[12] if row[12] else None,
     }
+
+
+# --- RDS sessions ------------------------------------------------------------
+
+_RDS_SESSION_COLS = (
+    "session_id, db_instance, source_type, db_user, db_name, "
+    "source_ip, source_port, connected_at, last_seen_at, "
+    "disconnected_at, duration_seconds, extra"
+)
+
+
+def _rds_session_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "session_id": row[0], "db_instance": row[1], "source_type": row[2],
+        "db_user": row[3], "db_name": row[4],
+        "source_ip": row[5], "source_port": row[6],
+        "connected_at": row[7], "last_seen_at": row[8],
+        "disconnected_at": row[9], "duration_seconds": row[10],
+        "extra": row[11] or {},
+    }
+
+
+def upsert_rds_session_start(
+    session_id: str, *, db_instance: str, source_type: str,
+    db_user: str | None, db_name: str | None,
+    source_ip: str | None, source_port: int | None,
+    connected_at: datetime, extra: dict[str, Any] | None,
+) -> bool:
+    """Insert an active session. Returns True if new, False if we already had
+    this session_id (which happens under log replay / restart)."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"""
+            INSERT INTO rds_active_sessions
+              (session_id, db_instance, source_type, db_user, db_name,
+               source_ip, source_port, connected_at, last_seen_at, extra)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (session_id) DO UPDATE
+              SET last_seen_at = EXCLUDED.last_seen_at
+            RETURNING (xmax = 0) AS inserted
+            """,
+            (session_id, db_instance, source_type, db_user, db_name,
+             source_ip, source_port, connected_at, connected_at,
+             Jsonb(extra or {})),
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def close_rds_session(
+    session_id: str, *, disconnected_at: datetime,
+    duration_seconds: int | None,
+) -> bool:
+    """Mark a session ended. Returns True if the row existed + was open."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE rds_active_sessions
+               SET disconnected_at = %s,
+                   duration_seconds = COALESCE(%s, duration_seconds,
+                                       EXTRACT(EPOCH FROM (%s - connected_at))::INT),
+                   last_seen_at = %s
+             WHERE session_id = %s AND disconnected_at IS NULL
+             RETURNING session_id
+            """,
+            (disconnected_at, duration_seconds, disconnected_at,
+             disconnected_at, session_id),
+        ).fetchone()
+    return row is not None
+
+
+def list_rds_active_sessions(
+    db_instance: str | None = None, limit: int = 500,
+) -> list[dict[str, Any]]:
+    sql = (
+        f"SELECT {_RDS_SESSION_COLS} FROM rds_active_sessions "
+        f"WHERE disconnected_at IS NULL"
+    )
+    args: tuple[Any, ...] = ()
+    if db_instance is not None:
+        sql += " AND db_instance = %s"; args = (db_instance,)
+    sql += " ORDER BY connected_at DESC LIMIT %s"
+    args = args + (limit,)
+    with get_pool().connection() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [_rds_session_row(r) for r in rows]
+
+
+def list_rds_recent_sessions(
+    db_instance: str | None = None, db_user: str | None = None,
+    since: datetime | None = None, limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Recent sessions including closed ones — used by the history page."""
+    sql = f"SELECT {_RDS_SESSION_COLS} FROM rds_active_sessions WHERE 1=1"
+    args: list[Any] = []
+    if db_instance is not None:
+        sql += " AND db_instance = %s"; args.append(db_instance)
+    if db_user is not None:
+        sql += " AND db_user = %s"; args.append(db_user)
+    if since is not None:
+        sql += " AND connected_at >= %s"; args.append(since)
+    sql += " ORDER BY connected_at DESC LIMIT %s"
+    args.append(limit)
+    with get_pool().connection() as conn:
+        rows = conn.execute(sql, tuple(args)).fetchall()
+    return [_rds_session_row(r) for r in rows]
+
+
+def list_rds_db_instances() -> list[dict[str, Any]]:
+    """Distinct DBs we've seen sessions for, with live-connection counts."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT db_instance, source_type,
+                   COUNT(*) FILTER (WHERE disconnected_at IS NULL) AS active,
+                   COUNT(*)                                        AS total_seen,
+                   MAX(last_seen_at)                               AS last_activity
+              FROM rds_active_sessions
+             GROUP BY db_instance, source_type
+             ORDER BY db_instance
+            """
+        ).fetchall()
+    return [
+        {"db_instance": r[0], "source_type": r[1],
+         "active": int(r[2]), "total_seen": int(r[3]),
+         "last_activity": r[4]}
+        for r in rows
+    ]
+

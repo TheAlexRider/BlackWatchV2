@@ -15,6 +15,7 @@ from .modules import registry
 from .modules.base import IngestContext
 from .notify import router as notify_router
 from .posture import projection as posture_projection
+from .rds import projection as rds_projection
 from .rules import engine as rule_engine
 from .s3 import projection as s3_projection
 from .services import projection as service_projection
@@ -29,6 +30,7 @@ _PROJECTIONS = [
     service_projection.project,
     s3_projection.project,
     posture_projection.project,
+    rds_projection.project,
     correlation.observe,
 ]
 

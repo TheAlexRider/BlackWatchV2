@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .aws_cloudtrail import AwsCloudTrailAdapter
 from .aws_posture import AwsPostureAdapter
+from .aws_rds import AwsRdsAdapter
 from .aws_s3 import AwsS3Adapter
 from .base import Adapter
 from .cert_expiry import CertExpiryAdapter
@@ -38,6 +39,7 @@ def register_builtins() -> None:
     register(GenericAdapter())
     register(VpnOpenVpnAdapter())
     register(AwsCloudTrailAdapter())
+    register(AwsRdsAdapter())
     register(Ec2HostAdapter())
     register(EcsProbeAdapter())
     register(AwsS3Adapter())

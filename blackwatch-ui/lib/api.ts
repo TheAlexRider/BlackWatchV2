@@ -19,6 +19,10 @@ import type {
   OverviewResponse,
   VpnResponse,
   RdsViewResponse,
+  RdsSummaryResponse,
+  RdsLiveResponse,
+  RdsSessionsResponse,
+  RdsAuthFailuresResponse,
   IamViewResponse,
   NotificationChannel,
   NotificationChannelsResponse,
@@ -298,6 +302,40 @@ export async function fetchRds(): Promise<RdsViewResponse> {
   const res = await fetch(`${API_BASE}/api/rds`, { cache: "no-store" });
   if (!res.ok) throw new Error(`fetchRds failed: ${res.status}`);
   return (await res.json()) as RdsViewResponse;
+}
+
+export async function fetchRdsSummary(): Promise<RdsSummaryResponse> {
+  const res = await fetch(`${API_BASE}/api/rds/summary`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchRdsSummary failed: ${res.status}`);
+  return (await res.json()) as RdsSummaryResponse;
+}
+
+export async function fetchRdsLive(db?: string): Promise<RdsLiveResponse> {
+  const qs = db ? `?db=${encodeURIComponent(db)}` : "";
+  const res = await fetch(`${API_BASE}/api/rds/live${qs}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchRdsLive failed: ${res.status}`);
+  return (await res.json()) as RdsLiveResponse;
+}
+
+export async function fetchRdsSessions(
+  hours: number = 24, db?: string, user?: string,
+): Promise<RdsSessionsResponse> {
+  const parts = [`hours=${hours}`];
+  if (db) parts.push(`db=${encodeURIComponent(db)}`);
+  if (user) parts.push(`user=${encodeURIComponent(user)}`);
+  const res = await fetch(`${API_BASE}/api/rds/sessions?${parts.join("&")}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchRdsSessions failed: ${res.status}`);
+  return (await res.json()) as RdsSessionsResponse;
+}
+
+export async function fetchRdsAuthFailures(
+  hours: number = 24, db?: string,
+): Promise<RdsAuthFailuresResponse> {
+  const parts = [`hours=${hours}`];
+  if (db) parts.push(`db=${encodeURIComponent(db)}`);
+  const res = await fetch(`${API_BASE}/api/rds/auth-failures?${parts.join("&")}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchRdsAuthFailures failed: ${res.status}`);
+  return (await res.json()) as RdsAuthFailuresResponse;
 }
 
 // --- Live ping (called from the LiveCounter client component) -------------

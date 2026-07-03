@@ -1,398 +1,359 @@
-import Link from "next/link";
 import clsx from "clsx";
 
-import { fetchRds } from "@/lib/api";
-import type { EventEnvelope, RdsCounts, RdsInstance } from "@/lib/types";
+import {
+  fetchRdsSummary,
+  fetchRdsLive,
+  fetchRdsSessions,
+  fetchRdsAuthFailures,
+} from "@/lib/api";
+import type {
+  RdsAuthFailure,
+  RdsDbSummary,
+  RdsSession,
+} from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 
-// What each flag means in plain English — used both on the instance cards
-// (to label why a DB is flagged) and as the column legend below the events
-// table. The set must stay in sync with the rds_* keys the adapter writes
-// in blackwatch/modules/aws_cloudtrail.py.
-const FLAG_META: Record<
-  string,
-  { label: string; tone: "critical" | "high" | "medium" | "info"; blurb: string }
-> = {
-  rds_publicly_accessible: {
-    label: "publicly accessible",
-    tone: "critical",
-    blurb: "DB instance is reachable from the public internet.",
-  },
-  rds_snapshot_made_public: {
-    label: "snapshot shared with all",
-    tone: "critical",
-    blurb: "A snapshot was shared with restore-permission=all (data-exfil path).",
-  },
-  rds_backups_disabled: {
-    label: "backups disabled",
-    tone: "high",
-    blurb: "BackupRetentionPeriod=0 — no automated point-in-time recovery.",
-  },
-  rds_unencrypted_at_creation: {
-    label: "no storage encryption",
-    tone: "high",
-    blurb: "StorageEncrypted=false. Can only be fixed by restore-from-snapshot.",
-  },
-  rds_deletion_protection_off: {
-    label: "deletion protection off",
-    tone: "medium",
-    blurb: "DeletionProtection=false — single API call can drop the DB.",
-  },
-  rds_master_password_change: {
-    label: "master password changed",
-    tone: "medium",
-    blurb: "Could be a rotation or a takeover. Check the actor.",
-  },
-  rds_iam_auth_disabled: {
-    label: "IAM auth disabled",
-    tone: "medium",
-    blurb: "Falls back to master password only.",
-  },
-  rds_security_params_changed: {
-    label: "TLS / log param changed",
-    tone: "high",
-    blurb: "rds.force_ssl, log_connections, or log_statement was touched.",
-  },
-};
-
 export default async function RdsPage() {
-  const data = await fetchRds();
+  const [summary, live, history, auth] = await Promise.all([
+    fetchRdsSummary(),
+    fetchRdsLive(),
+    fetchRdsSessions(24),
+    fetchRdsAuthFailures(24),
+  ]);
+
+  const totalActive = summary.databases.reduce((n, d) => n + d.active, 0);
 
   return (
     <>
-      <AutoRefresh intervalMs={10_000} />
+      <AutoRefresh intervalMs={15_000} />
       <PageHeader
-        title="RDS · database posture"
-        subtitle="Event-driven view of every RDS change CloudTrail records. Instances appear after their first relevant event."
+        title="RDS"
+        subtitle={
+          summary.databases.length === 0
+            ? "No RDS activity ingested yet — deploy the log forwarder to start."
+            : `${totalActive} active session${totalActive === 1 ? "" : "s"} · ${summary.auth_failures_24h_total} auth failure${summary.auth_failures_24h_total === 1 ? "" : "s"} in the last 24h`
+        }
       />
 
-      {!data.have_connector && <ConnectorMissingBanner />}
+      <section className="space-y-2">
+        <SectionLabel>databases</SectionLabel>
+        <DataPanel className="overflow-hidden">
+          {summary.databases.length === 0 ? (
+            <EmptyState>
+              Nothing here yet. Once the log-forwarder Lambda is subscribed
+              to your RDS log groups and the BW connector is enabled,
+              sessions + auth failures will flow into this page.
+            </EmptyState>
+          ) : (
+            <DatabasesTable databases={summary.databases} />
+          )}
+        </DataPanel>
+      </section>
 
-      <CountersStrip counts={data.counts} />
+      <section className="mt-6 space-y-2">
+        <div className="flex items-baseline justify-between">
+          <SectionLabel>currently connected</SectionLabel>
+          <span className="text-[11px] text-fg-subtle">
+            <span className="font-mono text-fg-muted">{live.count}</span>{" "}
+            active
+          </span>
+        </div>
+        <DataPanel className="overflow-hidden">
+          {live.sessions.length === 0 ? (
+            <EmptyState>No active sessions right now.</EmptyState>
+          ) : (
+            <SessionsTable sessions={live.sessions} live />
+          )}
+        </DataPanel>
+      </section>
 
-      <InstancesSection instances={data.instances} />
+      <section className="mt-6 space-y-2">
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-baseline justify-between rounded-md border border-line-soft bg-surface-1 px-4 py-2.5 hover:bg-surface-2">
+            <span className="flex items-baseline gap-2">
+              <span
+                aria-hidden
+                className="text-fg-subtle transition-transform group-open:rotate-90"
+              >
+                ▸
+              </span>
+              <span className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                session history
+              </span>
+              <span className="text-xs text-fg-muted">last 24h</span>
+            </span>
+            <span className="text-[11px] text-fg-subtle">
+              <span className="font-mono text-fg-muted">{history.count}</span>{" "}
+              sessions
+            </span>
+          </summary>
+          <DataPanel className="mt-2 overflow-hidden">
+            {history.sessions.length === 0 ? (
+              <EmptyState>No session history in the last 24h.</EmptyState>
+            ) : (
+              <SessionsTable sessions={history.sessions} />
+            )}
+          </DataPanel>
+        </details>
+      </section>
 
-      <RecentEventsSection events={data.recent_events} />
+      <section className="mt-6 space-y-2">
+        <div className="flex items-baseline justify-between">
+          <SectionLabel>auth failures</SectionLabel>
+          <span className="text-[11px] text-fg-subtle">
+            last {auth.hours}h ·{" "}
+            <span
+              className={clsx(
+                "font-mono",
+                auth.count > 0 ? "text-sev-critical" : "text-fg-muted",
+              )}
+            >
+              {auth.count}
+            </span>
+          </span>
+        </div>
+        <DataPanel className="overflow-hidden">
+          {auth.failures.length === 0 ? (
+            <EmptyState>No auth failures. 🎉</EmptyState>
+          ) : (
+            <AuthFailuresTable failures={auth.failures} />
+          )}
+        </DataPanel>
+      </section>
     </>
   );
 }
 
 // =========================================================================
-// connector banner — explains why the page might be empty
+// databases summary
 // =========================================================================
 
-function ConnectorMissingBanner() {
+function DatabasesTable({ databases }: { databases: RdsDbSummary[] }) {
   return (
-    <div className="mb-4 border-l-2 border-sev-high bg-surface-1 px-3 py-2 text-xs text-fg-muted">
-      No CloudTrail SQS connector is enabled. RDS events flow through that
-      pipeline — without it, this page stays empty.{" "}
-      <Link href="/connectors" className="text-signal hover:underline">
-        configure a connector →
-      </Link>
-    </div>
+    <table className="w-full table-fixed text-sm">
+      <thead>
+        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+          <th className="w-64 px-4 py-2 text-left font-normal">Database</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">Source</th>
+          <th className="w-24 px-4 py-2 text-right font-normal">Active</th>
+          <th className="w-32 px-4 py-2 text-right font-normal">Auth fails 24h</th>
+          <th className="w-32 px-4 py-2 text-right font-normal">Total seen</th>
+          <th className="px-4 py-2 text-left font-normal">Last activity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {databases.map((d) => (
+          <tr
+            key={`${d.db_instance}:${d.source_type}`}
+            className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+          >
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
+              {d.db_instance}
+            </td>
+            <td className="px-4 py-2.5">
+              <SourcePill type={d.source_type} />
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs">
+              <span
+                className={
+                  d.active > 0 ? "text-sev-resolved" : "text-fg-disabled"
+                }
+              >
+                {d.active}
+              </span>
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs">
+              <span
+                className={clsx(
+                  d.auth_failures_24h > 0
+                    ? "text-sev-critical"
+                    : "text-fg-muted",
+                )}
+              >
+                {d.auth_failures_24h}
+              </span>
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs text-fg-muted">
+              {d.total_seen}
+            </td>
+            <td className="px-4 py-2.5 font-mono text-xs">
+              {d.last_activity ? (
+                <TimestampCell value={d.last_activity} />
+              ) : (
+                <span className="text-fg-disabled">—</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 // =========================================================================
-// counters
+// sessions (live + history)
 // =========================================================================
 
-function CountersStrip({ counts }: { counts: RdsCounts }) {
-  // First row = volume + inventory; second row = exposure flags
-  const volume: Array<{ label: string; value: number; tone?: string }> = [
-    { label: "events · 24h", value: counts.events_24h },
-    { label: "instances seen · 30d", value: counts.instances_seen },
-  ];
-
-  const flags: Array<{ label: string; value: number; tone: string }> = [
-    { label: "publicly accessible", value: counts.public_flagged, tone: "critical" },
-    { label: "snapshot · public", value: counts.snapshot_public_flagged, tone: "critical" },
-    { label: "no backups", value: counts.no_backups_flagged, tone: "high" },
-    { label: "unencrypted", value: counts.unencrypted_flagged, tone: "high" },
-    { label: "no deletion-protect", value: counts.no_deletion_protection_flagged, tone: "medium" },
-  ];
-
-  return (
-    <section className="mb-4 space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        {volume.map((c) => (
-          <CounterCell key={c.label} label={c.label} value={c.value} />
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-        {flags.map((c) => (
-          <CounterCell
-            key={c.label}
-            label={c.label}
-            value={c.value}
-            tone={c.tone}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CounterCell({
-  label,
-  value,
-  tone,
+function SessionsTable({
+  sessions,
+  live = false,
 }: {
-  label: string;
-  value: number;
-  tone?: string;
+  sessions: RdsSession[];
+  live?: boolean;
 }) {
-  const isHot = (tone === "critical" || tone === "high") && value > 0;
   return (
-    <div
-      className={clsx(
-        "border border-line-soft bg-surface-1 px-3 py-2.5",
-        isHot && tone === "critical" && "border-sev-critical/40",
-        isHot && tone === "high" && "border-sev-high/40",
-      )}
-    >
-      <p className="text-[10px] uppercase tracking-[0.06em] text-fg-subtle">
-        {label}
-      </p>
-      <p
-        className={clsx(
-          "mt-1 font-mono text-xl text-fg",
-          isHot && tone === "critical" && "text-sev-critical",
-          isHot && tone === "high" && "text-sev-high",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-// =========================================================================
-// instances list — one card per DB we've seen events for
-// =========================================================================
-
-function InstancesSection({ instances }: { instances: RdsInstance[] }) {
-  return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>database instances · last 30 days</SectionLabel>
-        <span className="text-[10px] text-fg-disabled">
-          appear after their first CloudTrail event lands
-        </span>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {instances.length === 0 ? (
-          <EmptyState>
-            No RDS events captured yet. Trigger one (e.g.{" "}
-            <code className="font-mono text-[11px]">
-              aws rds modify-db-instance --no-deletion-protection
-            </code>
-            ) and it should appear here within 5–15 minutes (CloudTrail
-            propagation lag).
-          </EmptyState>
-        ) : (
-          <ul className="divide-y divide-line-soft">
-            {instances.map((inst) => (
-              <InstanceRow key={inst.instance_id} instance={inst} />
-            ))}
-          </ul>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function InstanceRow({ instance }: { instance: RdsInstance }) {
-  return (
-    <li className="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-[1fr_auto] md:items-start">
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <code className="font-mono text-sm text-fg">{instance.instance_id}</code>
-          <span className="text-[11px] text-fg-subtle">
-            {instance.events_30d} event{instance.events_30d === 1 ? "" : "s"} in
-            30d
-          </span>
-        </div>
-
-        {instance.flags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {instance.flags.map((f) => {
-              const meta = FLAG_META[f] ?? {
-                label: f,
-                tone: "info" as const,
-                blurb: "",
-              };
-              return (
-                <span
-                  key={f}
-                  title={meta.blurb}
-                  className={clsx(
-                    "inline-flex items-center border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em]",
-                    meta.tone === "critical" &&
-                      "border-sev-critical/50 bg-sev-critical/10 text-sev-critical",
-                    meta.tone === "high" &&
-                      "border-sev-high/50 bg-sev-high/10 text-sev-high",
-                    meta.tone === "medium" &&
-                      "border-sev-medium/50 bg-sev-medium/10 text-sev-medium",
-                    meta.tone === "info" && "border-line text-fg-muted",
-                  )}
-                >
-                  {meta.label}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        <p className="text-[11px] text-fg-subtle">
-          last:{" "}
-          <code className="font-mono text-fg-muted">
-            {instance.last_action ?? "—"}
-          </code>{" "}
-          {instance.last_actor && (
-            <>
-              by{" "}
-              <code className="font-mono text-fg-muted">
-                {shortenArn(instance.last_actor)}
-              </code>{" "}
-            </>
+    <table className="w-full table-fixed text-sm">
+      <thead>
+        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+          <th className="w-56 px-4 py-2 text-left font-normal">Database</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">User</th>
+          <th className="w-40 px-4 py-2 text-left font-normal">Source IP</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">Duration</th>
+          <th className="w-40 px-4 py-2 text-left font-normal">
+            {live ? "Connected since" : "Connected at"}
+          </th>
+          {!live && (
+            <th className="px-4 py-2 text-left font-normal">Disconnected</th>
           )}
-        </p>
-      </div>
-      <div className="text-right text-[11px] text-fg-subtle">
-        {instance.last_event_time ? (
-          <TimestampCell value={instance.last_event_time} />
-        ) : (
-          "—"
-        )}
-      </div>
-    </li>
-  );
-}
-
-// =========================================================================
-// recent events table
-// =========================================================================
-
-function RecentEventsSection({ events }: { events: EventEnvelope[] }) {
-  return (
-    <section className="mt-6 space-y-2">
-      <SectionLabel>recent rds events · last 24h</SectionLabel>
-      <DataPanel className="overflow-hidden">
-        {events.length === 0 ? (
-          <EmptyState>
-            No RDS events in the last 24 hours. CloudTrail latency for
-            ModifyDBInstance is typically 5–15 minutes; check back shortly
-            after triggering one.
-          </EmptyState>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
-                <th className="w-44 px-4 py-2 text-left font-normal">Action</th>
-                <th className="w-48 px-4 py-2 text-left font-normal">Instance</th>
-                <th className="w-44 px-4 py-2 text-left font-normal">Actor</th>
-                <th className="px-4 py-2 text-left font-normal">Signal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((e) => (
-                <EventRow key={String(e.event_id ?? `${e.action}-${e.event_time}`)} event={e} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function EventRow({ event: e }: { event: EventEnvelope }) {
-  const flags = collectFlags(e);
-  return (
-    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="px-4 py-2.5 align-top">
-        <TimestampCell value={e.event_time} />
-      </td>
-      <td className="px-4 py-2.5 align-top">
-        <code className="font-mono text-xs text-fg">{e.action}</code>
-      </td>
-      <td className="truncate px-4 py-2.5 align-top">
-        <code className="font-mono text-xs text-fg-muted">
-          {e.target?.id ?? "—"}
-        </code>
-      </td>
-      <td className="truncate px-4 py-2.5 align-top">
-        <span className="font-mono text-xs text-fg-muted">
-          {shortenArn(e.actor?.principal)}
-        </span>
-      </td>
-      <td className="px-4 py-2.5 align-top">
-        {flags.length === 0 ? (
-          <span className="text-[11px] text-fg-disabled">—</span>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {flags.map((f) => {
-              const meta = FLAG_META[f] ?? {
-                label: f,
-                tone: "info" as const,
-                blurb: "",
-              };
-              return (
-                <span
-                  key={f}
-                  title={meta.blurb}
-                  className={clsx(
-                    "border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em]",
-                    meta.tone === "critical" &&
-                      "border-sev-critical/50 bg-sev-critical/10 text-sev-critical",
-                    meta.tone === "high" &&
-                      "border-sev-high/50 bg-sev-high/10 text-sev-high",
-                    meta.tone === "medium" &&
-                      "border-sev-medium/50 bg-sev-medium/10 text-sev-medium",
-                    meta.tone === "info" && "border-line text-fg-muted",
-                  )}
-                >
-                  {meta.label}
+        </tr>
+      </thead>
+      <tbody>
+        {sessions.map((s) => (
+          <tr
+            key={s.session_id}
+            className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+          >
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
+              {s.db_instance}
+              {s.db_name && (
+                <span className="ml-1 text-fg-muted">
+                  ({s.db_name})
                 </span>
-              );
-            })}
-          </div>
-        )}
-      </td>
-    </tr>
+              )}
+            </td>
+            <td className="truncate px-4 py-2.5 text-fg">
+              {s.db_user || <span className="text-fg-disabled">—</span>}
+            </td>
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+              {s.source_ip || "—"}
+              {s.source_port ? `:${s.source_port}` : ""}
+            </td>
+            <td className="px-4 py-2.5 font-mono text-xs text-fg-muted">
+              {formatDuration(s.duration_seconds)}
+            </td>
+            <td className="px-4 py-2.5 font-mono text-xs">
+              {s.connected_at ? (
+                <TimestampCell value={s.connected_at} />
+              ) : (
+                <span className="text-fg-disabled">—</span>
+              )}
+            </td>
+            {!live && (
+              <td className="px-4 py-2.5 font-mono text-xs">
+                {s.disconnected_at ? (
+                  <TimestampCell value={s.disconnected_at} />
+                ) : (
+                  <span className="text-sev-resolved">still open</span>
+                )}
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 // =========================================================================
-// shared bits
+// auth failures
 // =========================================================================
+
+function AuthFailuresTable({ failures }: { failures: RdsAuthFailure[] }) {
+  return (
+    <table className="w-full table-fixed text-sm">
+      <thead>
+        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+          <th className="w-40 px-4 py-2 text-left font-normal">When</th>
+          <th className="w-56 px-4 py-2 text-left font-normal">Database</th>
+          <th className="w-32 px-4 py-2 text-left font-normal">User</th>
+          <th className="w-40 px-4 py-2 text-left font-normal">Source IP</th>
+          <th className="w-28 px-4 py-2 text-left font-normal">Source</th>
+          <th className="px-4 py-2 text-left font-normal">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {failures.map((f) => (
+          <tr
+            key={f.event_id ?? `${f.event_time}-${f.user}-${f.source_ip}`}
+            className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+          >
+            <td className="px-4 py-2.5 font-mono text-xs">
+              {f.event_time ? (
+                <TimestampCell value={f.event_time} />
+              ) : (
+                <span className="text-fg-disabled">—</span>
+              )}
+            </td>
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
+              {f.db_instance || "—"}
+            </td>
+            <td className="truncate px-4 py-2.5 text-fg">
+              {f.user || <span className="text-fg-disabled">—</span>}
+            </td>
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+              {f.source_ip || "—"}
+            </td>
+            <td className="px-4 py-2.5">
+              <SourcePill type={f.source_type || "unknown"} />
+            </td>
+            <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+              {f.reason || f.message || "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function SourcePill({ type }: { type: string }) {
+  const map: Record<string, { label: string; color: string }> = {
+    postgres: { label: "postgres", color: "bg-sev-resolved" },
+    rds_proxy: { label: "proxy", color: "bg-sev-medium" },
+    unknown: { label: "?", color: "bg-fg-subtle" },
+  };
+  const { label, color } = map[type] ?? map.unknown;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs">
+      <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", color)} />
+      <span className="text-fg-muted">{label}</span>
+    </span>
+  );
+}
+
+function formatDuration(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const days = Math.floor(secs / 86400);
+  if (days >= 1) {
+    const hours = Math.floor((secs % 86400) / 3600);
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  const hours = Math.floor(secs / 3600);
+  if (hours >= 1) {
+    const mins = Math.floor((secs % 3600) / 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+  return `${Math.floor(secs / 60)}m`;
+}
 
 function EmptyState({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-6 py-10 text-center text-sm text-fg-muted">
       {children}
     </div>
-  );
-}
-
-// IAM ARNs are noisy — `arn:aws:iam::095899260107:user/apoorva.sharma@…` is
-// 60+ chars. Strip to just the role/user name so the table doesn't wrap.
-function shortenArn(value: string | null | undefined): string {
-  if (!value) return "—";
-  if (!value.startsWith("arn:")) return value;
-  const last = value.split("/").pop();
-  return last || value;
-}
-
-function collectFlags(e: EventEnvelope): string[] {
-  const extras = (e.extra ?? {}) as Record<string, unknown>;
-  return Object.keys(extras).filter(
-    (k) => k.startsWith("rds_") && extras[k] && extras[k] !== false,
   );
 }

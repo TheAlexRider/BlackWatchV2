@@ -1,0 +1,82 @@
+# RDS log-based detections. Fed by the aws.rds adapter which parses
+# postgresql.log + RDS Proxy log lines forwarded by the bw-rds-forwarder
+# Lambda -> SQS -> BW pipeline.
+#
+# Tag convention: see rules/aws_iam.yaml (notify:critical/high/medium).
+# rds.session.start / rds.session.end are informational transitions (they
+# populate rds_active_sessions and drive the live-connected UI). Alerting
+# lives on auth failures, privileged queries, and posture-like signals.
+
+# ---- Auth failures --------------------------------------------------------
+
+- id: rds-auth-failure
+  title: RDS authentication failure
+  description: One failed login. Not by itself an alert -- the burst rule below
+    escalates when this pattern repeats.
+  severity: low
+  tags: [rds, auth]
+  match:
+    field: action
+    op: equals
+    value: rds.auth.failure
+
+# ---- Privileged queries (pgaudit) ----------------------------------------
+
+- id: rds-privileged-ddl
+  title: RDS privileged DDL executed
+  description: DROP / CREATE / ALTER on a production database. pgaudit-decoded.
+  severity: critical
+  tags: [rds, query, ddl, "notify:critical"]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: rds.query.ddl
+      - field: extra.command
+        op: in
+        value:
+          - DROP TABLE
+          - DROP SCHEMA
+          - DROP DATABASE
+          - DROP INDEX
+          - TRUNCATE TABLE
+          - ALTER TABLE
+          - CREATE TABLE
+          - CREATE INDEX
+          - CREATE SCHEMA
+          - CREATE DATABASE
+
+- id: rds-role-change
+  title: RDS role / grant change
+  description: GRANT / REVOKE / CREATE USER / ALTER ROLE. Access-management event
+    -- every one is either a real permission change or an attacker persistence move.
+  severity: critical
+  tags: [rds, query, role, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: rds.query.role
+
+- id: rds-function-executed
+  title: RDS function executed
+  description: pgaudit fires this for security-definer / plpgsql function calls.
+    Informational unless a rule below tightens it.
+  severity: medium
+  tags: [rds, query, function, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: rds.query.function
+
+# ---- Engine errors -------------------------------------------------------
+
+- id: rds-fatal-error
+  title: RDS FATAL error
+  description: PostgreSQL emitted a FATAL / PANIC. Includes OOM, disk full,
+    corrupted-catalog conditions.
+  severity: high
+  tags: [rds, engine, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: rds.error

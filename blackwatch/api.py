@@ -1544,3 +1544,109 @@ def list_modules() -> dict[str, Any]:
     }
 
 
+# ---------- RDS module endpoints -------------------------------------------
+
+def _session_out(s: dict[str, Any], now: datetime) -> dict[str, Any]:
+    connected = s["connected_at"]
+    disconnected = s.get("disconnected_at")
+    if disconnected:
+        duration = s.get("duration_seconds") or int((disconnected - connected).total_seconds())
+    else:
+        duration = int((now - connected).total_seconds())
+    return {
+        "session_id": s["session_id"],
+        "db_instance": s["db_instance"],
+        "source_type": s["source_type"],
+        "db_user": s.get("db_user"),
+        "db_name": s.get("db_name"),
+        "source_ip": s.get("source_ip"),
+        "source_port": s.get("source_port"),
+        "connected_at": connected.isoformat() if connected else None,
+        "disconnected_at": disconnected.isoformat() if disconnected else None,
+        "duration_seconds": duration,
+        "active": disconnected is None,
+    }
+
+
+@router.get("/rds/summary")
+def rds_summary() -> dict[str, Any]:
+    """Overview: DBs we know about + counts of active sessions + recent auth
+    failures per DB. This is what the /rds page's header renders."""
+    now = datetime.now(timezone.utc)
+    dbs = storage.list_rds_db_instances()
+    # Auth failures in the last 24h, grouped per DB.
+    since = now - timedelta(hours=24)
+    fails = storage.query_events(module="aws.rds", action="rds.auth.failure",
+                                  since=since, limit=500)
+    fails_per_db: dict[str, int] = {}
+    for f in fails:
+        db = ((f.get("extra") or {}).get("db_instance") or f.get("target_id") or "unknown")
+        fails_per_db[db] = fails_per_db.get(db, 0) + 1
+    for row in dbs:
+        row["last_activity"] = row["last_activity"].isoformat() if row.get("last_activity") else None
+        row["auth_failures_24h"] = fails_per_db.get(row["db_instance"], 0)
+    return {"databases": dbs, "auth_failures_24h_total": len(fails)}
+
+
+@router.get("/rds/live")
+def rds_live(db: str | None = Query(default=None)) -> dict[str, Any]:
+    """Currently-connected DB sessions. Optional ?db= to filter."""
+    now = datetime.now(timezone.utc)
+    rows = storage.list_rds_active_sessions(db_instance=db, limit=1000)
+    return {
+        "count": len(rows),
+        "sessions": [_session_out(r, now) for r in rows],
+    }
+
+
+@router.get("/rds/sessions")
+def rds_sessions(
+    db: str | None = Query(default=None),
+    user: str | None = Query(default=None),
+    hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> dict[str, Any]:
+    """Session history including closed ones."""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+    rows = storage.list_rds_recent_sessions(
+        db_instance=db, db_user=user, since=since, limit=limit,
+    )
+    return {
+        "count": len(rows),
+        "hours": hours,
+        "sessions": [_session_out(r, now) for r in rows],
+    }
+
+
+@router.get("/rds/auth-failures")
+def rds_auth_failures(
+    db: str | None = Query(default=None),
+    hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Recent auth failure events. Optional filter by DB."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = storage.query_events(
+        module="aws.rds", action="rds.auth.failure",
+        since=since, limit=limit,
+    )
+    if db:
+        rows = [r for r in rows
+                if ((r.get("extra") or {}).get("db_instance") or r.get("target_id")) == db]
+    out = []
+    for r in rows:
+        extra = r.get("extra") or {}
+        out.append({
+            "event_id": r.get("event_id"),
+            "event_time": r["event_time"].isoformat() if r.get("event_time") else None,
+            "db_instance": extra.get("db_instance") or r.get("target_id"),
+            "source_type": extra.get("source_type"),
+            "user": extra.get("user") or r.get("actor_principal"),
+            "source_ip": extra.get("source_ip") or r.get("actor_source_ip"),
+            "reason": extra.get("reason"),
+            "message": extra.get("message"),
+        })
+    return {"count": len(out), "hours": hours, "failures": out}
+
+

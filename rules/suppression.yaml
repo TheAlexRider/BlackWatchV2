@@ -42,8 +42,12 @@
         value: kms.grant.create
       - field: actor.principal
         op: regex
-        # Matches AWS-managed role naming conventions:
-        #   AWSServiceRoleForBackup           (service-linked roles)
-        #   AWSBackupDefaultServiceRole       (default service roles)
-        #   AWSDataLifecycleManagerDefaultRole (default roles)
-        value: ":assumed-role/AWS(?:ServiceRoleFor|[A-Za-z]+Default(?:ServiceRole|Role))"
+        # Broader match — any principal whose ARN contains an AWS-managed
+        # role naming convention. Covers:
+        #   AWSServiceRoleFor*        (service-linked roles)
+        #   AWS*DefaultServiceRole    (default service roles)
+        #   AWS*DefaultRole           (default roles)
+        #   aws-*-role                (some lowercase variants)
+        # The trailing `[/:]` boundary lets it match role name mid-ARN
+        # regardless of what session name AWS appends.
+        value: ":assumed-role/(AWSServiceRoleFor[A-Za-z]+|AWS[A-Za-z]+Default(?:Service)?Role|aws-[a-z-]+-role)[/:]

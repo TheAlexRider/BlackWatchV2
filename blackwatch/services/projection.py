@@ -58,8 +58,11 @@ def _friendly_service_message(action: str, vpc: str, name: str,
 # 2 = first jitter absorbed, second confirms — fast enough but kills noise.
 DOWN_THRESHOLD = 2
 # How many consecutive successes before declaring `up` (after being down/degraded).
-# 1 = recover fast; we want the all-clear quickly.
-UP_THRESHOLD = 1
+# Symmetric with DOWN_THRESHOLD — a flapping service that succeeds once and
+# fails twice would otherwise emit `service.up` on every single successful
+# probe, spamming the channel. Requiring 2 consecutive successes means
+# recovery only fires when the service actually stabilised.
+UP_THRESHOLD = 2
 
 
 def project(event: Event) -> list[Event]:

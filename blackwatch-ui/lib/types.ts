@@ -171,6 +171,64 @@ export interface RdsViewResponse {
   have_connector: boolean;
 }
 
+// --- RDS module (log-based session tracking) ------------------------------
+
+export interface RdsSession {
+  session_id: string;
+  db_instance: string;
+  source_type: string;
+  db_user: string | null;
+  db_name: string | null;
+  source_ip: string | null;
+  source_port: number | null;
+  connected_at: string | null;
+  disconnected_at: string | null;
+  duration_seconds: number;
+  active: boolean;
+}
+
+export interface RdsDbSummary {
+  db_instance: string;
+  source_type: string;
+  active: number;
+  total_seen: number;
+  last_activity: string | null;
+  auth_failures_24h: number;
+}
+
+export interface RdsSummaryResponse {
+  databases: RdsDbSummary[];
+  auth_failures_24h_total: number;
+}
+
+export interface RdsLiveResponse {
+  count: number;
+  sessions: RdsSession[];
+}
+
+export interface RdsSessionsResponse {
+  count: number;
+  hours: number;
+  sessions: RdsSession[];
+}
+
+export interface RdsAuthFailure {
+  event_id: string | null;
+  event_time: string | null;
+  db_instance: string | null;
+  source_type: string | null;
+  user: string | null;
+  source_ip: string | null;
+  reason: string | null;
+  message: string | null;
+}
+
+export interface RdsAuthFailuresResponse {
+  count: number;
+  hours: number;
+  failures: RdsAuthFailure[];
+}
+
 // --- Notifications ---------------------------------------------------------
 
 export type ChannelType =
