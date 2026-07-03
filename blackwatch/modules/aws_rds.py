@@ -38,6 +38,30 @@ from .base import Adapter, IngestContext
 
 _MODULE = "aws.rds"
 
+# AWS-managed system users. These accounts belong to RDS's control plane
+# (health checks, backups, replication, monitoring). They connect ~every
+# minute forever, are not human-driven, and can never be an attacker. We
+# suppress session.start / session.end events for them so the dashboard
+# stays focused on real activity.
+#
+# Auth failures for these users ARE kept -- an attacker attempting to
+# authenticate as rdsadmin is a real signal (even though it can't succeed).
+_SYSTEM_USERS = frozenset({
+    "rdsadmin",
+    "rdsproxyadmin",
+    "rds_superuser",
+    "rds_iam_authorization",
+    "rdssecadmin",
+    "rds_replication",
+    "rds_monitor",
+})
+
+
+def _is_system_user(name: str | None) -> bool:
+    if not name:
+        return False
+    return name in _SYSTEM_USERS
+
 # --- Postgres log line patterns ----------------------------------------------
 # RDS default log_line_prefix is: %t:%r:%u@%d:[%p]:
 #   %t = timestamp                 e.g. "2026-06-30 12:34:56 UTC"
@@ -148,6 +172,8 @@ class AwsRdsAdapter(Adapter):
         if m:
             user = m.group("user")
             db = m.group("db")
+            if _is_system_user(user):
+                return None                    # AWS control-plane chatter -- skip
             return _mkevent(
                 action="rds.session.start",
                 outcome=Outcome.success,
@@ -165,6 +191,8 @@ class AwsRdsAdapter(Adapter):
         if m:
             user = m.group("user")
             db = m.group("db")
+            if _is_system_user(user):
+                return None                    # same suppression as .start
             duration = int(int(m.group("h")) * 3600 + int(m.group("m")) * 60 + float(m.group("s")))
             return _mkevent(
                 action="rds.session.end",
