@@ -57,7 +57,8 @@
       "Bash(PYTHONUTF8=1 python -c \"from docx import Document; d = Document\\(r'C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-TheAl-Documents-GitHub-BlackWatchV2\\\\5b6e72cf-5c50-4a0f-a1b2-e8fd28a90572\\\\scratchpad\\\\blackwatch-ceo-report.docx'\\); ps = d.paragraphs; print\\(f'{len\\(ps\\)} paragraphs'\\); [print\\(repr\\(p.text[:90]\\)\\) for p in ps[:12]]\")",
       "PowerShell($env:PYTHONUTF8=\"1\"; & \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe\" -c \"from docx import Document; d = Document\\(r'C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-TheAl-Documents-GitHub-BlackWatchV2\\\\5b6e72cf-5c50-4a0f-a1b2-e8fd28a90572\\\\scratchpad\\\\blackwatch-ceo-report.docx'\\); ps = d.paragraphs; print\\(f'{len\\(ps\\)} paragraphs'\\); [print\\(repr\\(p.text[:90]\\)\\) for p in ps[:14]]\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['blackwatch/modules/aws_rds.py','blackwatch/rds/projection.py','blackwatch/connectors/aws_rds_sqs.py','blackwatch/connectors/runner.py','blackwatch/pipeline.py','blackwatch/modules/registry.py','blackwatch/api.py','blackwatch/storage.py','deploy/rds/bw_log_forwarder.py']]; print\\('OK'\\)\")",
-      "Bash(python -c \"from blackwatch.modules import aws_rds, registry; from blackwatch.rds import projection; from blackwatch.connectors import aws_rds_sqs, runner, models; from blackwatch import pipeline; print\\('imports OK'\\)\")"
+      "Bash(python -c \"from blackwatch.modules import aws_rds, registry; from blackwatch.rds import projection; from blackwatch.connectors import aws_rds_sqs, runner, models; from blackwatch import pipeline; print\\('imports OK'\\)\")",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('rules/suppression.yaml'\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

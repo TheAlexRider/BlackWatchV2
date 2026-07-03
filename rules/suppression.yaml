@@ -50,4 +50,4 @@
         #   aws-*-role                (some lowercase variants)
         # The trailing `[/:]` boundary lets it match role name mid-ARN
         # regardless of what session name AWS appends.
-        value: ":assumed-role/(AWSServiceRoleFor[A-Za-z]+|AWS[A-Za-z]+Default(?:Service)?Role|aws-[a-z-]+-role)[/:]
+        value: ":assumed-role/(AWSServiceRoleFor[A-Za-z]+|AWS[A-Za-z]+Default(?:Service)?Role|aws-[a-z-]+-role)[/:]"
