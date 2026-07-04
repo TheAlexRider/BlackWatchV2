@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { KeyValueRow } from "@/components/layout/KeyValueRow";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -368,7 +369,7 @@ function SessionsSection({ sessions }: { sessions: HostSession[] }) {
         </span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-32 px-4 py-2 text-left font-normal">User</th>
@@ -398,7 +399,7 @@ function SessionsSection({ sessions }: { sessions: HostSession[] }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -413,7 +414,7 @@ function AlertsSection({ alerts }: { alerts: EventEnvelope[] }) {
     <section className="mt-6 space-y-2">
       <SectionLabel>recent notable activity · high / critical</SectionLabel>
       <DataPanel className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-40 px-4 py-2 text-left font-normal">Time</th>
@@ -455,7 +456,7 @@ function AlertsSection({ alerts }: { alerts: EventEnvelope[] }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -651,7 +652,7 @@ function Stat({
 
 function FimChangesTable({ changes }: { changes: FimChange[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
@@ -702,7 +703,7 @@ function FimChangesTable({ changes }: { changes: FimChange[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -838,7 +839,7 @@ function DiskSection({
         </span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-64 px-4 py-2 text-left font-normal">Mount</th>
@@ -864,7 +865,7 @@ function DiskSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -887,7 +888,7 @@ function PortsSection({
             No port snapshot yet.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <Table>
             <thead>
               <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
                 <th className="w-20 px-4 py-2 text-left font-normal">Proto</th>
@@ -911,7 +912,7 @@ function PortsSection({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </DataPanel>
     </section>
@@ -930,7 +931,7 @@ function ProcessesSection({
         <span className="text-[11px] text-fg-subtle">{rows.length}</span>
       </div>
       <DataPanel className="max-h-[380px] overflow-auto">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="sticky top-0 border-b border-line-soft bg-surface-1 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-32 px-4 py-2 text-left font-normal">User</th>
@@ -951,7 +952,7 @@ function ProcessesSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -969,7 +970,7 @@ function UsersSection({
         <span className="text-[11px] text-fg-subtle">{rows.length}</span>
       </div>
       <DataPanel className="max-h-[280px] overflow-auto">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="sticky top-0 border-b border-line-soft bg-surface-1 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-44 px-4 py-2 text-left font-normal">Name</th>
@@ -986,7 +987,7 @@ function UsersSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -1004,7 +1005,7 @@ function AuthorizedKeysSection({
         <span className="text-[11px] text-fg-subtle">{rows.length}</span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-32 px-4 py-2 text-left font-normal">User</th>
@@ -1028,7 +1029,7 @@ function AuthorizedKeysSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -1053,7 +1054,7 @@ function FileHashSection({
         <span className="text-[11px] text-fg-subtle">{rows.length}</span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="px-4 py-2 text-left font-normal">Path</th>
@@ -1070,7 +1071,7 @@ function FileHashSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -1121,7 +1122,7 @@ function EventsSection({
     <section className="mt-6 space-y-2">
       <SectionLabel>{title}</SectionLabel>
       <DataPanel className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-40 px-4 py-2 text-left font-normal">Time</th>
@@ -1163,7 +1164,7 @@ function EventsSection({
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );

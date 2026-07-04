@@ -8,6 +8,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
@@ -83,7 +84,7 @@ export default async function ServicesPage() {
 
 function AgentsTable({ agents }: { agents: ProbeAgent[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-44 px-4 py-2 text-left font-normal">VPC</th>
@@ -112,7 +113,7 @@ function AgentsTable({ agents }: { agents: ProbeAgent[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -151,7 +152,7 @@ function VpcPanel({
         <CountsLine counts={counts} />
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-56 px-4 py-2 text-left font-normal">Service</th>
@@ -169,7 +170,7 @@ function VpcPanel({
               <ServiceRow key={s.id} service={s} />
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -334,7 +335,7 @@ function ArchivePanel({
           </span>
         </summary>
         <DataPanel className="mt-2 overflow-hidden">
-          <table className="w-full table-fixed text-sm">
+          <Table>
             <thead>
               <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
                 <th className="w-20 px-4 py-2 text-left font-normal">VPC</th>
@@ -351,7 +352,7 @@ function ArchivePanel({
                 <ArchiveRow key={s.id} service={s} />
               ))}
             </tbody>
-          </table>
+          </Table>
         </DataPanel>
       </details>
     </section>

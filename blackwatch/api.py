@@ -7,9 +7,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Cookie, Header, HTTPException, Query, Request, Response
 
-from . import noise, storage
+from . import auth, noise, storage
 from .config import settings
 from .notify import router as notify_router
 from .pipeline import NormalizationError, ingest_payload
@@ -17,6 +17,79 @@ from .rules import engine as rule_engine
 from .rules.model import Condition
 
 router = APIRouter()
+
+
+# ---------- Auth --------------------------------------------------------------
+
+@router.post("/auth/login")
+def auth_login(
+    response: Response,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Verify credentials and set the session cookie."""
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username and password required")
+    user = storage.get_user(username)
+    if user is None or not auth.verify_password(password, user["password_hash"]):
+        # Same detail whether user or password wrong — no enumeration.
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    sid, expires = auth.create_session(username)
+    # HttpOnly + SameSite=Lax so the cookie can ride redirects from /login
+    # → next but isn't scriptable. Secure flag is left off for the HTTP-only
+    # dev deploy; enable via a reverse proxy when TLS terminates upstream.
+    response.set_cookie(
+        key=auth.COOKIE_NAME,
+        value=sid,
+        max_age=int(auth.SESSION_TTL.total_seconds()),
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
+    return {"ok": True, "username": username,
+            "expires_at": expires.isoformat()}
+
+
+@router.post("/auth/logout")
+def auth_logout(
+    response: Response,
+    bw_session: str | None = Cookie(default=None, alias="bw_session"),
+) -> dict[str, Any]:
+    """Invalidate the session (best-effort) and clear the cookie."""
+    auth.delete_session(bw_session)
+    response.delete_cookie(auth.COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@router.get("/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    """Whoami. Returns 401 via the middleware if no valid session."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return {"username": user}
+
+
+@router.post("/auth/change-password")
+def auth_change_password(
+    request: Request, payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Change the current user's password. Requires re-verifying the
+    current password so cookie theft alone can't rotate the credential."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    current = str(payload.get("current_password") or "")
+    new = str(payload.get("new_password") or "")
+    if not current or not new:
+        raise HTTPException(
+            status_code=400, detail="current_password and new_password required",
+        )
+    ok, msg = auth.change_password(user, current, new)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"ok": True}
 
 
 def _module_for_token(token: str | None) -> str:

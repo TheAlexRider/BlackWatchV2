@@ -102,15 +102,148 @@
 
   /* Drag-to-resize column handle (injected by ResizableTable). Invisible
      until hover so the header chrome stays quiet — appears as a thin signal
-     line when the cursor approaches a column edge. */
+     line when the cursor approaches a column edge.
+
+     The pseudo-element strategy gives us a 6-px hit target (the div) with a
+     visible 1-px line centered on it. That's the "column line" — same
+     hairline as the divider between columns, but signal-colored on hover. */
   .bw-col-resize-handle {
     background: transparent;
     transition: background 120ms ease;
+    position: relative;
   }
-  .bw-col-resize-handle:hover,
-  .bw-col-resize-handle:active {
+  .bw-col-resize-handle::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 15%;
+    bottom: 15%;
+    width: 1px;
+    background: transparent;
+    transition: background 120ms ease;
+  }
+  .bw-col-resize-handle:hover::after,
+  .bw-col-resize-handle:active::after {
     background: var(--color-signal);
-    opacity: 0.55;
+  }
+
+  /* =========================================================================
+     `.bw-table` — the canonical table style. Every data table in the app
+     applies this via the <Table> component in components/ui/Table.tsx.
+     Consolidates: sticky header, hairline row + column dividers, subtle
+     hover, tabular numbers, keyboard focus rings, tight but readable
+     spacing. If you're building a new table use the component; if you're
+     hand-writing markup, use `class="bw-table"` on the <table>.
+     ========================================================================= */
+
+  .bw-table {
+    width: 100%;
+    /* max-content wins in overflow-x-auto so wide tables scroll horizontally
+       inside the outer scroll container, matching the pattern from the
+       DataPanel wrapper. */
+    min-width: max-content;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    /* Fixed layout: columns respect the widths set on <th>. That's what
+       makes drag-to-resize behave predictably — otherwise the browser
+       auto-computes widths from content and every text change reflows the
+       table. */
+    table-layout: fixed;
+  }
+
+  /* --- Header (sticky) -------------------------------------------------- */
+  .bw-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    /* Solid backdrop so scrolled rows don't bleed through. */
+    background: var(--color-surface-1);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-weight: 400;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+    border-bottom: 1px solid var(--color-line-soft);
+    white-space: nowrap;
+    /* Reserve space so the resize handle overlay doesn't collide with
+       cell content. */
+    padding-right: 1rem;
+  }
+
+  /* Column dividers — hairline between columns for a grid-like read. */
+  .bw-table thead th + th,
+  .bw-table tbody td + td {
+    border-left: 1px solid var(--color-line-soft);
+  }
+
+  /* --- Rows ------------------------------------------------------------- */
+  .bw-table tbody tr {
+    /* Subtle horizontal divider between rows. Not on the last row so the
+       inner-table bottom doesn't double up with the outer DataPanel border. */
+    border-bottom: 1px solid var(--color-line-soft);
+    transition: background-color 100ms ease;
+  }
+  .bw-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .bw-table tbody tr:hover {
+    background: var(--color-surface-2);
+  }
+  .bw-table tbody tr:focus-within {
+    background: color-mix(in oklab, var(--color-signal-glow) 60%, transparent);
+    outline: 1px solid var(--color-signal);
+    outline-offset: -1px;
+  }
+
+  /* --- Cells ------------------------------------------------------------ */
+  .bw-table tbody td {
+    padding: 0.5rem 0.75rem;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-fg);
+    vertical-align: middle;
+  }
+
+  /* Right-align numeric columns via `data-align="right"` on <td>/<th>. */
+  .bw-table [data-align="right"] {
+    text-align: right;
+  }
+  .bw-table [data-align="center"] {
+    text-align: center;
+  }
+
+  /* Actions column: fixed to the right with a subtle left divider — the
+     eye reads it as a distinct region without a heavy border. */
+  .bw-table [data-actions] {
+    text-align: right;
+    white-space: nowrap;
+    border-left: 1px solid var(--color-line-soft);
+    background: linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-surface-1) 30%, transparent),
+      transparent
+    );
+  }
+
+  /* Prevent unbreakable strings from stretching a column when the user
+     resizes it narrow. Long identifiers (ARNs, rule ids, event ids) wrap
+     inside their cell instead of blowing out the layout. */
+  .bw-table td.wrap-anywhere,
+  .bw-table td .wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* Empty state row — spans the whole table, centered, muted. */
+  .bw-table tbody td.bw-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--color-fg-muted);
+    font-size: 12px;
+    border-left: 0 !important;
   }
 
   /* Global focus-visible ring — keyboard users need this; the design

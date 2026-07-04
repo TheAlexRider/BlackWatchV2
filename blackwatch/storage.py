@@ -1754,3 +1754,93 @@ def list_rds_db_instances() -> list[dict[str, Any]]:
         for r in rows
     ]
 
+
+# --- Auth ---------------------------------------------------------------------
+# Single-tenant admin auth. See blackwatch/auth.py for the business logic.
+
+def list_users() -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT username, created_at, updated_at FROM auth_users ORDER BY username"
+        ).fetchall()
+    return [
+        {"username": r[0], "created_at": r[1], "updated_at": r[2]} for r in rows
+    ]
+
+
+def get_user(username: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT username, password_hash FROM auth_users WHERE username = %s",
+            (username,),
+        ).fetchone()
+    return {"username": row[0], "password_hash": row[1]} if row else None
+
+
+def upsert_user(username: str, password_hash: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_users (username, password_hash)
+                 VALUES (%s, %s)
+            ON CONFLICT (username) DO UPDATE
+              SET password_hash = EXCLUDED.password_hash,
+                  updated_at    = now()
+            """,
+            (username, password_hash),
+        )
+
+
+def insert_session(
+    session_id: str, username: str, expires_at: datetime,
+) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_sessions (session_id, username, expires_at)
+                 VALUES (%s, %s, %s)
+            """,
+            (session_id, username, expires_at),
+        )
+
+
+def get_session(session_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT session_id, username, created_at, last_used_at, expires_at "
+            "  FROM auth_sessions WHERE session_id = %s",
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "session_id": row[0], "username": row[1],
+        "created_at": row[2], "last_used_at": row[3], "expires_at": row[4],
+    }
+
+
+def update_session_expiry(session_id: str, new_expiry: datetime) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE auth_sessions "
+            "   SET last_used_at = now(), expires_at = %s "
+            " WHERE session_id = %s",
+            (new_expiry, session_id),
+        )
+
+
+def delete_session(session_id: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            "DELETE FROM auth_sessions WHERE session_id = %s", (session_id,),
+        )
+
+
+def prune_expired_sessions() -> int:
+    """Remove any rows whose expires_at is in the past. Called opportunistically
+    from a scheduler tick — cheap enough to run frequently."""
+    with get_pool().connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM auth_sessions WHERE expires_at < now()"
+        )
+        return cur.rowcount or 0

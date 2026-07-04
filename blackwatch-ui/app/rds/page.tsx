@@ -13,6 +13,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -134,7 +135,7 @@ export default async function RdsPage() {
 
 function DatabasesTable({ databases }: { databases: RdsDbSummary[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-64 px-4 py-2 text-left font-normal">Database</th>
@@ -190,7 +191,7 @@ function DatabasesTable({ databases }: { databases: RdsDbSummary[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -206,7 +207,7 @@ function SessionsTable({
   live?: boolean;
 }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-56 px-4 py-2 text-left font-normal">Database</th>
@@ -264,7 +265,7 @@ function SessionsTable({
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -274,7 +275,7 @@ function SessionsTable({
 
 function AuthFailuresTable({ failures }: { failures: RdsAuthFailure[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-40 px-4 py-2 text-left font-normal">When</th>
@@ -316,7 +317,7 @@ function AuthFailuresTable({ failures }: { failures: RdsAuthFailure[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 

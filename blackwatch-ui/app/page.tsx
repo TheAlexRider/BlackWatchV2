@@ -5,6 +5,7 @@ import { fetchOverview } from "@/lib/api";
 import type { EventEnvelope } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -215,7 +216,7 @@ function PostureCell({
 
 function CompactEventsTable({ events }: { events: EventEnvelope[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
@@ -257,7 +258,7 @@ function CompactEventsTable({ events }: { events: EventEnvelope[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 

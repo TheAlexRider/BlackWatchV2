@@ -5,6 +5,7 @@ import { fetchPostureFindings } from "@/lib/api";
 import type { PostureFinding } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -65,7 +66,7 @@ function ResourceTypePanel({
         </span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-24 px-4 py-2 text-left font-normal">Severity</th>
@@ -80,7 +81,7 @@ function ResourceTypePanel({
               <FindingRow key={f.finding_id} finding={f} />
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </section>
   );

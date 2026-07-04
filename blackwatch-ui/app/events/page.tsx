@@ -5,6 +5,7 @@ import { fetchEvents } from "@/lib/api";
 import { SEVERITY_VALUES, type EventEnvelope } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +15,6 @@ import {
   SeverityBadge,
   severityBorderBg,
 } from "@/components/domain/SeverityBadge";
-import { ResizableTable } from "@/components/ui/ResizableTable";
 
 type SearchParams = {
   q?: string;
@@ -113,8 +113,7 @@ function FilterBar({ params }: { params: SearchParams }) {
 
 function EventsTable({ events }: { events: EventEnvelope[] }) {
   return (
-    <ResizableTable tableId="events-main">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-44 px-4 py-2 text-left font-normal">Time</th>
@@ -130,8 +129,7 @@ function EventsTable({ events }: { events: EventEnvelope[] }) {
           <EventRow key={ev.event_id} event={ev} />
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 

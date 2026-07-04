@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
+import { Table } from "@/components/ui/Table";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 
@@ -175,15 +176,15 @@ function ChannelsTable({ channels }: { channels: NotificationChannel[] }) {
           </Link>
         </div>
       ) : (
-        <table className="w-full table-fixed text-sm">
+        <Table tableId="notifications-channels" ariaLabel="Channels">
           <thead>
-            <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-              <th className="w-[240px] px-4 py-2 text-left font-normal">Name</th>
-              <th className="w-[120px] px-4 py-2 text-left font-normal">Type</th>
-              <th className="w-[120px] px-4 py-2 text-left font-normal">State</th>
-              <th className="w-[140px] px-4 py-2 text-left font-normal">Last status</th>
-              <th className="w-[180px] px-4 py-2 text-left font-normal">Last sent</th>
-              <th className="px-4 py-2 text-right font-normal" />
+            <tr>
+              <th style={{ width: 240 }}>Name</th>
+              <th style={{ width: 120 }}>Type</th>
+              <th style={{ width: 120 }}>State</th>
+              <th style={{ width: 140 }}>Last status</th>
+              <th style={{ width: 180 }}>Last sent</th>
+              <th data-actions style={{ width: 320 }} />
             </tr>
           </thead>
           <tbody>
@@ -191,7 +192,7 @@ function ChannelsTable({ channels }: { channels: NotificationChannel[] }) {
               <ChannelRow key={c.id} channel={c} />
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </DataPanel>
   );
@@ -297,14 +298,14 @@ function RoutesTable({
   }
   return (
     <DataPanel className="overflow-hidden">
-      <table className="w-full table-fixed text-sm">
+      <Table tableId="notifications-alert-routes" ariaLabel="Alert routes">
         <thead>
-          <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            <th className="w-[200px] px-4 py-2 text-left font-normal">Source</th>
-            <th className="w-[220px] px-4 py-2 text-left font-normal">Trigger</th>
-            <th className="w-[200px] px-4 py-2 text-left font-normal">Channel</th>
-            <th className="w-[90px] px-4 py-2 text-left font-normal">State</th>
-            <th className="px-4 py-2 text-right font-normal" />
+          <tr>
+            <th style={{ width: 200 }}>Source</th>
+            <th style={{ width: 220 }}>Trigger</th>
+            <th style={{ width: 200 }}>Channel</th>
+            <th style={{ width: 90 }}>State</th>
+            <th data-actions style={{ width: 480 }} />
           </tr>
         </thead>
         <tbody>
@@ -312,7 +313,7 @@ function RoutesTable({
             <RouteRow key={r.id} route={r} />
           ))}
         </tbody>
-      </table>
+      </Table>
     </DataPanel>
   );
 }
@@ -449,14 +450,14 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
           </Link>
         </div>
       ) : (
-        <table className="w-full table-fixed text-sm">
+        <Table tableId="notifications-metric-routes" ariaLabel="Metric routes">
           <thead>
-            <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-              <th className="w-[180px] px-4 py-2 text-left font-normal">Metric</th>
-              <th className="w-[240px] px-4 py-2 text-left font-normal">Trigger</th>
-              <th className="w-[200px] px-4 py-2 text-left font-normal">Channel</th>
-              <th className="w-[90px] px-4 py-2 text-left font-normal">State</th>
-              <th className="px-4 py-2 text-right font-normal" />
+            <tr>
+              <th style={{ width: 180 }}>Metric</th>
+              <th style={{ width: 240 }}>Trigger</th>
+              <th style={{ width: 200 }}>Channel</th>
+              <th style={{ width: 90 }}>State</th>
+              <th data-actions style={{ width: 80 }} />
             </tr>
           </thead>
           <tbody>
@@ -464,7 +465,7 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
               <MetricRow key={r.id} rule={r} />
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </DataPanel>
   );
@@ -518,14 +519,14 @@ function ActivityTable({ entries }: { entries: NotificationLogEntry[] }) {
           Nothing has fired yet.
         </div>
       ) : (
-        <table className="w-full table-fixed text-sm">
+        <Table tableId="notifications-activity" ariaLabel="Recent notification activity">
           <thead>
-            <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-              <th className="w-[160px] px-4 py-2 text-left font-normal">Time</th>
-              <th className="w-[120px] px-4 py-2 text-left font-normal">Status</th>
-              <th className="w-[180px] px-4 py-2 text-left font-normal">Channel</th>
-              <th className="w-[220px] px-4 py-2 text-left font-normal">Rule</th>
-              <th className="px-4 py-2 text-left font-normal">Event</th>
+            <tr>
+              <th style={{ width: 160 }}>Time</th>
+              <th style={{ width: 120 }}>Status</th>
+              <th style={{ width: 180 }}>Channel</th>
+              <th style={{ width: 220 }}>Rule</th>
+              <th style={{ width: 480 }}>Event</th>
             </tr>
           </thead>
           <tbody>
@@ -533,7 +534,7 @@ function ActivityTable({ entries }: { entries: NotificationLogEntry[] }) {
               <ActivityRow key={String(e.id)} entry={e} />
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </DataPanel>
   );

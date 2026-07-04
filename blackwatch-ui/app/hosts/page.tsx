@@ -8,11 +8,11 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
-import { ResizableTable } from "@/components/ui/ResizableTable";
 import {
   SeverityBadge,
   severityBorderBg,
@@ -78,8 +78,7 @@ export default async function HostsPage() {
 
 function InstancesTable({ servers }: { servers: HostSummary[] }) {
   return (
-    <ResizableTable tableId="hosts-instances">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-20 px-4 py-2 text-left font-normal">Env</th>
@@ -138,8 +137,7 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 
@@ -153,8 +151,7 @@ function hostLabel(event: EventEnvelope): string {
 
 function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
   return (
-    <ResizableTable tableId="hosts-recent-changes">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-40 px-4 py-2 text-left font-normal">Time</th>
@@ -200,15 +197,13 @@ function ChangesTable({ changes }: { changes: EventEnvelope[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 
 function AccessTable({ rows }: { rows: EventEnvelope[] }) {
   return (
-    <ResizableTable tableId="hosts-recent-access">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-40 px-4 py-2 text-left font-normal">Time</th>
@@ -254,8 +249,7 @@ function AccessTable({ rows }: { rows: EventEnvelope[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 

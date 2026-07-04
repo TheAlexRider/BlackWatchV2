@@ -6,19 +6,15 @@ import { useEffect, useRef } from "react";
  * ResizableTable — drop-in wrapper that makes ANY child `<table>`'s columns
  * drag-resizable, with widths persisted to localStorage keyed by `tableId`.
  *
- * Usage:
- *   <ResizableTable tableId="fim-hosts">
- *     <table className="w-full table-fixed text-sm">
- *       <thead>
- *         <tr><th>Col 1</th><th>Col 2</th>...</tr>
- *       </thead>
- *       ...
- *     </table>
- *   </ResizableTable>
+ * Most callers should use the higher-level `<Table>` wrapper in Table.tsx
+ * instead — it applies the shared `.bw-table` CSS AND the resize handles.
+ * ResizableTable is only used directly by tables that need custom shell
+ * markup around the <table> element.
  *
- * Pick a stable, unique `tableId` per logical table — that's the localStorage
- * key. Reusing the same id across two different tables would have them share
- * widths (which is occasionally what you want, but usually a bug).
+ * `tableId` is optional: when omitted, an id is auto-derived from the
+ * sequence of header labels — stable across renders and unique per header
+ * layout. Provide an explicit id only when two tables share the same
+ * headers but should NOT share saved widths.
  *
  * Design choices:
  *  - DOM-side rather than React-side. We attach handles to <th> elements via
@@ -36,7 +32,11 @@ export function ResizableTable({
   className,
   minColumnWidth = 40,
 }: {
-  tableId: string;
+  /** Optional. If omitted, an id is auto-derived from the sequence of
+   *  header labels — stable across renders as long as the header changes
+   *  don't. Pass an explicit id when two tables in the same app share
+   *  headers but should NOT share widths. */
+  tableId?: string;
   children: React.ReactNode;
   className?: string;
   minColumnWidth?: number;
@@ -53,10 +53,20 @@ export function ResizableTable({
     );
     if (ths.length === 0) return;
 
+    // Derive a storage key from either the explicit prop or a hash of the
+    // header labels + column count. Header text is stable across renders,
+    // so widths persist correctly even when the caller didn't bother to
+    // hand-craft a `tableId`.
+    const derivedId = tableId
+      ? tableId
+      : `auto-${ths.length}-${_hashString(
+          ths.map((t) => (t.textContent || "").trim()).join("|"),
+        )}`;
+
     // Load saved widths (per-column, by zero-based index).
     let saved: Record<number, number> = {};
     try {
-      const raw = localStorage.getItem(`bw-cols-${tableId}`);
+      const raw = localStorage.getItem(`bw-cols-${derivedId}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
@@ -116,7 +126,7 @@ export function ResizableTable({
             out[i] = cell.offsetWidth;
           });
           try {
-            localStorage.setItem(`bw-cols-${tableId}`, JSON.stringify(out));
+            localStorage.setItem(`bw-cols-${derivedId}`, JSON.stringify(out));
             saved = out;
           } catch {
             // ignore — quota or private mode
@@ -152,4 +162,16 @@ export function ResizableTable({
       {children}
     </div>
   );
+}
+
+// Tiny DJB2-ish string hash so the auto-tableId is short but stable. We
+// don't need cryptographic strength — this key only namespaces widths
+// inside a single browser's localStorage.
+function _hashString(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  // 32-bit unsigned → base36 for compactness.
+  return (h >>> 0).toString(36);
 }

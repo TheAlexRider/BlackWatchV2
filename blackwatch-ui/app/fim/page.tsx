@@ -8,10 +8,10 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
-import { ResizableTable } from "@/components/ui/ResizableTable";
 
 export default async function FimPage() {
   const { count, hosts, recent_changes } = await fetchFimView();
@@ -70,8 +70,7 @@ export default async function FimPage() {
 
 function HostsTable({ hosts }: { hosts: FimHostRow[] }) {
   return (
-    <ResizableTable tableId="fim-hosts">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-20 px-4 py-2 text-left font-normal">Env</th>
@@ -134,8 +133,7 @@ function HostsTable({ hosts }: { hosts: FimHostRow[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 
@@ -193,8 +191,7 @@ function LastScanCell({
 
 function ChangesTable({ changes }: { changes: FimChangeWithInstance[] }) {
   return (
-    <ResizableTable tableId="fim-recent-changes">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
@@ -250,8 +247,7 @@ function ChangesTable({ changes }: { changes: FimChangeWithInstance[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 

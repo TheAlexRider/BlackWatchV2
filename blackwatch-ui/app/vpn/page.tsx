@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -183,7 +184,7 @@ function CertsBlock({
         </span>
       </div>
       <DataPanel className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
+        <Table>
           <thead>
             <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-20 px-4 py-2 text-left font-normal">Source</th>
@@ -199,7 +200,7 @@ function CertsBlock({
               <CertRow key={`${c.source ?? "?"}-${c.kind}-${c.name}-${c.path ?? ""}`} cert={c} />
             ))}
           </tbody>
-        </table>
+        </Table>
       </DataPanel>
     </div>
   );
@@ -380,7 +381,7 @@ function ServerStatusInline({ server: s }: { server: VpnServer }) {
 
 function ClientsTable({ clients }: { clients: VpnClient[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-44 px-4 py-2 text-left font-normal">Common name</th>
@@ -415,7 +416,7 @@ function ClientsTable({ clients }: { clients: VpnClient[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -425,7 +426,7 @@ function ClientsTable({ clients }: { clients: VpnClient[] }) {
 
 function AuthTable({ rows }: { rows: EventEnvelope[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-40 px-4 py-2 text-left font-normal">Time</th>
@@ -477,7 +478,7 @@ function AuthTable({ rows }: { rows: EventEnvelope[] }) {
           );
         })}
       </tbody>
-    </table>
+    </Table>
   );
 }
 

@@ -5,6 +5,7 @@ import { fetchIam } from "@/lib/api";
 import type { EventEnvelope, IamCounts } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
@@ -296,7 +297,7 @@ function EventsTable({
   showLoginKind?: boolean;
 }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
@@ -339,7 +340,7 @@ function EventsTable({
           />
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -581,7 +582,7 @@ function PostureFindingsSection({ events }: { events: EventEnvelope[] }) {
             No new posture findings in the recent window.
           </EmptyState>
         ) : (
-          <table className="w-full table-fixed text-sm">
+          <Table>
             <thead>
               <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
                 <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
@@ -637,7 +638,7 @@ function PostureFindingsSection({ events }: { events: EventEnvelope[] }) {
                 );
               })}
             </tbody>
-          </table>
+          </Table>
         )}
       </DataPanel>
     </section>

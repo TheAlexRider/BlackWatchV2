@@ -1,13 +1,15 @@
+"use client";
+
 import Link from "next/link";
-import { Menu, Settings as SettingsIcon, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { LogOut, Menu, Settings as SettingsIcon, X } from "lucide-react";
+
 import { LiveCounter } from "./LiveCounter";
+import { logoutAction } from "@/app/login/actions";
 
 // Top navigation. On mobile the hamburger toggles the SideNav drawer; on
-// desktop it's hidden.
-//
-// The Settings button now navigates to /settings (was a dead button
-// before). The account pill was decorative-only; kept as a static badge
-// since there's no user-switch UI in this app.
+// desktop it's hidden. The account pill opens a small popover with a
+// Sign out action; the Settings icon jumps to /settings.
 export function TopNav({
   onMenuClick,
   menuOpen = false,
@@ -43,12 +45,7 @@ export function TopNav({
         >
           <SettingsIcon size={15} strokeWidth={1.5} />
         </Link>
-        <span
-          aria-hidden
-          className="flex h-6 w-6 items-center justify-center border border-line font-mono text-[10px] uppercase tracking-wider text-fg-muted"
-        >
-          TA
-        </span>
+        <AccountMenu />
       </div>
     </header>
   );
@@ -61,6 +58,68 @@ function Logo() {
       aria-hidden
     >
       <span className="font-mono text-[9px] font-medium leading-none">BW</span>
+    </div>
+  );
+}
+
+function AccountMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        aria-label="Account"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-6 w-6 items-center justify-center border border-line font-mono text-[10px] uppercase tracking-wider text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+      >
+        TA
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-9 z-50 min-w-[180px] border border-line bg-canvas py-1 shadow-lg"
+        >
+          <Link
+            href="/settings"
+            role="menuitem"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
+            onClick={() => setOpen(false)}
+          >
+            <SettingsIcon size={12} /> Settings
+          </Link>
+          <form action={logoutAction} className="block">
+            <button
+              type="submit"
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
+            >
+              <LogOut size={12} /> Sign out
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

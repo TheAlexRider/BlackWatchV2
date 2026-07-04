@@ -8,6 +8,7 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { StatusDot } from "@/components/ui/StatusDot";
@@ -109,7 +110,7 @@ function CountCell({
 
 function BucketsTable({ buckets }: { buckets: BucketStatus[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="px-4 py-2 text-left font-normal">Bucket</th>
@@ -127,7 +128,7 @@ function BucketsTable({ buckets }: { buckets: BucketStatus[] }) {
           <BucketRow key={b.bucket_name + ":" + (b.region ?? "")} bucket={b} />
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 

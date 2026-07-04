@@ -11,10 +11,10 @@ import type {
 } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
-import { ResizableTable } from "@/components/ui/ResizableTable";
 
 export default async function FimInstancePage({
   params,
@@ -190,8 +190,7 @@ function PathsSection({
             No path summary available — coverage hasn&apos;t been reported yet.
           </div>
         ) : (
-          <ResizableTable tableId="fim-instance-paths">
-          <table className="w-full table-fixed text-sm">
+          <Table>
             <thead>
               <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
                 <th className="w-44 px-4 py-2 text-left font-normal">Category</th>
@@ -225,8 +224,7 @@ function PathsSection({
                 );
               })}
             </tbody>
-          </table>
-          </ResizableTable>
+          </Table>
         )}
       </DataPanel>
     </section>
@@ -261,8 +259,7 @@ function StraySection({
           next periodic scan will detect deletions for files outside the
           current scan scope.
         </p>
-        <ResizableTable tableId="fim-instance-stray">
-        <table className="w-full text-sm">
+        <Table>
           <thead>
             <tr className="border-y border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="px-4 py-2 text-left font-normal">Path</th>
@@ -288,8 +285,7 @@ function StraySection({
               </tr>
             ))}
           </tbody>
-        </table>
-        </ResizableTable>
+        </Table>
       </DataPanel>
     </section>
   );
@@ -323,8 +319,7 @@ function RecentChangesSection({ changes }: { changes: FimChange[] }) {
 
 function ChangesTable({ changes }: { changes: FimChange[] }) {
   return (
-    <ResizableTable tableId="fim-instance-changes">
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
@@ -375,8 +370,7 @@ function ChangesTable({ changes }: { changes: FimChange[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
-    </ResizableTable>
+    </Table>
   );
 }
 

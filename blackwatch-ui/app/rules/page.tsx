@@ -2,6 +2,7 @@ import { fetchRules } from "@/lib/api";
 import type { Rule } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -76,7 +77,7 @@ export default async function RulesPage({
 
 function RulesTable({ rules }: { rules: Rule[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-56 px-4 py-2 text-left font-normal">ID</th>
@@ -132,14 +133,14 @@ function RulesTable({ rules }: { rules: Rule[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
 function MutedTable({ muted }: { muted: string[] }) {
   return (
     <div className="mt-4 border border-line-soft">
-      <table className="w-full text-sm">
+      <Table>
         <thead>
           <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
             <th className="px-4 py-2 text-left font-normal">Action</th>
@@ -161,7 +162,7 @@ function MutedTable({ muted }: { muted: string[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

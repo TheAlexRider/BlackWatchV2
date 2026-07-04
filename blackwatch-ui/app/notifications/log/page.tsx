@@ -6,6 +6,7 @@ import { fetchNotificationLog } from "@/lib/api";
 import type { NotificationLogEntry } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { Table } from "@/components/ui/Table";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
@@ -100,7 +101,7 @@ export default async function NotificationLogPage({
 
 function LogTable({ entries }: { entries: NotificationLogEntry[] }) {
   return (
-    <table className="w-full table-fixed text-sm">
+    <Table>
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
@@ -158,7 +159,7 @@ function LogTable({ entries }: { entries: NotificationLogEntry[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
