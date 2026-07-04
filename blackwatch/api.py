@@ -1706,6 +1706,98 @@ def notif_cards_list() -> dict[str, Any]:
     }
 
 
+# ---- Routes view (rules grouped by module) ------------------------------
+
+@router.get("/notifications/routes")
+def notif_routes_view() -> dict[str, Any]:
+    """One-shot payload for the /notifications routes table. Groups rules
+    by their target module (extracted from the match tree). Modules with
+    zero routes are still returned so the UI can show coverage gaps."""
+    from .notify import routes_view
+    channels = [
+        {"id": str(c["id"]), "name": c["name"], "type": c["type"],
+         "enabled": c["enabled"]}
+        for c in storage.list_notification_channels()
+    ]
+    view = routes_view.list_routes()
+    return {**view, "channels": channels}
+
+
+@router.post("/notifications/routes/save")
+def notif_route_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Create-or-update a simple route from the mini-form. Payload:
+      { id?, module, severities:[..], channel, enabled? }
+    For custom rules with arbitrary conditions, use /notifications/rules/save
+    (this endpoint only handles the module+severity shape).
+    """
+    from .notify import routes_view
+    module = str(payload.get("module") or "").strip()
+    channel = str(payload.get("channel") or "").strip()
+    severities = payload.get("severities") or []
+    if not isinstance(severities, list):
+        raise HTTPException(status_code=400, detail="severities must be a list")
+    enabled = bool(payload.get("enabled", True))
+    rule_id = payload.get("id") or None
+    try:
+        rid = routes_view.upsert_simple_route(
+            rule_id=rule_id, module=module,
+            severities=[str(s) for s in severities],
+            channel=channel, enabled=enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    from .notify import router as notify_router_module
+    try:
+        notify_router_module.get_notifier().reload_rules()
+    except Exception:
+        pass
+    return {"id": rid, "saved": True}
+
+
+@router.post("/notifications/routes/{rule_id}/toggle")
+def notif_route_toggle(
+    rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    enabled = bool(payload.get("enabled", True))
+    storage.set_notification_rule_enabled(rule_id, enabled)
+    from .notify import router as notify_router_module
+    try:
+        notify_router_module.get_notifier().reload_rules()
+    except Exception:
+        pass
+    return {"id": rule_id, "enabled": enabled}
+
+
+@router.post("/notifications/routes/{rule_id}/silence")
+def notif_route_silence(
+    rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    hours = int(payload.get("hours", 0))
+    if hours <= 0:
+        storage.set_notification_rule_silence(rule_id, None)
+        until = None
+    else:
+        until = datetime.now(timezone.utc) + timedelta(hours=hours)
+        storage.set_notification_rule_silence(rule_id, until)
+    from .notify import router as notify_router_module
+    try:
+        notify_router_module.get_notifier().reload_rules()
+    except Exception:
+        pass
+    return {"id": rule_id, "silence_until": until.isoformat() if until else None}
+
+
+@router.delete("/notifications/routes/{rule_id}")
+def notif_route_delete(rule_id: str) -> dict[str, Any]:
+    storage.delete_notification_rule(rule_id)
+    from .notify import router as notify_router_module
+    try:
+        notify_router_module.get_notifier().reload_rules()
+    except Exception:
+        pass
+    return {"id": rule_id, "deleted": True}
+
+
 @router.post("/notifications/cards/{module}/save")
 def notif_card_save(
     module: str, payload: dict[str, Any] = Body(default_factory=dict),

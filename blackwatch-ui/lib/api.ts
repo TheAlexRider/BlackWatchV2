@@ -29,6 +29,7 @@ import type {
   NotificationRule,
   NotificationRulesResponse,
   NotificationCardsResponse,
+  RoutesResponse,
   NotificationLogResponse,
   PerfQuickResponse,
   NotificationAcksResponse,
@@ -217,6 +218,12 @@ export async function fetchNotificationCards(): Promise<NotificationCardsRespons
   const res = await fetch(`${API_BASE}/api/notifications/cards`, { cache: "no-store" });
   if (!res.ok) throw new Error(`fetchNotificationCards failed: ${res.status}`);
   return (await res.json()) as NotificationCardsResponse;
+}
+
+export async function fetchNotificationRoutes(): Promise<RoutesResponse> {
+  const res = await fetch(`${API_BASE}/api/notifications/routes`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchNotificationRoutes failed: ${res.status}`);
+  return (await res.json()) as RoutesResponse;
 }
 
 export async function fetchPerfQuick(): Promise<PerfQuickResponse> {

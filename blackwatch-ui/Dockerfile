@@ -6,7 +6,13 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 
-# Build
+# Build. IMPORTANT: rewrites() in next.config.mjs is evaluated at BUILD time
+# and the result is baked into the standalone manifest. So BW_API_URL must be
+# available here, not just at runtime. If it's unset the fallback baked in is
+# localhost:8000 — which breaks the /api/* proxy inside docker-compose because
+# the FastAPI service is reachable as `app:8000`, not `localhost:8000`.
+ARG BW_API_URL=http://app:8000
+ENV BW_API_URL=${BW_API_URL}
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

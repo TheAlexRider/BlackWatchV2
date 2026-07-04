@@ -323,6 +323,36 @@ export interface NotificationCardsResponse {
   thresholds: CardThreshold[];
 }
 
+// --- Routes view (one page, everything's a rule) -------------------------
+
+export type SeverityKey = "informational" | "low" | "medium" | "high" | "critical";
+
+export interface Route {
+  id: string;
+  name: string | null;
+  enabled: boolean;
+  channel: string | null;
+  channels: string[];
+  severities: SeverityKey[];
+  kind: "simple" | "custom";
+  silence_until: string | null;
+  silenced: boolean;
+  match: Record<string, unknown>;
+}
+
+export interface RouteBucket {
+  module: string; // module id, or "__custom__"
+  label: string;
+  blurb: string;
+  routes: Route[];
+}
+
+export interface RoutesResponse {
+  buckets: RouteBucket[];
+  coverage: { routed: number; total: number };
+  channels: Array<{ id: string; name: string; type: string; enabled: boolean }>;
+}
+
 // --- Quick perf-alert cards ----------------------------------------------
 
 export type PerfQuickMetric = "memory_pct" | "cpu_load_norm" | "disk_pct_max";
