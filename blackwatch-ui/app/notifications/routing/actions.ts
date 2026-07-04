@@ -20,7 +20,7 @@ function done(msg: string): never {
 // Surface non-2xx bodies to the user as a red flash toast rather than
 // throwing (which produces an unfriendly Next.js error page). The toast
 // classifier already colours "failed" / "error" red.
-async function bail(prefix: string, res: Response): never {
+async function bail(prefix: string, res: Response): Promise<never> {
   let detail = "";
   try {
     detail = (await res.text()).slice(0, 200);
