@@ -1,6 +1,6 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { Plus, Pencil, X } from "lucide-react";
+import { Plus, Pencil, X, ArrowRight } from "lucide-react";
 
 import {
   fetchNotificationChannels,
@@ -73,6 +73,8 @@ export default async function NotificationsPage({
 
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}
 
+      <RoutingCta />
+
       <ChannelsSection channels={channelsData.channels} />
       <RulesSection
         rules={rulesData.rules}
@@ -84,6 +86,31 @@ export default async function NotificationsPage({
       />
       <RecentActivitySection entries={logData.entries} />
     </>
+  );
+}
+
+// =========================================================================
+// routing cta — hero link to /notifications/routing
+// =========================================================================
+
+function RoutingCta() {
+  return (
+    <Link
+      href="/notifications/routing"
+      className="mt-2 flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
+    >
+      <div className="flex items-baseline gap-3">
+        <span className="text-signal">▸</span>
+        <div>
+          <div className="text-fg">Set up alerts by module</div>
+          <div className="text-xs text-fg-subtle">
+            One channel + one severity per module. No rule editor. Recommended
+            for most setups.
+          </div>
+        </div>
+      </div>
+      <ArrowRight size={14} className="text-signal" />
+    </Link>
   );
 }
 
@@ -208,7 +235,7 @@ function RulesSection({
   return (
     <section className="mt-6 space-y-2">
       <div className="flex items-baseline justify-between">
-        <SectionLabel>notify me when…</SectionLabel>
+        <SectionLabel>advanced rules · custom conditions</SectionLabel>
         <Button asChild variant="ghost" size="sm">
           <Link href="/notifications/rules/new">
             <Plus size={12} /> add rule
@@ -218,21 +245,21 @@ function RulesSection({
       <DataPanel className="overflow-hidden">
         {rules.length === 0 ? (
           <EmptyState>
-            {channelsAvailable ? (
-              <>
-                No rules yet.{" "}
-                <Link
-                  href="/notifications/rules/new"
-                  className="text-signal hover:underline"
-                >
-                  Add one →
-                </Link>
-              </>
-            ) : (
-              <>
-                No channels yet — add a channel above before creating a rule.
-              </>
-            )}
+            No custom rules — most setups don&apos;t need any. Use{" "}
+            <Link
+              href="/notifications/routing"
+              className="text-signal hover:underline"
+            >
+              module setup
+            </Link>{" "}
+            for per-module routing, or{" "}
+            <Link
+              href="/notifications/rules/new"
+              className="text-signal hover:underline"
+            >
+              add a custom rule
+            </Link>{" "}
+            for action-specific conditions.
           </EmptyState>
         ) : (
           <table className="w-full text-sm">

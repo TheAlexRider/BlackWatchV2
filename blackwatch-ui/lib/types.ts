@@ -287,6 +287,34 @@ export interface NotificationRulesResponse {
   rules: NotificationRule[];
 }
 
+// --- Module cards (simple per-module routing) ----------------------------
+
+export type CardThresholdKey = "critical" | "high" | "medium" | "low";
+
+export interface CardThreshold {
+  key: CardThresholdKey;
+  label: string;
+  includes: string[];
+}
+
+export interface NotificationCard {
+  module: string;
+  label: string;
+  icon: string;
+  blurb: string;
+  enabled: boolean;
+  channel: string | null;
+  threshold: CardThresholdKey;
+  silence_until: string | null;
+  rule_id: string | null;
+}
+
+export interface NotificationCardsResponse {
+  cards: NotificationCard[];
+  channels: Array<{ name: string; type: string; enabled: boolean }>;
+  thresholds: CardThreshold[];
+}
+
 export interface NotificationLogEntry {
   id: string | number;
   ts: string;

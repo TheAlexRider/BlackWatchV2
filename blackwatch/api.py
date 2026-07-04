@@ -1371,11 +1371,17 @@ def notif_channel_delete(channel_id: str) -> dict[str, Any]:
 # --- Notification rules ----------------------------------------------------
 
 @router.get("/notifications/rules")
-def notif_rules_list() -> dict[str, Any]:
+def notif_rules_list(include_auto: bool = False) -> dict[str, Any]:
+    """List rules for the advanced view. Rules whose name starts with `auto:`
+    are managed by the module cards page and hidden by default; pass
+    include_auto=true to see them (e.g. for debugging)."""
+    from .notify import routing_matrix
     rows = storage.list_notification_rules()
     out = []
     now_utc = datetime.now(timezone.utc)
     for r in rows:
+        if not include_auto and routing_matrix.is_auto_rule_name(r.get("name")):
+            continue
         silence_until = r.get("silence_until")
         out.append({
             **r,
@@ -1456,6 +1462,64 @@ def notif_rule_delete(rule_id: str) -> dict[str, Any]:
     storage.delete_notification_rule(rule_id)
     notify_router.get_notifier().reload_rules()
     return {"id": rule_id, "deleted": True}
+
+
+# --- Module cards (simple per-module routing) ------------------------------
+# The card UX at /notifications/routing writes one "auto:<module>" rule per
+# card into the existing notification_rules table. These endpoints wrap that
+# translation so the UI never has to think in condition trees.
+
+@router.get("/notifications/cards")
+def notif_cards_list() -> dict[str, Any]:
+    from .notify import routing_matrix
+    channels = [
+        {"name": c["name"], "type": c["type"], "enabled": c["enabled"]}
+        for c in storage.list_notification_channels()
+    ]
+    return {
+        "cards": routing_matrix.list_cards(),
+        "channels": channels,
+        "thresholds": routing_matrix.THRESHOLDS,
+    }
+
+
+@router.post("/notifications/cards/{module}/save")
+def notif_card_save(
+    module: str, payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    from .notify import routing_matrix
+    enabled = bool(payload.get("enabled", True))
+    channel = payload.get("channel") or None
+    if channel is not None:
+        channel = str(channel).strip() or None
+    threshold = str(payload.get("threshold") or "high")
+    try:
+        card = routing_matrix.save_card(
+            module=module, enabled=enabled,
+            channel=channel, threshold=threshold,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"saved": True, "card": card}
+
+
+@router.post("/notifications/cards/{module}/silence")
+def notif_card_silence(
+    module: str, payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    from .notify import routing_matrix
+    hours = int(payload.get("hours", 0))
+    try:
+        card = routing_matrix.silence_card(module=module, hours=hours)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"card": card}
+
+
+@router.post("/notifications/cards/{module}/test")
+def notif_card_test(module: str) -> dict[str, Any]:
+    from .notify import routing_matrix
+    return routing_matrix.test_card(module)
 
 
 # --- Notification log ------------------------------------------------------

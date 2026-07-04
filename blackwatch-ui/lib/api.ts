@@ -28,6 +28,7 @@ import type {
   NotificationChannelsResponse,
   NotificationRule,
   NotificationRulesResponse,
+  NotificationCardsResponse,
   NotificationLogResponse,
   NotificationAcksResponse,
   LivePingResponse,
@@ -209,6 +210,12 @@ export async function fetchNotificationRules(): Promise<NotificationRulesRespons
   const res = await fetch(`${API_BASE}/api/notifications/rules`, { cache: "no-store" });
   if (!res.ok) throw new Error(`fetchNotificationRules failed: ${res.status}`);
   return (await res.json()) as NotificationRulesResponse;
+}
+
+export async function fetchNotificationCards(): Promise<NotificationCardsResponse> {
+  const res = await fetch(`${API_BASE}/api/notifications/cards`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchNotificationCards failed: ${res.status}`);
+  return (await res.json()) as NotificationCardsResponse;
 }
 
 export async function fetchNotificationRule(id: string): Promise<NotificationRule | null> {
