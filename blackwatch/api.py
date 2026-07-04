@@ -1641,6 +1641,8 @@ def notif_rule_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if not isinstance(channels, list):
         raise HTTPException(status_code=400, detail="channels must be a list")
     rid = str(payload.get("id") or "").strip() or str(_uuid.uuid4())
+    tpl_raw = payload.get("message_template")
+    message_template = str(tpl_raw).strip() if isinstance(tpl_raw, str) else None
     storage.upsert_notification_rule(
         rule_id=rid,
         name=name,
@@ -1649,6 +1651,7 @@ def notif_rule_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         channels=[str(c) for c in channels],
         throttle_seconds=int(payload.get("throttle_seconds", 0)),
         priority=int(payload.get("priority", 100)),
+        message_template=message_template or None,
     )
     notify_router.get_notifier().reload_rules()
     return {"id": rid, "saved": True}
@@ -1710,9 +1713,9 @@ def notif_cards_list() -> dict[str, Any]:
 
 @router.get("/notifications/routes")
 def notif_routes_view() -> dict[str, Any]:
-    """One-shot payload for the /notifications routes table. Groups rules
-    by their target module (extracted from the match tree). Modules with
-    zero routes are still returned so the UI can show coverage gaps."""
+    """Configured routes for the /notifications table, plus the module
+    catalog and channel list the wizard needs. Only rules with a channel
+    are returned as routes — empty modules are not surfaced as rows."""
     from .notify import routes_view
     channels = [
         {"id": str(c["id"]), "name": c["name"], "type": c["type"],
@@ -1725,8 +1728,8 @@ def notif_routes_view() -> dict[str, Any]:
 
 @router.post("/notifications/routes/save")
 def notif_route_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Create-or-update a simple route from the mini-form. Payload:
-      { id?, module, severities:[..], channel, enabled? }
+    """Create-or-update a simple route from the wizard. Payload:
+      { id?, module, severities:[..], channel, enabled?, message_template? }
     For custom rules with arbitrary conditions, use /notifications/rules/save
     (this endpoint only handles the module+severity shape).
     """
@@ -1738,11 +1741,14 @@ def notif_route_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="severities must be a list")
     enabled = bool(payload.get("enabled", True))
     rule_id = payload.get("id") or None
+    tpl_raw = payload.get("message_template")
+    message_template = str(tpl_raw).strip() if isinstance(tpl_raw, str) else None
     try:
         rid = routes_view.upsert_simple_route(
             rule_id=rule_id, module=module,
             severities=[str(s) for s in severities],
             channel=channel, enabled=enabled,
+            message_template=message_template or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

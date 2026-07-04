@@ -79,3 +79,7 @@ class NotificationRule(BaseModel):
     throttle_seconds: int = 0
     silence_until: datetime | None = None
     priority: int = 100
+    # Optional Jinja source. When set, dispatch renders this instead of the
+    # channel's default template — lets one channel deliver differently-
+    # worded messages depending on which rule matched.
+    message_template: str | None = None

@@ -26,9 +26,11 @@ def _now_ts() -> float:
     return time.time()
 
 
-def _preview(channel: Channel, event: Event) -> str:
+def _preview(
+    channel: Channel, event: Event, rule_template: str | None = None,
+) -> str:
     try:
-        body = channels_module._render(channel, event)
+        body = channels_module._render(channel, event, rule_template=rule_template)
     except Exception as exc:
         body = f"(render error: {exc})"
     return body[:_MAX_LOG_PREVIEW]
@@ -148,6 +150,7 @@ class Worker:
         channel: Channel = item["channel"]
         event: Event = item["event"]
         channel_id = item.get("channel_id")
+        rule_tpl = getattr(rule, "message_template", None)
 
         log_skel = {
             "rule_id": getattr(rule, "id", None),
@@ -160,7 +163,7 @@ class Worker:
         # Rate-limit before anything else
         if not self._ratelimit.allow(channel):
             entry = {**log_skel, "status": "rate_limited",
-                     "body_preview": _preview(channel, event)}
+                     "body_preview": _preview(channel, event, rule_tpl)}
             _log(entry)
             return entry
 
@@ -169,25 +172,27 @@ class Worker:
             self._digest.add(channel.name, {"rule": rule, "event": event, "channel": channel,
                                             "channel_id": channel_id})
             entry = {**log_skel, "status": "digested",
-                     "body_preview": _preview(channel, event)}
+                     "body_preview": _preview(channel, event, rule_tpl)}
             _log(entry)
             return entry
 
-        return self._send_with_retry(channel, event, log_skel)
+        return self._send_with_retry(channel, event, log_skel, rule_tpl)
 
     def _send_with_retry(
-        self, channel: Channel, event: Event, log_skel: dict[str, Any]
+        self, channel: Channel, event: Event, log_skel: dict[str, Any],
+        rule_tpl: str | None = None,
     ) -> dict[str, Any]:
         retries = max(0, channel.retries)
         backoff = max(1, channel.retry_backoff_seconds)
         last_err: str | None = None
         for attempt in range(retries + 1):
-            ok, detail = channels_module.send(channel, event)
+            ok, detail = channels_module.send(channel, event, rule_template=rule_tpl)
             if ok:
                 _record_channel_status(log_skel["channel_id"], "ok", None,
                                        datetime.now(timezone.utc))
                 entry = {**log_skel, "status": "sent", "retries_used": attempt,
-                         "body_preview": _preview(channel, event), "error_message": None}
+                         "body_preview": _preview(channel, event, rule_tpl),
+                         "error_message": None}
                 _log(entry)
                 return entry
             last_err = detail
@@ -197,7 +202,8 @@ class Worker:
                     break
         _record_channel_status(log_skel["channel_id"], "error", last_err, None)
         entry = {**log_skel, "status": "failed", "retries_used": retries,
-                 "body_preview": _preview(channel, event), "error_message": last_err}
+                 "body_preview": _preview(channel, event, rule_tpl),
+                 "error_message": last_err}
         _log(entry)
         return entry
 

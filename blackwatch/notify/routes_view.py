@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any
 
 from .. import storage
-from ..event import _SEVERITY_ORDER
+from ..event import _SEVERITY_ORDER  # noqa: F401 — used by list_routes()
 
 # Curated module catalog — same list the UI shows so unrouted modules
 # remain visible as coverage gaps.
@@ -129,16 +129,16 @@ def build_simple_match(module: str, severities: list[str]) -> dict[str, Any]:
 # ---- public shape --------------------------------------------------------
 
 def list_routes() -> dict[str, Any]:
-    """Return the whole routes view in one shot:
+    """Return only configured routes — one row per rule that has a channel.
+    We used to include empty modules as "coverage gaps" but the operator
+    doesn't want them cluttering the list. Discovery of the module catalog
+    happens on the Create-alert wizard's first step, not in the row list.
 
+    Shape:
         {
-          "buckets": [
-            { "module": "aws.rds", "label": "AWS RDS", "blurb": "...",
-              "routes": [ {rule_row}, ... ] },
-            ...
-            { "module": "__custom__", "label": "Custom", "routes": [...] },
-          ],
-          "coverage": {"routed": N, "total": M},
+          "routes":   [ {route_row}, ... ],   # sorted: module → severity
+          "catalog":  [ {module, label, blurb} ],  # for wizard step 1
+          "channels": [ {id, name, type, enabled} ],
         }
     """
     try:
@@ -147,45 +147,50 @@ def list_routes() -> dict[str, Any]:
         all_rules = []
     now_utc = datetime.utcnow()
 
-    # Bucket rules by their extracted module. Anything without one lands in
-    # the custom bucket.
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    rows: list[dict[str, Any]] = []
     for r in all_rules:
+        if not (r.get("channels") or []):
+            continue  # No channel = not really a route; skip from list.
         module = _extract_module_from_match(r.get("match"))
-        key = module if module else CUSTOM_BUCKET_KEY
-        grouped.setdefault(key, []).append(_route_row(r, now_utc))
+        row = _route_row(r, now_utc)
+        row["module"] = module or CUSTOM_BUCKET_KEY
+        # Attach the display label so the UI doesn't need a separate lookup.
+        label = next(
+            (m["label"] for m in MODULE_CATALOG if m["key"] == module),
+            "Custom / advanced",
+        )
+        row["module_label"] = label
+        rows.append(row)
 
-    buckets: list[dict[str, Any]] = []
-    routed = 0
-    for spec in MODULE_CATALOG:
-        rows = grouped.get(spec["key"], [])
-        if rows:
-            routed += 1
-        buckets.append({
-            "module": spec["key"],
-            "label": spec["label"],
-            "blurb": spec["blurb"],
-            "routes": rows,
-        })
+    # Stable ordering: catalog order for known modules, custom at end,
+    # then severity strength within a module.
+    module_order = {m["key"]: i for i, m in enumerate(MODULE_CATALOG)}
+    sev_order = {s: i for i, s in enumerate(reversed(_SEVERITY_ORDER))}
 
-    # Custom bucket always at the end.
-    buckets.append({
-        "module": CUSTOM_BUCKET_KEY,
-        "label": "Custom / advanced",
-        "blurb": "Rules with conditions that don't map to a single module — "
-                 "e.g. action-contains, cross-module filters.",
-        "routes": grouped.get(CUSTOM_BUCKET_KEY, []),
-    })
+    def sort_key(row: dict[str, Any]) -> tuple[int, int]:
+        m = row.get("module")
+        mo = module_order.get(m, 999)  # custom → 999
+        sev_first = (row.get("severities") or [None])[0]
+        so = sev_order.get(sev_first, 999)
+        return (mo, so)
+
+    rows.sort(key=sort_key)
 
     return {
-        "buckets": buckets,
-        "coverage": {"routed": routed, "total": len(MODULE_CATALOG)},
+        "routes": rows,
+        "catalog": MODULE_CATALOG,
+        "custom_bucket_key": CUSTOM_BUCKET_KEY,
     }
 
 
 def _route_row(rule: dict[str, Any], now_utc: datetime) -> dict[str, Any]:
     silence_until = rule.get("silence_until")
-    silenced = bool(silence_until) and silence_until.replace(tzinfo=None) > now_utc if silence_until else False
+    silenced = (
+        bool(silence_until)
+        and silence_until.replace(tzinfo=None) > now_utc
+        if silence_until
+        else False
+    )
     return {
         "id": rule["id"],
         "name": rule.get("name"),
@@ -197,6 +202,7 @@ def _route_row(rule: dict[str, Any], now_utc: datetime) -> dict[str, Any]:
         "silence_until": silence_until.isoformat() if silence_until else None,
         "silenced": silenced,
         "match": rule.get("match") or {},
+        "message_template": rule.get("message_template"),
     }
 
 
@@ -209,6 +215,7 @@ def upsert_simple_route(
     severities: list[str],
     channel: str,
     enabled: bool = True,
+    message_template: str | None = None,
 ) -> str:
     """Create-or-update a simple route. Returns the rule id."""
     if not module:
@@ -217,9 +224,7 @@ def upsert_simple_route(
         raise ValueError("channel required")
     match = build_simple_match(module, severities)
     rid = rule_id or str(uuid.uuid4())
-    # A stable, human-readable rule name so the advanced rules table stays
-    # legible. `route:<module>:<sev-set>` — no `auto:` prefix (there's no
-    # longer a special "auto" concept; every route is a first-class rule).
+    # A stable, human-readable rule name.
     sev_tag = "+".join(sorted(severities))
     name = f"route:{module}:{sev_tag}" if severities else f"route:{module}"
     storage.upsert_notification_rule(
@@ -230,5 +235,6 @@ def upsert_simple_route(
         channels=[channel],
         throttle_seconds=0,
         priority=50,
+        message_template=message_template,
     )
     return rid

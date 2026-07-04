@@ -58,7 +58,14 @@
       "PowerShell($env:PYTHONUTF8=\"1\"; & \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe\" -c \"from docx import Document; d = Document\\(r'C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-TheAl-Documents-GitHub-BlackWatchV2\\\\5b6e72cf-5c50-4a0f-a1b2-e8fd28a90572\\\\scratchpad\\\\blackwatch-ceo-report.docx'\\); ps = d.paragraphs; print\\(f'{len\\(ps\\)} paragraphs'\\); [print\\(repr\\(p.text[:90]\\)\\) for p in ps[:14]]\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(p,encoding='utf-8'\\).read\\(\\)\\) for p in ['blackwatch/modules/aws_rds.py','blackwatch/rds/projection.py','blackwatch/connectors/aws_rds_sqs.py','blackwatch/connectors/runner.py','blackwatch/pipeline.py','blackwatch/modules/registry.py','blackwatch/api.py','blackwatch/storage.py','deploy/rds/bw_log_forwarder.py']]; print\\('OK'\\)\")",
       "Bash(python -c \"from blackwatch.modules import aws_rds, registry; from blackwatch.rds import projection; from blackwatch.connectors import aws_rds_sqs, runner, models; from blackwatch import pipeline; print\\('imports OK'\\)\")",
-      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('rules/suppression.yaml'\\)\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('rules/suppression.yaml'\\)\\); print\\('OK'\\)\")",
+      "Bash(echo \"=== ~/.claude/skills \\(user-scoped\\) ===\"; ls -1 \"$HOME/.claude/skills/\" 2>&1 | head -40; echo \"\"; echo \"=== ./.claude/skills \\(project-scoped\\) ===\"; ls -1 \".claude/skills/\" 2>&1 | head -40; echo \"\"; echo \"=== ./.agents/skills ===\"; ls -1 \".agents/skills/\" 2>&1 | head -40)",
+      "Read(//c/Users/TheAl/.claude/**)",
+      "Read(//c/Users/TheAl/AppData/**)",
+      "Bash(awk '/^---$/{c++; if\\(c==2\\) exit} c==1 || \\(c==2 && /^---$/\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-styling/SKILL.md')",
+      "Bash(awk '/^---$/{c++; if\\(c==2\\) exit} c==1 || \\(c==2 && /^---$/\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')",
+      "Bash(python3 -c 'import yaml, sys; f=open\\(sys.argv[1]\\).read\\(\\).split\\('\\\\''---'\\\\''\\)[1]; d=yaml.safe_load\\(f\\); print\\('\\\\''PARSED OK:'\\\\'', list\\(d.keys\\(\\)\\)\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')",
+      "Bash(py -3 -c 'import yaml, sys; f=open\\(sys.argv[1]\\).read\\(\\).split\\('\\\\''---'\\\\''\\)[1]; d=yaml.safe_load\\(f\\); print\\('\\\\''PARSED OK:'\\\\'', list\\(d.keys\\(\\)\\), '\\\\''| desc len:'\\\\'', len\\(d.get\\('\\\\''description'\\\\'','\\\\'''\\\\''\\)\\)\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')"
     ]
   }
 }

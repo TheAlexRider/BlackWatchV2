@@ -338,18 +338,21 @@ export interface Route {
   silence_until: string | null;
   silenced: boolean;
   match: Record<string, unknown>;
+  message_template: string | null;
+  module: string; // extracted from match; "__custom__" if none
+  module_label: string;
 }
 
-export interface RouteBucket {
-  module: string; // module id, or "__custom__"
+export interface ModuleCatalogEntry {
+  key: string;
   label: string;
   blurb: string;
-  routes: Route[];
 }
 
 export interface RoutesResponse {
-  buckets: RouteBucket[];
-  coverage: { routed: number; total: number };
+  routes: Route[];
+  catalog: ModuleCatalogEntry[];
+  custom_bucket_key: string;
   channels: Array<{ id: string; name: string; type: string; enabled: boolean }>;
 }
 

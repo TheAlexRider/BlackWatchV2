@@ -1,6 +1,6 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { Plus, Pencil, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X } from "lucide-react";
 
 import {
   fetchNotificationChannels,
@@ -15,8 +15,7 @@ import type {
   NotificationAck,
   PerfAlertRule,
   Route,
-  RouteBucket,
-  RoutesResponse,
+  SeverityKey,
 } from "@/lib/types";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -24,6 +23,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Button } from "@/components/ui/Button";
 import { PendingButton } from "@/components/ui/PendingButton";
+import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
@@ -34,57 +34,53 @@ import {
   deleteChannelAction,
   clearAckAction,
 } from "./actions";
-
-import { RouteRow, AddRouteRow } from "./RouteRow";
+import {
+  toggleRouteAction,
+  silenceRouteAction,
+  deleteRouteAction,
+  testRouteAction,
+} from "./route-actions";
 
 type SearchParams = { msg?: string };
 
-// /notifications — the ONE dashboard for signal routing.
+// /notifications — one dashboard.
 //
-// Vocabulary:
-//   Channel      — a delivery destination (Slack, email, webhook, etc.)
-//   Route        — a rule: "when a matching event fires, send it to a
-//                  channel". Rules are stored in notification_rules.
-//   Module       — a source of events (aws.rds, ec2.host, ...). Modules are
-//                  a GROUPING over routes, not a data type.
+// Three tables (channels, alert routes, metric routes) + activity log.
+// Only CONFIGURED routes are shown; empty modules are discovered via the
+// [+ Create alert] wizard, not surfaced as coverage-gap rows.
 //
-// Layout: three tables — channels, alert routes (grouped by module),
-// metric routes — plus the activity log. Same visual grammar across all
-// four so the eye reads them as one instrument.
-
+// One primary teal CTA on the page: the Create button. Everything else is
+// muted so the eye lands on the action that unblocks first-run users.
 export default async function NotificationsPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
   const { msg } = await searchParams;
-  const [channelsData, routesData, logData, acksData, perfData] = await Promise.all([
-    fetchNotificationChannels(),
-    fetchNotificationRoutes(),
-    fetchNotificationLog({ limit: 200 }),
-    fetchNotificationAcks(),
-    fetchPerfAlerts(),
-  ]);
-
+  const [channelsData, routesData, logData, acksData, perfData] =
+    await Promise.all([
+      fetchNotificationChannels(),
+      fetchNotificationRoutes(),
+      fetchNotificationLog({ limit: 200 }),
+      fetchNotificationAcks(),
+      fetchPerfAlerts(),
+    ]);
   const channelsAvailable = channelsData.channels.length > 0;
-
-  // Metrics: any perf-alert rule counts as a "metric route" in the new model.
-  const metricRules = perfData.rules;
-
-  // Compact top-line: coverage + last 24h + failed count.
   const sent24h = countSince(logData.entries, "sent", 24 * 3600 * 1000);
   const failed24h = countSince(logData.entries, "failed", 24 * 3600 * 1000);
-  const coverage = routesData.coverage;
 
   return (
     <>
       <AutoRefresh intervalMs={30000} />
       <PageHeader
         title="Notifications"
-        subtitle={`${coverage.routed} of ${coverage.total} modules covered · ${sent24h} sent (24h) · ${failed24h} failed`}
+        subtitle={`${routesData.routes.length} route${
+          routesData.routes.length === 1 ? "" : "s"
+        } · ${sent24h} sent (24h) · ${failed24h} failed`}
       />
 
       {msg && <FlashToast message={msg} />}
+
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}
       {!channelsAvailable && <ChannelsFirstHint />}
 
@@ -95,20 +91,23 @@ export default async function NotificationsPage({
       />
       <ChannelsTable channels={channelsData.channels} />
 
-      {/* ALERT ROUTES — grouped by module */}
-      <SectionHeader label="alert routes" />
-      <RoutesTable
-        buckets={routesData.buckets}
-        channels={routesData.channels}
-        channelsAvailable={channelsAvailable}
-      />
+      {/* ALERT ROUTES */}
+      <div className="mt-8 mb-2 flex items-baseline justify-between">
+        <SectionHeaderLabel>alert routes</SectionHeaderLabel>
+        <Button asChild variant="primary" size="sm">
+          <Link href="/notifications/create">
+            <Plus size={12} /> Create alert
+          </Link>
+        </Button>
+      </div>
+      <RoutesTable routes={routesData.routes} channelsAvailable={channelsAvailable} />
 
       {/* METRIC ROUTES */}
       <SectionHeader
         label="metric routes"
         action={{ href: "/notifications/perf-alerts/new", label: "add metric" }}
       />
-      <MetricRoutesTable rules={metricRules} />
+      <MetricRoutesTable rules={perfData.rules} />
 
       {/* ACTIVITY */}
       <div className="mt-8 mb-2 flex items-baseline justify-between">
@@ -126,7 +125,7 @@ export default async function NotificationsPage({
 }
 
 // =========================================================================
-// SECTION HEADER — shared visual chrome for every table on the page
+// SECTION HEADERS
 // =========================================================================
 
 function SectionHeader({
@@ -209,9 +208,7 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
           {c.name}
         </Link>
       </td>
-      <td className="px-4 py-2 align-middle font-mono text-xs text-fg-muted">
-        {c.type}
-      </td>
+      <td className="px-4 py-2 align-middle font-mono text-xs text-fg-muted">{c.type}</td>
       <td className="px-4 py-2 align-middle">
         <EnabledPill enabled={c.enabled} />
       </td>
@@ -258,107 +255,178 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
 }
 
 // =========================================================================
-// ALERT ROUTES — grouped by module
+// ALERT ROUTES — only configured, row-level quick actions
 // =========================================================================
 
 function RoutesTable({
-  buckets,
-  channels,
+  routes,
   channelsAvailable,
 }: {
-  buckets: RouteBucket[];
-  channels: RoutesResponse["channels"];
+  routes: Route[];
   channelsAvailable: boolean;
 }) {
+  if (!channelsAvailable) {
+    return (
+      <DataPanel>
+        <div className="px-4 py-6 text-center text-xs text-fg-muted">
+          Add a channel first before creating routes.
+        </div>
+      </DataPanel>
+    );
+  }
+  if (routes.length === 0) {
+    return (
+      <DataPanel>
+        <div className="px-4 py-8 text-center">
+          <p className="text-sm text-fg-muted">
+            No alerts set up yet.
+          </p>
+          <p className="mt-1 text-xs text-fg-subtle">
+            Create your first alert — pick a module, choose severity, wire it to a channel.
+          </p>
+          <div className="mt-4">
+            <Button asChild size="sm" variant="primary">
+              <Link href="/notifications/create">
+                <Plus size={12} /> Create your first alert
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </DataPanel>
+    );
+  }
   return (
     <DataPanel className="overflow-hidden">
       <table className="w-full table-fixed text-sm">
         <thead>
           <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            <th className="w-[240px] px-4 py-2 text-left font-normal">
-              Trigger (severities)
-            </th>
-            <th className="w-[220px] px-4 py-2 text-left font-normal">Channel</th>
-            <th className="w-[100px] px-4 py-2 text-left font-normal">State</th>
+            <th className="w-[200px] px-4 py-2 text-left font-normal">Source</th>
+            <th className="w-[220px] px-4 py-2 text-left font-normal">Trigger</th>
+            <th className="w-[200px] px-4 py-2 text-left font-normal">Channel</th>
+            <th className="w-[90px] px-4 py-2 text-left font-normal">State</th>
             <th className="px-4 py-2 text-right font-normal" />
           </tr>
         </thead>
         <tbody>
-          {!channelsAvailable && (
-            <tr>
-              <td
-                colSpan={4}
-                className="px-4 py-6 text-center text-xs text-fg-muted"
-              >
-                Add a channel first before creating routes.
-              </td>
-            </tr>
-          )}
-          {channelsAvailable &&
-            buckets.map((bucket) => (
-              <BucketGroup
-                key={bucket.module}
-                bucket={bucket}
-                channels={channels}
-              />
-            ))}
+          {routes.map((r) => (
+            <RouteRow key={r.id} route={r} />
+          ))}
         </tbody>
       </table>
     </DataPanel>
   );
 }
 
-function BucketGroup({
-  bucket,
-  channels,
-}: {
-  bucket: RouteBucket;
-  channels: RoutesResponse["channels"];
-}) {
-  const isCustom = bucket.module === "__custom__";
+const SEV_STYLE: Record<SeverityKey, string> = {
+  critical: "bg-sev-critical/15 text-sev-critical border border-sev-critical/40",
+  high: "bg-sev-high/15 text-sev-high border border-sev-high/40",
+  medium: "bg-sev-medium/15 text-sev-medium border border-sev-medium/40",
+  low: "bg-sev-low/15 text-sev-low border border-sev-low/40",
+  informational: "bg-fg-subtle/15 text-fg-muted border border-fg-subtle/40",
+};
+
+function RouteRow({ route: r }: { route: Route }) {
+  const state = computeRouteState(r);
   return (
-    <>
-      <tr className="bg-surface-1">
-        <td colSpan={4} className="px-4 py-2">
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-              {bucket.label}
-            </span>
-            {bucket.blurb && !isCustom && (
-              <span className="truncate text-[11px] text-fg-subtle">
-                {bucket.blurb}
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
+      <td className="truncate px-4 py-2 align-middle">
+        <div className="text-sm text-fg">{r.module_label}</div>
+        {r.kind === "custom" && (
+          <div className="font-mono text-[10px] text-fg-subtle">custom rule</div>
+        )}
+      </td>
+      <td className="px-4 py-2 align-middle">
+        {r.severities.length === 0 ? (
+          <span className="text-xs text-fg-muted">custom condition</span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {r.severities.map((s) => (
+              <span
+                key={s}
+                className={clsx("px-1.5 py-0.5 font-mono text-[10px]", SEV_STYLE[s])}
+              >
+                {s === "informational" ? "info" : s}
               </span>
-            )}
-            {bucket.routes.length === 0 && !isCustom && (
-              <span className="ml-auto text-[11px] text-fg-subtle">
-                coverage gap
-              </span>
-            )}
+            ))}
           </div>
-        </td>
-      </tr>
-      {bucket.routes.map((route: Route) => (
-        <RouteRow
-          key={route.id}
-          route={route}
-          module={bucket.module}
-          channels={channels}
-          isCustom={isCustom}
-        />
-      ))}
-      {!isCustom && (
-        <AddRouteRow
-          module={bucket.module}
-          channels={channels}
-          moduleLabel={bucket.label}
-        />
-      )}
-    </>
+        )}
+      </td>
+      <td className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
+        {r.channel ? (
+          <>
+            <span className="text-fg-subtle">→ </span>
+            {r.channel}
+          </>
+        ) : (
+          "—"
+        )}
+      </td>
+      <td className="px-4 py-2 align-middle">
+        <span className={clsx("text-xs", state.className)}>{state.label}</span>
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 align-middle text-right">
+        <div className="inline-flex items-center gap-1.5">
+          <form action={testRouteAction} className="inline">
+            <input type="hidden" name="channel" value={r.channel ?? ""} />
+            <PendingButton
+              size="sm"
+              variant="secondary"
+              disabled={!r.channel}
+              pendingLabel="Sending…"
+            >
+              Test
+            </PendingButton>
+          </form>
+          <form action={silenceRouteAction} className="inline-flex items-center gap-1">
+            <input type="hidden" name="id" value={r.id} />
+            <NativeSelect
+              name="hours"
+              defaultValue={r.silenced ? "0" : "1"}
+              className="h-7 text-xs"
+              aria-label="Silence duration"
+            >
+              <option value="1">1h</option>
+              <option value="4">4h</option>
+              <option value="24">24h</option>
+              <option value="0">clear</option>
+            </NativeSelect>
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
+              {r.silenced ? "Un-silence" : "Silence"}
+            </PendingButton>
+          </form>
+          <form action={toggleRouteAction} className="inline">
+            <input type="hidden" name="id" value={r.id} />
+            <input type="hidden" name="target" value={r.enabled ? "off" : "on"} />
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
+              {r.enabled ? "Turn off" : "Turn on"}
+            </PendingButton>
+          </form>
+          <Button asChild size="sm" variant="ghost" aria-label="Edit route">
+            <Link href={`/notifications/rules/${encodeURIComponent(r.id)}/edit`}>
+              <Pencil size={12} />
+            </Link>
+          </Button>
+          <form action={deleteRouteAction} className="inline">
+            <input type="hidden" name="id" value={r.id} />
+            <PendingButton size="sm" variant="danger" pendingLabel="…">
+              <Trash2 size={11} /> Delete
+            </PendingButton>
+          </form>
+        </div>
+      </td>
+    </tr>
   );
 }
 
+function computeRouteState(r: Route): { label: string; className: string } {
+  if (r.silenced) return { label: "silenced", className: "text-sev-medium" };
+  if (!r.enabled) return { label: "off", className: "text-fg-subtle" };
+  if (!r.channel) return { label: "no channel", className: "text-fg-subtle" };
+  return { label: "on", className: "text-signal" };
+}
+
 // =========================================================================
-// METRIC ROUTES — perf-alert rules table
+// METRIC ROUTES
 // =========================================================================
 
 const METRIC_LABEL: Record<string, string> = {
@@ -378,8 +446,7 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
             className="text-signal hover:underline"
           >
             Add one →
-          </Link>{" "}
-          — Memory, CPU or Disk on hosts with a threshold + channel.
+          </Link>
         </div>
       ) : (
         <table className="w-full table-fixed text-sm">
@@ -388,7 +455,7 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
               <th className="w-[180px] px-4 py-2 text-left font-normal">Metric</th>
               <th className="w-[240px] px-4 py-2 text-left font-normal">Trigger</th>
               <th className="w-[200px] px-4 py-2 text-left font-normal">Channel</th>
-              <th className="w-[100px] px-4 py-2 text-left font-normal">State</th>
+              <th className="w-[90px] px-4 py-2 text-left font-normal">State</th>
               <th className="px-4 py-2 text-right font-normal" />
             </tr>
           </thead>
@@ -429,7 +496,7 @@ function MetricRow({ rule: r }: { rule: PerfAlertRule }) {
         </span>
       </td>
       <td className="whitespace-nowrap px-4 py-2 align-middle text-right">
-        <Button asChild size="sm" variant="ghost">
+        <Button asChild size="sm" variant="ghost" aria-label="Edit metric">
           <Link href={`/notifications/perf-alerts/${encodeURIComponent(r.id)}/edit`}>
             <Pencil size={12} />
           </Link>
@@ -497,9 +564,7 @@ function ActivityRow({ entry: e }: { entry: NotificationLogEntry }) {
               {e.event_action ?? "—"}
             </Link>
           ) : (
-            <code className="font-mono text-xs text-fg-muted">
-              {e.event_action ?? "—"}
-            </code>
+            <code className="font-mono text-xs text-fg-muted">{e.event_action ?? "—"}</code>
           )}
           {e.event_severity && <SeverityBadge severity={e.event_severity} />}
         </div>
@@ -535,8 +600,7 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
     <section className="mb-6 mt-3 border border-line-soft bg-surface-1">
       <div className="flex items-baseline justify-between border-b border-line-soft px-4 py-2">
         <span className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          {acks.length} active ack{acks.length === 1 ? "" : "s"} · paused
-          notifications
+          {acks.length} active ack{acks.length === 1 ? "" : "s"} · paused notifications
         </span>
       </div>
       <div className="divide-y divide-line-soft">
@@ -546,9 +610,7 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
             className="grid grid-cols-[1fr_220px_80px] items-center gap-4 px-4 py-2 text-xs"
           >
             <div className="truncate">
-              <code className="font-mono text-fg">
-                {a.fingerprint.slice(0, 24)}…
-              </code>
+              <code className="font-mono text-fg">{a.fingerprint.slice(0, 24)}…</code>
               {a.reason && <span className="ml-2 text-fg-muted">· {a.reason}</span>}
             </div>
             <div className="text-fg-subtle">
@@ -570,8 +632,21 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
 }
 
 // =========================================================================
-// SMALL BITS
+// HINTS + SMALL BITS
 // =========================================================================
+
+function ChannelsFirstHint() {
+  return (
+    <div className="mt-3 border border-sev-medium/30 bg-sev-medium/5 px-4 py-3 text-sm text-fg-muted">
+      <span className="text-sev-medium">▸</span> Start by adding a channel — Slack,
+      email, webhook, PagerDuty, etc.{" "}
+      <Link href="/notifications/channels/new" className="text-signal hover:underline">
+        Add one →
+      </Link>{" "}
+      then create alerts below.
+    </div>
+  );
+}
 
 function EnabledPill({ enabled }: { enabled: boolean }) {
   return (
@@ -618,21 +693,6 @@ function ChannelStatusPill({
     </span>
   );
 }
-
-function ChannelsFirstHint() {
-  return (
-    <div className="mt-3 border border-sev-medium/30 bg-sev-medium/5 px-4 py-3 text-sm text-fg-muted">
-      <span className="text-sev-medium">▸</span> Start by adding a channel —
-      Slack, email, webhook, PagerDuty, etc.{" "}
-      <Link href="/notifications/channels/new" className="text-signal hover:underline">
-        Add one →
-      </Link>{" "}
-      then route modules to it below.
-    </div>
-  );
-}
-
-// ---- helper -----------------------------------------------------------
 
 function countSince(
   entries: NotificationLogEntry[],

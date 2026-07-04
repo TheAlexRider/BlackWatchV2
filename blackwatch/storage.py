@@ -471,7 +471,10 @@ def set_host_active(instance_id: str, active: bool) -> None:
 
 # --- Notification rules --------------------------------------------------------
 
-_NRULE_COLS = "id, name, enabled, match, channels, throttle_seconds, silence_until, priority"
+_NRULE_COLS = (
+    "id, name, enabled, match, channels, throttle_seconds, silence_until, "
+    "priority, message_template"
+)
 
 
 def _nrule_row(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -479,6 +482,7 @@ def _nrule_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "id": row[0], "name": row[1], "enabled": row[2], "match": row[3],
         "channels": list(row[4] or []), "throttle_seconds": row[5],
         "silence_until": row[6], "priority": row[7],
+        "message_template": row[8],
     }
 
 
@@ -506,23 +510,35 @@ def upsert_notification_rule(
     channels: list[str],
     throttle_seconds: int = 0,
     priority: int = 100,
+    message_template: str | None = None,
 ) -> None:
     """Create or update editable fields. Does NOT touch silence_until — that is
     managed by set_notification_rule_silence so the Save flow can't accidentally
-    un-silence a rule mid-maintenance-window."""
+    un-silence a rule mid-maintenance-window.
+
+    message_template: Jinja source that overrides the channel's default for
+    THIS rule only. None/empty preserves the previous value on update if you
+    want strict "keep it"; here we set explicitly so a save with None clears
+    the template — matches the UI's edit-message textarea behavior.
+    """
+    tpl = (message_template or "").strip() or None
     with get_pool().connection() as conn:
         conn.execute(
             """
-            INSERT INTO notification_rules (id, name, enabled, match, channels, throttle_seconds, priority)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO notification_rules
+                (id, name, enabled, match, channels, throttle_seconds,
+                 priority, message_template)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE
               SET name = EXCLUDED.name, enabled = EXCLUDED.enabled,
                   match = EXCLUDED.match, channels = EXCLUDED.channels,
                   throttle_seconds = EXCLUDED.throttle_seconds,
                   priority = EXCLUDED.priority,
+                  message_template = EXCLUDED.message_template,
                   updated_at = now()
             """,
-            (rule_id, name, enabled, Jsonb(match), list(channels), throttle_seconds, priority),
+            (rule_id, name, enabled, Jsonb(match), list(channels),
+             throttle_seconds, priority, tpl),
         )
 
 

@@ -242,11 +242,26 @@ def _env(var: str) -> str | None:
     return os.environ.get(var) or None
 
 
-def _render(channel: Channel, event: Event) -> str:
-    tpl_src = channel.message_template or _DEFAULT_TEMPLATES.get(channel.type, "")
+def _render(
+    channel: Channel,
+    event: Event,
+    rule_template: str | None = None,
+) -> str:
+    """Render the outgoing message body. Priority: rule template > channel
+    template > per-type default. Rule-level override lets one channel
+    deliver differently-worded alerts depending on which rule matched
+    (e.g. terse "🚨 CRITICAL" from the critical rule vs. an "FYI:" line
+    from the medium rule, both to #ops-slack)."""
+    tpl_src = (
+        (rule_template or "").strip()
+        or channel.message_template
+        or _DEFAULT_TEMPLATES.get(channel.type, "")
+    )
     try:
-        return _jinja.from_string(tpl_src).render(event=event.model_dump(mode="json"),
-                                                  channel_name=channel.name)
+        return _jinja.from_string(tpl_src).render(
+            event=event.model_dump(mode="json"),
+            channel_name=channel.name,
+        )
     except Exception as exc:
         # Templates should never break delivery — fall back to a minimal text.
         return f"[{event.severity or 'unscored'}] {event.action} (template error: {exc})"
@@ -367,10 +382,15 @@ _SENDERS = {
 }
 
 
-def send(channel: Channel, event: Event) -> tuple[bool, str]:
-    """Render the channel's template and dispatch via the type's sender."""
+def send(
+    channel: Channel,
+    event: Event,
+    rule_template: str | None = None,
+) -> tuple[bool, str]:
+    """Render the message body and dispatch via the type's sender.
+    If rule_template is set, it wins over the channel's default."""
     sender = _SENDERS.get(channel.type)
     if sender is None:
         return False, f"unknown channel type: {channel.type}"
-    body = _render(channel, event)
+    body = _render(channel, event, rule_template=rule_template)
     return sender(channel.resolved_config(), body, event)
