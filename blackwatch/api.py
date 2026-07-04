@@ -1813,9 +1813,25 @@ def notif_ack_delete(fingerprint: str) -> dict[str, Any]:
 def live_ping() -> dict[str, Any]:
     """Lightweight poll target for the navbar live indicator. Returns events
     per second over the last 60 seconds. Cheap query — runs every few seconds
-    from every open dashboard tab."""
+    from every open dashboard tab.
+
+    Wrapped in try/except so a transient DB hiccup (pool exhaustion, timeout)
+    doesn't turn every open browser tab into a red 500 in the console. We'd
+    rather return `{eps: null, error: "..."}` and let the widget go quiet
+    than pollute the UI network log every 30 s.
+    """
+    import logging
     now = datetime.now(timezone.utc)
-    count = storage.event_count_since(now - timedelta(seconds=60))
+    try:
+        count = storage.event_count_since(now - timedelta(seconds=60))
+    except Exception as exc:
+        logging.getLogger(__name__).exception("live/ping event_count failed")
+        return {
+            "ts": now.isoformat(),
+            "events_last_60s": None,
+            "eps": None,
+            "error": f"{exc.__class__.__name__}: {exc}",
+        }
     return {
         "ts": now.isoformat(),
         "events_last_60s": count,

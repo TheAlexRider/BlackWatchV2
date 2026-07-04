@@ -1,6 +1,6 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { Plus, Pencil, X, ArrowRight } from "lucide-react";
+import { Plus, Pencil, X } from "lucide-react";
 
 import {
   fetchNotificationCards,
@@ -9,23 +9,21 @@ import {
   fetchNotificationLog,
   fetchNotificationAcks,
   fetchPerfAlerts,
+  fetchPerfQuick,
 } from "@/lib/api";
 import type {
-  NotificationCard,
   NotificationChannel,
-  NotificationRule,
   NotificationLogEntry,
   NotificationAck,
+  NotificationRule,
   PerfAlertRule,
 } from "@/lib/types";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
-import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Button } from "@/components/ui/Button";
 import { PendingButton } from "@/components/ui/PendingButton";
-import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
@@ -34,172 +32,387 @@ import {
   testChannelAction,
   toggleChannelAction,
   deleteChannelAction,
-  toggleRuleAction,
-  silenceRuleAction,
-  deleteRuleAction,
   clearAckAction,
 } from "./actions";
 
-import {
-  togglePerfAlertAction,
-  deletePerfAlertAction,
-} from "./perf-alerts/actions";
+import { ModuleLane } from "./ModuleLane";
+import { MetricLane } from "./MetricLane";
+import { CustomLane } from "./CustomLane";
 
 type SearchParams = { msg?: string };
 
+// One page. Three tracks. Every alert source is a lane.
+//
+// The layout reads top-to-bottom like an oscilloscope panel: a compact
+// status strip up top, channels track, then the ALERT SOURCES tracks
+// (module / metric / custom) — every lane sharing the same visual
+// grammar so the eye scans them as one instrument.
 export default async function NotificationsPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
   const { msg } = await searchParams;
-  const [channelsData, rulesData, logData, acksData, perfData, cardsData] = await Promise.all([
+  const [
+    channelsData,
+    rulesData,
+    logData,
+    acksData,
+    cardsData,
+    perfQuickData,
+    perfAllData,
+  ] = await Promise.all([
     fetchNotificationChannels(),
-    fetchNotificationRules(),
-    fetchNotificationLog({ limit: 50 }),
+    fetchNotificationRules(), // hides auto:* by default — leaves only hand-crafted rules
+    fetchNotificationLog({ limit: 200 }),
     fetchNotificationAcks(),
-    fetchPerfAlerts(),
     fetchNotificationCards(),
+    fetchPerfQuick(),
+    fetchPerfAlerts(),
   ]);
-  const configuredCards = cardsData.cards.filter((c) => c.channel);
-  // Perf-alert rules the user created via the "Quick" cards get an
-  // auto:perf:* name. Split them out so the "Custom" table only shows
-  // rules the user hand-crafted through the full form.
-  const quickPerfRules = perfData.rules.filter((r) =>
-    (r.name || "").startsWith("auto:perf:"),
-  );
-  const customPerfRules = perfData.rules.filter(
+  // Custom perf-alerts = hand-crafted (not from the metric-lane quick UI).
+  // We list them as a small "advanced" section so users who used the full
+  // form still see their creations here without them cluttering the main
+  // metric lanes.
+  const customPerfAlerts = perfAllData.rules.filter(
     (r) => !(r.name || "").startsWith("auto:perf:"),
   );
 
+  const channelsAvailable = channelsData.channels.length > 0;
+
+  // ---- status strip metrics ----
+  const coverageModules = cardsData.cards.filter((c) => c.channel).length;
+  const coverageMetrics = perfQuickData.cards.filter((m) => m.existing.length > 0).length;
+  const now24h = Date.now() - 24 * 60 * 60 * 1000;
+  const sent24h = logData.entries.filter(
+    (e) => e.status === "sent" && new Date(e.ts).getTime() >= now24h,
+  ).length;
+  const failed24h = logData.entries.filter(
+    (e) => e.status === "failed" && new Date(e.ts).getTime() >= now24h,
+  ).length;
+  const errorChannels = channelsData.channels.filter(
+    (c) => c.enabled && c.last_status && c.last_status !== "ok",
+  ).length;
+  const silencedCount =
+    cardsData.cards.filter((c) => {
+      if (!c.silence_until) return false;
+      return new Date(c.silence_until).getTime() > Date.now();
+    }).length +
+    rulesData.rules.filter((r) => r.silenced).length;
+
   return (
     <>
-      <AutoRefresh intervalMs={5000} />
-      <PageHeader
-        title="Notifications"
-        subtitle={
-          `${channelsData.count} channel${channelsData.count === 1 ? "" : "s"} · ` +
-          `${rulesData.count} event rule${rulesData.count === 1 ? "" : "s"} · ` +
-          `${perfData.rules.length} performance alert${perfData.rules.length === 1 ? "" : "s"}`
-        }
+      {/* Refresh less aggressively than before — lane actions already
+          trigger revalidatePath, so the only reason to poll is to catch
+          new activity entries and channel status drifts. 30s is fine. */}
+      <AutoRefresh intervalMs={30000} />
+      <PageHeader title="Notifications" subtitle="signal routing · quiet by default" />
+
+      <StatusStrip
+        coverageModules={coverageModules}
+        totalModules={cardsData.cards.length}
+        coverageMetrics={coverageMetrics}
+        totalMetrics={perfQuickData.cards.length}
+        sent24h={sent24h}
+        failed24h={failed24h}
+        errorChannels={errorChannels}
+        silencedCount={silencedCount}
       />
 
       {msg && <FlashToast message={msg} />}
 
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}
 
-      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-        <RoutingCta />
-        <PerfQuickCta />
+      {!channelsAvailable && <ChannelsFirstHint />}
+
+      {/* ═══════════════ CHANNELS ═══════════════ */}
+      <TrackHeader label="channels" href="/notifications/channels/new" cta="add channel" />
+      <ChannelsTrack channels={channelsData.channels} />
+
+      {/* ═══════════════ WHAT SENDS ALERTS ═══════════════ */}
+      <div className="mt-8">
+        <div className="mb-2 flex items-baseline gap-3">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-fg-subtle">
+            what sends alerts
+          </span>
+          <span className="h-px flex-1 bg-line-soft" />
+        </div>
+
+        <SubTrackLabel>by module</SubTrackLabel>
+        <DataPanel className="p-0">
+          {cardsData.cards.map((card) => (
+            <ModuleLane
+              key={card.module}
+              card={card}
+              channels={cardsData.channels}
+              disabled={!channelsAvailable}
+            />
+          ))}
+        </DataPanel>
+
+        <SubTrackLabel>metrics</SubTrackLabel>
+        <DataPanel className="p-0">
+          {perfQuickData.cards.map((mcard) => (
+            <MetricLane
+              key={mcard.metric}
+              card={mcard}
+              channels={perfQuickData.channels}
+              instances={perfQuickData.instances}
+              disabled={!channelsAvailable}
+            />
+          ))}
+        </DataPanel>
+
+        <div className="mt-6 mb-2 flex items-baseline justify-between">
+          <SubTrackLabelInline>custom rules</SubTrackLabelInline>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/notifications/rules/new">
+              <Plus size={12} /> new rule
+            </Link>
+          </Button>
+        </div>
+        <DataPanel className="p-0">
+          {rulesData.rules.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-fg-muted">
+              No custom rules — module and metric lanes cover most needs.{" "}
+              <Link
+                href="/notifications/rules/new"
+                className="text-signal hover:underline"
+              >
+                Add a custom rule
+              </Link>{" "}
+              only if you need action-specific conditions.
+            </div>
+          ) : (
+            rulesData.rules.map((rule) => (
+              <CustomLane
+                key={rule.id}
+                rule={rule}
+                channels={cardsData.channels}
+              />
+            ))
+          )}
+        </DataPanel>
+
+        {customPerfAlerts.length > 0 && (
+          <>
+            <div className="mt-6 mb-2 flex items-baseline justify-between">
+              <SubTrackLabelInline>custom perf alerts</SubTrackLabelInline>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/notifications/perf-alerts/new">
+                  <Plus size={12} /> new
+                </Link>
+              </Button>
+            </div>
+            <CustomPerfAlertsList rules={customPerfAlerts} />
+          </>
+        )}
       </div>
 
-      <ChannelsSection channels={channelsData.channels} />
-      <ByModuleSection cards={configuredCards} />
-      <QuickPerfSection rules={quickPerfRules} />
-      <RulesSection
-        rules={rulesData.rules}
-        channelsAvailable={channelsData.channels.length > 0}
-      />
-      <PerfAlertsSection
-        rules={customPerfRules}
-        channelsAvailable={channelsData.channels.length > 0}
-      />
-      <RecentActivitySection entries={logData.entries} />
+      {/* ═══════════════ ACTIVITY ═══════════════ */}
+      <div className="mt-8">
+        <div className="mb-2 flex items-baseline justify-between">
+          <div className="flex items-baseline gap-3">
+            <span className="text-[11px] uppercase tracking-[0.14em] text-fg-subtle">
+              activity · last 50
+            </span>
+          </div>
+          <Link
+            href="/notifications/log"
+            className="text-[11px] text-fg-subtle hover:text-fg"
+          >
+            full log →
+          </Link>
+        </div>
+        <ActivityList entries={logData.entries.slice(0, 50)} />
+      </div>
     </>
   );
 }
 
 // =========================================================================
-// routing cta — hero link to /notifications/routing
+// STATUS STRIP — mission-control style compact header
 // =========================================================================
 
-function RoutingCta() {
+function StatusStrip({
+  coverageModules,
+  totalModules,
+  coverageMetrics,
+  totalMetrics,
+  sent24h,
+  failed24h,
+  errorChannels,
+  silencedCount,
+}: {
+  coverageModules: number;
+  totalModules: number;
+  coverageMetrics: number;
+  totalMetrics: number;
+  sent24h: number;
+  failed24h: number;
+  errorChannels: number;
+  silencedCount: number;
+}) {
   return (
-    <Link
-      href="/notifications/routing"
-      className="flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
-    >
-      <div className="flex items-baseline gap-3">
-        <span className="text-signal">▸</span>
-        <div>
-          <div className="text-fg">Set up alerts by module</div>
-          <div className="text-xs text-fg-subtle">
-            One channel + one severity per module. No rule editor.
-          </div>
-        </div>
-      </div>
-      <ArrowRight size={14} className="text-signal" />
-    </Link>
+    <div className="mt-1 grid grid-cols-1 gap-0 border-y border-line-soft bg-surface-1 md:grid-cols-3">
+      <StatusCell label="coverage">
+        <span className="text-fg">
+          {coverageModules}
+          <span className="text-fg-subtle">/{totalModules}</span>
+        </span>
+        <span className="ml-1 text-fg-subtle">modules</span>
+        <span className="mx-2 text-fg-disabled">·</span>
+        <span className="text-fg">
+          {coverageMetrics}
+          <span className="text-fg-subtle">/{totalMetrics}</span>
+        </span>
+        <span className="ml-1 text-fg-subtle">metrics</span>
+      </StatusCell>
+
+      <StatusCell label="last 24h" border>
+        <span className="text-fg">{sent24h}</span>
+        <span className="ml-1 text-fg-subtle">sent</span>
+        <span className="mx-2 text-fg-disabled">·</span>
+        <span className={failed24h > 0 ? "text-sev-critical" : "text-fg"}>
+          {failed24h}
+        </span>
+        <span className="ml-1 text-fg-subtle">failed</span>
+      </StatusCell>
+
+      <StatusCell label="active" border>
+        {errorChannels > 0 ? (
+          <>
+            <span className="text-sev-critical">{errorChannels}</span>
+            <span className="ml-1 text-fg-subtle">channel error{errorChannels === 1 ? "" : "s"}</span>
+          </>
+        ) : silencedCount > 0 ? (
+          <>
+            <span className="text-sev-medium">{silencedCount}</span>
+            <span className="ml-1 text-fg-subtle">silenced</span>
+          </>
+        ) : (
+          <span className="text-fg-subtle">nothing to look at</span>
+        )}
+      </StatusCell>
+    </div>
   );
 }
 
-function PerfQuickCta() {
+function StatusCell({
+  label,
+  children,
+  border,
+}: {
+  label: string;
+  children: React.ReactNode;
+  border?: boolean;
+}) {
   return (
-    <Link
-      href="/notifications/perf-alerts/quick"
-      className="flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
+    <div
+      className={clsx(
+        "px-4 py-2.5 text-xs",
+        border && "md:border-l md:border-line-soft",
+      )}
     >
-      <div className="flex items-baseline gap-3">
-        <span className="text-signal">▸</span>
-        <div>
-          <div className="text-fg">Set up performance alerts</div>
-          <div className="text-xs text-fg-subtle">
-            Memory / CPU / disk cards with a threshold + a channel.
-          </div>
-        </div>
+      <div className="text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+        {label}
       </div>
-      <ArrowRight size={14} className="text-signal" />
-    </Link>
+      <div className="mt-0.5 font-mono">{children}</div>
+    </div>
   );
 }
 
 // =========================================================================
-// channels
+// TRACK HEADERS
 // =========================================================================
 
-function ChannelsSection({ channels }: { channels: NotificationChannel[] }) {
+function TrackHeader({
+  label,
+  href,
+  cta,
+}: {
+  label: string;
+  href?: string;
+  cta?: string;
+}) {
   return (
-    <section className="mt-2 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>channels</SectionLabel>
+    <div className="mt-6 mb-2 flex items-baseline justify-between">
+      <div className="flex items-baseline gap-3">
+        <span className="text-[11px] uppercase tracking-[0.14em] text-fg-subtle">
+          {label}
+        </span>
+      </div>
+      {href && cta && (
         <Button asChild variant="ghost" size="sm">
-          <Link href="/notifications/channels/new">
-            <Plus size={12} /> add channel
+          <Link href={href}>
+            <Plus size={12} /> {cta}
           </Link>
         </Button>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {channels.length === 0 ? (
-          <EmptyState>
-            No channels yet.{" "}
-            <Link
-              href="/notifications/channels/new"
-              className="text-signal hover:underline"
-            >
-              Add one →
-            </Link>
-          </EmptyState>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-48 px-4 py-2 text-left font-normal">Name</th>
-                <th className="w-24 px-4 py-2 text-left font-normal">Type</th>
-                <th className="w-28 px-4 py-2 text-left font-normal">State</th>
-                <th className="w-32 px-4 py-2 text-left font-normal">Last status</th>
-                <th className="w-36 px-4 py-2 text-left font-normal">Last sent</th>
-                <th className="px-4 py-2 text-right font-normal" />
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map((c) => (
-                <ChannelRow key={c.id} channel={c} />
-              ))}
-            </tbody>
-          </table>
-        )}
+      )}
+    </div>
+  );
+}
+
+function SubTrackLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-6 mb-2 flex items-center gap-3">
+      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+        ▎ {children}
+      </span>
+      <span className="h-px flex-1 bg-line-soft" />
+    </div>
+  );
+}
+
+function SubTrackLabelInline({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+      ▎ {children}
+    </span>
+  );
+}
+
+// =========================================================================
+// CHANNELS TRACK — kept as a compact table for now (simpler shape than
+// alert lanes; converting to lanes adds no value here).
+// =========================================================================
+
+function ChannelsTrack({ channels }: { channels: NotificationChannel[] }) {
+  if (channels.length === 0) {
+    return (
+      <DataPanel>
+        <div className="px-4 py-6 text-center text-xs text-fg-muted">
+          No channels yet.{" "}
+          <Link
+            href="/notifications/channels/new"
+            className="text-signal hover:underline"
+          >
+            Add one →
+          </Link>
+        </div>
       </DataPanel>
-    </section>
+    );
+  }
+  return (
+    <DataPanel className="overflow-hidden">
+      <table className="w-full table-fixed text-sm">
+        <thead>
+          <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+            <th className="w-48 px-4 py-2 text-left font-normal">Name</th>
+            <th className="w-24 px-4 py-2 text-left font-normal">Type</th>
+            <th className="w-28 px-4 py-2 text-left font-normal">State</th>
+            <th className="w-32 px-4 py-2 text-left font-normal">Last status</th>
+            <th className="w-36 px-4 py-2 text-left font-normal">Last sent</th>
+            <th className="px-4 py-2 text-right font-normal" />
+          </tr>
+        </thead>
+        <tbody>
+          {channels.map((c) => (
+            <ChannelRow key={c.id} channel={c} />
+          ))}
+        </tbody>
+      </table>
+    </DataPanel>
   );
 }
 
@@ -261,654 +474,103 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
 }
 
 // =========================================================================
-// by-module summary — rules created via /notifications/routing cards
-// =========================================================================
-
-const THRESHOLD_LABEL: Record<string, string> = {
-  critical: "only critical",
-  high: "critical + high",
-  medium: "≥ medium",
-  low: "everything except info",
-};
-
-function ByModuleSection({ cards }: { cards: NotificationCard[] }) {
-  return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>notifications · by module</SectionLabel>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/notifications/routing">
-            <Pencil size={12} /> set up
-          </Link>
-        </Button>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {cards.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-fg-muted">
-            No modules routed yet.{" "}
-            <Link href="/notifications/routing" className="text-signal hover:underline">
-              Set one up →
-            </Link>{" "}
-            — one channel + one severity per module, no rule editor.
-          </div>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-40 px-4 py-2 text-left font-normal">Module</th>
-                <th className="w-44 px-4 py-2 text-left font-normal">Channel</th>
-                <th className="px-4 py-2 text-left font-normal">Alerts on</th>
-                <th className="w-24 px-4 py-2 text-left font-normal">State</th>
-                <th className="w-16 px-4 py-2 text-right font-normal" />
-              </tr>
-            </thead>
-            <tbody>
-              {cards.map((c) => (
-                <ByModuleRow key={c.module} card={c} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function ByModuleRow({ card }: { card: NotificationCard }) {
-  const silencedUntil = card.silence_until ? new Date(card.silence_until).getTime() : 0;
-  const isSilenced = silencedUntil > Date.now();
-  const isLive = card.enabled && !isSilenced && !!card.channel;
-  return (
-    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="truncate px-4 py-2.5">
-        <div className="text-sm text-fg">{card.label}</div>
-        <div className="font-mono text-[10px] text-fg-subtle">{card.module}</div>
-      </td>
-      <td className="truncate px-4 py-2.5">
-        {card.channel ? (
-          <span className="border border-line px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
-            {card.channel}
-          </span>
-        ) : (
-          <span className="text-xs text-fg-disabled">—</span>
-        )}
-      </td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-        {THRESHOLD_LABEL[card.threshold] ?? card.threshold}
-      </td>
-      <td className="px-4 py-2.5">
-        {isSilenced ? (
-          <span className="inline-flex items-center gap-1.5 text-xs">
-            <span className="h-1.5 w-1.5 rounded-full bg-sev-medium" aria-hidden />
-            <span className="text-fg-muted">silenced</span>
-          </span>
-        ) : isLive ? (
-          <span className="inline-flex items-center gap-1.5 text-xs">
-            <span className="h-1.5 w-1.5 rounded-full bg-sev-resolved" aria-hidden />
-            <span className="text-fg-muted">on</span>
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-xs">
-            <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" aria-hidden />
-            <span className="text-fg-subtle">off</span>
-          </span>
-        )}
-      </td>
-      <td className="whitespace-nowrap px-4 py-2.5 text-right">
-        <Button asChild size="sm" variant="ghost">
-          <Link href="/notifications/routing">
-            <Pencil size={12} />
-          </Link>
-        </Button>
-      </td>
-    </tr>
-  );
-}
-
-// =========================================================================
-// quick perf alerts — rules created via /notifications/perf-alerts/quick
-// =========================================================================
-
-function QuickPerfSection({ rules }: { rules: PerfAlertRule[] }) {
-  return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>performance alerts · quick</SectionLabel>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/notifications/perf-alerts/quick">
-            <Pencil size={12} /> set up
-          </Link>
-        </Button>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {rules.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-fg-muted">
-            No quick perf alerts yet.{" "}
-            <Link
-              href="/notifications/perf-alerts/quick"
-              className="text-signal hover:underline"
-            >
-              Set one up →
-            </Link>{" "}
-            — Memory, CPU, or Disk in three clicks.
-          </div>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-44 px-4 py-2 text-left font-normal">Metric</th>
-                <th className="w-40 px-4 py-2 text-left font-normal">Scope</th>
-                <th className="w-40 px-4 py-2 text-left font-normal">Condition</th>
-                <th className="px-4 py-2 text-left font-normal">Channel</th>
-                <th className="w-24 px-4 py-2 text-left font-normal">State</th>
-                <th className="w-16 px-4 py-2 text-right font-normal" />
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r) => (
-                <QuickPerfRow key={r.id} rule={r} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function QuickPerfRow({ rule }: { rule: PerfAlertRule }) {
-  const minutes = Math.max(1, Math.round(rule.window_seconds / 60));
-  const metric = METRIC_LABEL[rule.metric] ?? rule.metric;
-  const sym = COMPARISON_SYM[rule.comparison] ?? rule.comparison;
-  const scope = rule.instance_id ?? "all hosts";
-  return (
-    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="truncate px-4 py-2.5 text-sm text-fg">{metric}</td>
-      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">{scope}</td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-        {sym} {rule.threshold}% / {minutes}m
-      </td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-        {(rule.channels || []).join(", ") || "—"}
-      </td>
-      <td className="px-4 py-2.5">
-        <span className="inline-flex items-center gap-1.5 text-xs">
-          <span
-            aria-hidden
-            className={clsx(
-              "h-1.5 w-1.5 rounded-full",
-              rule.enabled ? "bg-sev-resolved" : "bg-fg-subtle",
-            )}
-          />
-          <span className="text-fg-muted">{rule.enabled ? "on" : "off"}</span>
-        </span>
-      </td>
-      <td className="whitespace-nowrap px-4 py-2.5 text-right">
-        <Button asChild size="sm" variant="ghost">
-          <Link href="/notifications/perf-alerts/quick">
-            <Pencil size={12} />
-          </Link>
-        </Button>
-      </td>
-    </tr>
-  );
-}
-
-// =========================================================================
-// rules
-// =========================================================================
-
-function RulesSection({
-  rules,
-  channelsAvailable,
-}: {
-  rules: NotificationRule[];
-  channelsAvailable: boolean;
-}) {
-  return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>advanced rules · custom conditions</SectionLabel>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/notifications/rules/new">
-            <Plus size={12} /> add rule
-          </Link>
-        </Button>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {rules.length === 0 ? (
-          <EmptyState>
-            No custom rules — most setups don&apos;t need any. Use{" "}
-            <Link
-              href="/notifications/routing"
-              className="text-signal hover:underline"
-            >
-              module setup
-            </Link>{" "}
-            for per-module routing, or{" "}
-            <Link
-              href="/notifications/rules/new"
-              className="text-signal hover:underline"
-            >
-              add a custom rule
-            </Link>{" "}
-            for action-specific conditions.
-          </EmptyState>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-48 px-4 py-2 text-left font-normal">Name</th>
-                <th className="px-4 py-2 text-left font-normal">Tell me when…</th>
-                <th className="w-56 px-4 py-2 text-left font-normal">Send to</th>
-                <th className="w-28 px-4 py-2 text-left font-normal">State</th>
-                <th className="w-80 px-4 py-2 text-right font-normal" />
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r) => (
-                <RuleRow key={r.id} rule={r} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function RuleRow({ rule: r }: { rule: NotificationRule }) {
-  return (
-    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="truncate px-4 py-2.5">
-        <Link
-          href={`/notifications/rules/${r.id}`}
-          className="text-sm text-fg transition-colors hover:text-signal"
-        >
-          {r.name}
-        </Link>
-      </td>
-      <td className="px-4 py-2.5">
-        <CriteriaSummary match={r.match} />
-      </td>
-      <td className="px-4 py-2.5">
-        <div className="flex flex-wrap gap-1">
-          {r.channels.length === 0 ? (
-            <span className="text-fg-disabled">—</span>
-          ) : (
-            r.channels.map((c) => (
-              <span
-                key={c}
-                className="border border-line px-1.5 py-0.5 font-mono text-[10px] text-fg-muted"
-              >
-                {c}
-              </span>
-            ))
-          )}
-        </div>
-      </td>
-      <td className="px-4 py-2.5">
-        <RuleStatePill rule={r} />
-      </td>
-      <td className="whitespace-nowrap px-4 py-2.5 text-right">
-        <div className="inline-flex items-center gap-1.5">
-          <form action={silenceRuleAction} className="inline-flex items-center gap-1">
-            <input type="hidden" name="id" value={r.id} />
-            <NativeSelect name="hours" defaultValue="1" className="h-7 text-xs">
-              <option value="1">1h</option>
-              <option value="4">4h</option>
-              <option value="24">24h</option>
-              <option value="0">clear</option>
-            </NativeSelect>
-            <PendingButton size="sm" variant="secondary" pendingLabel="…">
-              Silence
-            </PendingButton>
-          </form>
-          <form action={toggleRuleAction} className="inline">
-            <input type="hidden" name="id" value={r.id} />
-            <input type="hidden" name="enabled" value={r.enabled ? "off" : "on"} />
-            <PendingButton size="sm" variant="secondary" pendingLabel="…">
-              {r.enabled ? "Disable" : "Enable"}
-            </PendingButton>
-          </form>
-          <Button asChild size="sm" variant="ghost">
-            <Link href={`/notifications/rules/${r.id}`}>
-              <Pencil size={12} />
-            </Link>
-          </Button>
-          <form action={deleteRuleAction} className="inline">
-            <input type="hidden" name="id" value={r.id} />
-            <Button type="submit" size="sm" variant="danger">
-              Delete
-            </Button>
-          </form>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-// Plain-English summary of a rule's match. Reads the same Condition tree the
-// engine evaluates, but writes it the way an on-call engineer would explain it
-// out loud — "high or worse · in iam · action contains login". Anything we
-// can't translate falls through to a small "custom" pill (the operator can
-// open the rule to see the JSON).
-function CriteriaSummary({ match }: { match: Record<string, unknown> }) {
-  const parts: string[] = [];
-  let sawUnknown = false;
-
-  const all =
-    (match.all as unknown[]) ?? (Object.keys(match).length > 0 ? [match] : []);
-
-  for (const p of all) {
-    if (typeof p !== "object" || p === null) {
-      sawUnknown = true;
-      continue;
-    }
-    const part = p as Record<string, unknown>;
-    // Accept BOTH the shortcut shape ({field, in: [...]}) and the canonical
-    // shape ({field, op: "in", value: [...]}). Only the canonical shape is
-    // actually evaluated by the engine; the shortcut form is rendered too so
-    // legacy rules look right until the user re-saves them.
-    const inList: string[] | null =
-      Array.isArray(part.in)
-        ? (part.in as string[])
-        : part.op === "in" && Array.isArray(part.value)
-        ? (part.value as string[])
-        : null;
-    const iContainsValue: string | null =
-      typeof part.icontains === "string"
-        ? (part.icontains as string)
-        : part.op === "icontains" && typeof part.value === "string"
-        ? (part.value as string)
-        : null;
-
-    if (part.field === "severity" && inList) {
-      parts.push(severityPhrase(inList));
-    } else if (part.field === "category" && inList) {
-      parts.push(`in ${inList.join(" or ")}`);
-    } else if (part.field === "source.module" && inList) {
-      parts.push(`from ${inList.join(" or ")}`);
-    } else if (part.field === "action" && iContainsValue !== null) {
-      parts.push(`action contains "${iContainsValue}"`);
-    } else {
-      sawUnknown = true;
-    }
-  }
-
-  if (parts.length === 0 && !sawUnknown) {
-    return (
-      <span className="text-xs text-fg-subtle">everything (no filter)</span>
-    );
-  }
-
-  return (
-    <span className="text-xs text-fg-muted">
-      {parts.join(" · ")}
-      {sawUnknown && (
-        <span className="ml-1.5 border border-line-soft px-1 py-0.5 text-[10px] uppercase tracking-[0.06em] text-fg-subtle">
-          custom
-        </span>
-      )}
-    </span>
-  );
-}
-
-// "{critical}" -> "only emergencies"
-// "{critical,high}" -> "high or worse"
-// "{critical,high,medium}" -> "medium or worse"
-// "{critical,high,medium,low}" -> "low or worse"
-// anything else -> raw join, in case the rule was hand-edited
-function severityPhrase(sevs: string[]): string {
-  const set = new Set(sevs);
-  if (set.size === 1 && set.has("critical")) return "only emergencies";
-  if (set.size === 2 && set.has("critical") && set.has("high"))
-    return "high or worse";
-  if (
-    set.size === 3 &&
-    set.has("critical") &&
-    set.has("high") &&
-    set.has("medium")
-  )
-    return "medium or worse";
-  if (
-    set.size === 4 &&
-    set.has("critical") &&
-    set.has("high") &&
-    set.has("medium") &&
-    set.has("low")
-  )
-    return "low or worse";
-  return sevs.join(" / ");
-}
-
-function RuleStatePill({ rule }: { rule: NotificationRule }) {
-  if (!rule.enabled) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs">
-        <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" aria-hidden />
-        <span className="text-fg-subtle">disabled</span>
-      </span>
-    );
-  }
-  if (rule.silenced) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs">
-        <span className="h-1.5 w-1.5 rounded-full bg-sev-medium" aria-hidden />
-        <span className="text-fg-muted">silenced</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span className="h-1.5 w-1.5 rounded-full bg-sev-resolved" aria-hidden />
-      <span className="text-fg-muted">active</span>
-    </span>
-  );
-}
-
-// =========================================================================
-// performance alerts (threshold-based)
+// CUSTOM PERF ALERTS — compact list for hand-crafted perf-alert rules
 // =========================================================================
 
 const METRIC_LABEL: Record<string, string> = {
   memory_pct: "Memory %",
   cpu_load_norm: "CPU load (norm)",
-  disk_pct_max: "Disk % (worst mount)",
+  disk_pct_max: "Disk %",
 };
 
-const COMPARISON_SYM: Record<string, string> = {
-  gte: "≥",
-  gt: ">",
-  lte: "≤",
-  lt: "<",
-};
-
-function PerfAlertsSection({
-  rules,
-  channelsAvailable,
-}: {
-  rules: PerfAlertRule[];
-  channelsAvailable: boolean;
-}) {
+function CustomPerfAlertsList({ rules }: { rules: PerfAlertRule[] }) {
   return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>performance alerts · threshold-based</SectionLabel>
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/notifications/perf-alerts/new">
-            <Plus size={12} className="mr-1" /> new
-          </Link>
-        </Button>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {!channelsAvailable ? (
-          <div className="px-6 py-8 text-center text-sm text-fg-muted">
-            Create a notification channel above first — perf alerts need
-            somewhere to send their pings.
-          </div>
-        ) : rules.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-fg-muted">
-            No performance alerts yet.{" "}
-            <Link
-              href="/notifications/perf-alerts/new"
-              className="text-signal hover:underline"
-            >
-              Create one
-            </Link>
-            {" "}— alerts trigger when a metric stays above your threshold
-            for the configured window.
-          </div>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-12 px-4 py-2 text-left font-normal">On</th>
-                <th className="px-4 py-2 text-left font-normal">Alert</th>
-                <th className="w-44 px-4 py-2 text-left font-normal">Scope</th>
-                <th className="w-44 px-4 py-2 text-left font-normal">Condition</th>
-                <th className="w-32 px-4 py-2 text-left font-normal">Channels</th>
-                <th className="w-24 px-4 py-2 text-right font-normal">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r) => (
-                <PerfAlertRow key={r.id} rule={r} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </DataPanel>
-    </section>
-  );
-}
-
-function PerfAlertRow({ rule }: { rule: PerfAlertRule }) {
-  const minutes = Math.max(1, Math.round(rule.window_seconds / 60));
-  const metric = METRIC_LABEL[rule.metric] ?? rule.metric;
-  const sym = COMPARISON_SYM[rule.comparison] ?? rule.comparison;
-  const scope = rule.instance_id
-    ? rule.instance_id
-    : rule.tag_key
-    ? `tag ${rule.tag_key}=${rule.tag_value}`
-    : "—";
-
-  return (
-    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="px-4 py-2.5">
-        <form action={togglePerfAlertAction.bind(null, rule.id, !rule.enabled)}>
-          <button
-            type="submit"
-            className="inline-flex items-center"
-            aria-label={rule.enabled ? "Disable" : "Enable"}
-          >
-            <span
-              className={clsx(
-                "h-1.5 w-1.5 rounded-full",
-                rule.enabled ? "bg-sev-resolved" : "bg-fg-disabled",
-              )}
-              aria-hidden
-            />
-            <span className="ml-1.5 text-xs text-fg-muted">
-              {rule.enabled ? "on" : "off"}
+    <DataPanel className="p-0">
+      {rules.map((r) => (
+        <div
+          key={r.id}
+          className={clsx(
+            "flex items-center gap-3 border-b border-b-line-soft border-l-2 px-4 py-2.5 text-sm last:border-b-0",
+            r.enabled ? "border-l-signal" : "border-l-line-soft",
+          )}
+        >
+          <div className="min-w-0 flex-1 truncate">
+            <span className="text-fg">{r.name}</span>
+            <span className="ml-2 font-mono text-[10px] text-fg-subtle">
+              {METRIC_LABEL[r.metric] ?? r.metric} ≥ {r.threshold}% /{" "}
+              {Math.max(1, Math.round(r.window_seconds / 60))}m ·{" "}
+              {r.instance_id ??
+                (r.tag_key ? `${r.tag_key}=${r.tag_value}` : "all hosts")}
             </span>
-          </button>
-        </form>
-      </td>
-      <td className="truncate px-4 py-2.5 text-sm text-fg">
-        {rule.name}
-        {rule.last_value != null && (
-          <span className="ml-2 text-[11px] text-fg-subtle">
-            (last: {rule.last_value.toFixed(1)}%)
+          </div>
+          <span className="font-mono text-xs text-fg-muted">
+            → {(r.channels || []).join(", ") || "—"}
           </span>
-        )}
-      </td>
-      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-        {scope}
-      </td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-        {metric} {sym} {rule.threshold}% / {minutes}m
-      </td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
-        {(rule.channels || []).join(", ") || "—"}
-      </td>
-      <td className="px-4 py-2.5 text-right">
-        <div className="inline-flex items-center gap-1">
+          <span
+            className={clsx(
+              "text-xs",
+              r.enabled ? "text-signal" : "text-fg-subtle",
+            )}
+          >
+            {r.enabled ? "on" : "off"}
+          </span>
           <Link
-            href={`/notifications/perf-alerts/${encodeURIComponent(rule.id)}/edit`}
-            className="rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg"
+            href={`/notifications/perf-alerts/${encodeURIComponent(r.id)}/edit`}
+            className="rounded p-1 text-fg-muted hover:bg-surface-2 hover:text-fg"
             aria-label="Edit"
           >
-            <Pencil size={14} />
+            <Pencil size={12} />
           </Link>
-          <form action={deletePerfAlertAction.bind(null, rule.id, rule.name)}>
-            <button
-              type="submit"
-              className="rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg"
-              aria-label="Delete"
-            >
-              <X size={14} />
-            </button>
-          </form>
         </div>
-      </td>
-    </tr>
+      ))}
+    </DataPanel>
   );
 }
 
 // =========================================================================
-// recent activity
+// ACTIVITY
 // =========================================================================
 
-function RecentActivitySection({ entries }: { entries: NotificationLogEntry[] }) {
-  return (
-    <section className="mt-6 space-y-2">
-      <div className="flex items-baseline justify-between">
-        <SectionLabel>recent activity · last 50</SectionLabel>
-        <Link
-          href="/notifications/log"
-          className="text-[11px] text-fg-subtle hover:text-fg"
-        >
-          full log →
-        </Link>
-      </div>
-      <DataPanel className="overflow-hidden">
-        {entries.length === 0 ? (
-          <EmptyState>
-            Nothing fired yet. When a rule matches an event, you&apos;ll see it
-            here.
-          </EmptyState>
-        ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
-                <th className="w-24 px-4 py-2 text-left font-normal">Status</th>
-                <th className="w-32 px-4 py-2 text-left font-normal">Channel</th>
-                <th className="w-40 px-4 py-2 text-left font-normal">Rule</th>
-                <th className="px-4 py-2 text-left font-normal">Event</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <LogRow key={String(e.id)} entry={e} />
-              ))}
-            </tbody>
-          </table>
-        )}
+function ActivityList({ entries }: { entries: NotificationLogEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <DataPanel>
+        <div className="px-4 py-6 text-center text-xs text-fg-muted">
+          Nothing has fired yet. When a rule matches an event, you&apos;ll see it here.
+        </div>
       </DataPanel>
-    </section>
+    );
+  }
+  return (
+    <DataPanel className="overflow-hidden">
+      <table className="w-full table-fixed text-sm">
+        <thead>
+          <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+            <th className="w-32 px-4 py-2 text-left font-normal">Time</th>
+            <th className="w-24 px-4 py-2 text-left font-normal">Status</th>
+            <th className="w-32 px-4 py-2 text-left font-normal">Channel</th>
+            <th className="w-40 px-4 py-2 text-left font-normal">Rule</th>
+            <th className="px-4 py-2 text-left font-normal">Event</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <ActivityRow key={String(e.id)} entry={e} />
+          ))}
+        </tbody>
+      </table>
+    </DataPanel>
   );
 }
 
-function LogRow({ entry: e }: { entry: NotificationLogEntry }) {
+function ActivityRow({ entry: e }: { entry: NotificationLogEntry }) {
   return (
     <tr className="border-b border-line-soft last:border-0">
       <td className="px-4 py-2">
         <TimestampCell value={e.ts} />
       </td>
       <td className="px-4 py-2">
-        <LogStatusPill status={e.status} />
+        <ActivityStatusPill status={e.status} />
       </td>
       <td className="truncate px-4 py-2 text-xs text-fg-muted">
         {e.channel_name ?? "—"}
@@ -926,18 +588,18 @@ function LogRow({ entry: e }: { entry: NotificationLogEntry }) {
               {e.event_action ?? "—"}
             </Link>
           ) : (
-            <code className="font-mono text-xs text-fg-muted">{e.event_action ?? "—"}</code>
+            <code className="font-mono text-xs text-fg-muted">
+              {e.event_action ?? "—"}
+            </code>
           )}
-          {e.event_severity && (
-            <SeverityBadge severity={e.event_severity} />
-          )}
+          {e.event_severity && <SeverityBadge severity={e.event_severity} />}
         </div>
       </td>
     </tr>
   );
 }
 
-function LogStatusPill({ status }: { status: string }) {
+function ActivityStatusPill({ status }: { status: string }) {
   const map: Record<string, string> = {
     sent: "bg-sev-resolved",
     failed: "bg-sev-critical",
@@ -956,17 +618,17 @@ function LogStatusPill({ status }: { status: string }) {
 }
 
 // =========================================================================
-// acks banner
+// ACKS BANNER
 // =========================================================================
 
 function AcksBanner({ acks }: { acks: NotificationAck[] }) {
   return (
-    <section className="mb-6 border border-line-soft bg-surface-1">
+    <section className="mb-6 mt-3 border border-line-soft bg-surface-1">
       <div className="flex items-baseline justify-between border-b border-line-soft px-4 py-2">
-        <SectionLabel>
+        <span className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           {acks.length} active ack{acks.length === 1 ? "" : "s"} · paused
           notifications
-        </SectionLabel>
+        </span>
       </div>
       <div className="divide-y divide-line-soft">
         {acks.map((a) => (
@@ -975,23 +637,15 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
             className="grid grid-cols-[1fr_220px_80px] items-center gap-4 px-4 py-2 text-xs"
           >
             <div className="truncate">
-              <code className="font-mono text-fg">
-                {a.fingerprint.slice(0, 24)}…
-              </code>
-              {a.reason && (
-                <span className="ml-2 text-fg-muted">· {a.reason}</span>
-              )}
+              <code className="font-mono text-fg">{a.fingerprint.slice(0, 24)}…</code>
+              {a.reason && <span className="ml-2 text-fg-muted">· {a.reason}</span>}
             </div>
             <div className="text-fg-subtle">
               until <TimestampCell value={a.ack_until} />
             </div>
             <div className="text-right">
               <form action={clearAckAction} className="inline">
-                <input
-                  type="hidden"
-                  name="fingerprint"
-                  value={a.fingerprint}
-                />
+                <input type="hidden" name="fingerprint" value={a.fingerprint} />
                 <Button type="submit" size="sm" variant="ghost">
                   <X size={12} /> clear
                 </Button>
@@ -1005,7 +659,24 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
 }
 
 // =========================================================================
-// shared bits
+// HINTS
+// =========================================================================
+
+function ChannelsFirstHint() {
+  return (
+    <div className="mt-3 border border-sev-medium/30 bg-sev-medium/5 px-4 py-3 text-sm text-fg-muted">
+      <span className="text-sev-medium">▸</span> Start by adding a channel — Slack,
+      email, webhook, PagerDuty, etc.{" "}
+      <Link href="/notifications/channels/new" className="text-signal hover:underline">
+        Add one →
+      </Link>{" "}
+      then wire it to modules below.
+    </div>
+  );
+}
+
+// =========================================================================
+// SMALL SHARED BITS
 // =========================================================================
 
 function EnabledPill({ enabled }: { enabled: boolean }) {
@@ -1051,13 +722,5 @@ function ChannelStatusPill({
       <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" aria-hidden />
       <span className="text-fg-subtle">never</span>
     </span>
-  );
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
   );
 }
