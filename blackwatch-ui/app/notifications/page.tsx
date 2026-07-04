@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { Plus, Pencil, X, ArrowRight } from "lucide-react";
 
 import {
+  fetchNotificationCards,
   fetchNotificationChannels,
   fetchNotificationRules,
   fetchNotificationLog,
@@ -10,6 +11,7 @@ import {
   fetchPerfAlerts,
 } from "@/lib/api";
 import type {
+  NotificationCard,
   NotificationChannel,
   NotificationRule,
   NotificationLogEntry,
@@ -51,13 +53,24 @@ export default async function NotificationsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const { msg } = await searchParams;
-  const [channelsData, rulesData, logData, acksData, perfData] = await Promise.all([
+  const [channelsData, rulesData, logData, acksData, perfData, cardsData] = await Promise.all([
     fetchNotificationChannels(),
     fetchNotificationRules(),
     fetchNotificationLog({ limit: 50 }),
     fetchNotificationAcks(),
     fetchPerfAlerts(),
+    fetchNotificationCards(),
   ]);
+  const configuredCards = cardsData.cards.filter((c) => c.channel);
+  // Perf-alert rules the user created via the "Quick" cards get an
+  // auto:perf:* name. Split them out so the "Custom" table only shows
+  // rules the user hand-crafted through the full form.
+  const quickPerfRules = perfData.rules.filter((r) =>
+    (r.name || "").startsWith("auto:perf:"),
+  );
+  const customPerfRules = perfData.rules.filter(
+    (r) => !(r.name || "").startsWith("auto:perf:"),
+  );
 
   return (
     <>
@@ -81,12 +94,14 @@ export default async function NotificationsPage({
       </div>
 
       <ChannelsSection channels={channelsData.channels} />
+      <ByModuleSection cards={configuredCards} />
+      <QuickPerfSection rules={quickPerfRules} />
       <RulesSection
         rules={rulesData.rules}
         channelsAvailable={channelsData.channels.length > 0}
       />
       <PerfAlertsSection
-        rules={perfData.rules}
+        rules={customPerfRules}
         channelsAvailable={channelsData.channels.length > 0}
       />
       <RecentActivitySection entries={logData.entries} />
@@ -240,6 +255,200 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
             </Button>
           </form>
         </div>
+      </td>
+    </tr>
+  );
+}
+
+// =========================================================================
+// by-module summary — rules created via /notifications/routing cards
+// =========================================================================
+
+const THRESHOLD_LABEL: Record<string, string> = {
+  critical: "only critical",
+  high: "critical + high",
+  medium: "≥ medium",
+  low: "everything except info",
+};
+
+function ByModuleSection({ cards }: { cards: NotificationCard[] }) {
+  return (
+    <section className="mt-6 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <SectionLabel>notifications · by module</SectionLabel>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/notifications/routing">
+            <Pencil size={12} /> set up
+          </Link>
+        </Button>
+      </div>
+      <DataPanel className="overflow-hidden">
+        {cards.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-fg-muted">
+            No modules routed yet.{" "}
+            <Link href="/notifications/routing" className="text-signal hover:underline">
+              Set one up →
+            </Link>{" "}
+            — one channel + one severity per module, no rule editor.
+          </div>
+        ) : (
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                <th className="w-40 px-4 py-2 text-left font-normal">Module</th>
+                <th className="w-44 px-4 py-2 text-left font-normal">Channel</th>
+                <th className="px-4 py-2 text-left font-normal">Alerts on</th>
+                <th className="w-24 px-4 py-2 text-left font-normal">State</th>
+                <th className="w-16 px-4 py-2 text-right font-normal" />
+              </tr>
+            </thead>
+            <tbody>
+              {cards.map((c) => (
+                <ByModuleRow key={c.module} card={c} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </DataPanel>
+    </section>
+  );
+}
+
+function ByModuleRow({ card }: { card: NotificationCard }) {
+  const silencedUntil = card.silence_until ? new Date(card.silence_until).getTime() : 0;
+  const isSilenced = silencedUntil > Date.now();
+  const isLive = card.enabled && !isSilenced && !!card.channel;
+  return (
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
+      <td className="truncate px-4 py-2.5">
+        <div className="text-sm text-fg">{card.label}</div>
+        <div className="font-mono text-[10px] text-fg-subtle">{card.module}</div>
+      </td>
+      <td className="truncate px-4 py-2.5">
+        {card.channel ? (
+          <span className="border border-line px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
+            {card.channel}
+          </span>
+        ) : (
+          <span className="text-xs text-fg-disabled">—</span>
+        )}
+      </td>
+      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+        {THRESHOLD_LABEL[card.threshold] ?? card.threshold}
+      </td>
+      <td className="px-4 py-2.5">
+        {isSilenced ? (
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className="h-1.5 w-1.5 rounded-full bg-sev-medium" aria-hidden />
+            <span className="text-fg-muted">silenced</span>
+          </span>
+        ) : isLive ? (
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className="h-1.5 w-1.5 rounded-full bg-sev-resolved" aria-hidden />
+            <span className="text-fg-muted">on</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" aria-hidden />
+            <span className="text-fg-subtle">off</span>
+          </span>
+        )}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+        <Button asChild size="sm" variant="ghost">
+          <Link href="/notifications/routing">
+            <Pencil size={12} />
+          </Link>
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+// =========================================================================
+// quick perf alerts — rules created via /notifications/perf-alerts/quick
+// =========================================================================
+
+function QuickPerfSection({ rules }: { rules: PerfAlertRule[] }) {
+  return (
+    <section className="mt-6 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <SectionLabel>performance alerts · quick</SectionLabel>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/notifications/perf-alerts/quick">
+            <Pencil size={12} /> set up
+          </Link>
+        </Button>
+      </div>
+      <DataPanel className="overflow-hidden">
+        {rules.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-fg-muted">
+            No quick perf alerts yet.{" "}
+            <Link
+              href="/notifications/perf-alerts/quick"
+              className="text-signal hover:underline"
+            >
+              Set one up →
+            </Link>{" "}
+            — Memory, CPU, or Disk in three clicks.
+          </div>
+        ) : (
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                <th className="w-44 px-4 py-2 text-left font-normal">Metric</th>
+                <th className="w-40 px-4 py-2 text-left font-normal">Scope</th>
+                <th className="w-40 px-4 py-2 text-left font-normal">Condition</th>
+                <th className="px-4 py-2 text-left font-normal">Channel</th>
+                <th className="w-24 px-4 py-2 text-left font-normal">State</th>
+                <th className="w-16 px-4 py-2 text-right font-normal" />
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <QuickPerfRow key={r.id} rule={r} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </DataPanel>
+    </section>
+  );
+}
+
+function QuickPerfRow({ rule }: { rule: PerfAlertRule }) {
+  const minutes = Math.max(1, Math.round(rule.window_seconds / 60));
+  const metric = METRIC_LABEL[rule.metric] ?? rule.metric;
+  const sym = COMPARISON_SYM[rule.comparison] ?? rule.comparison;
+  const scope = rule.instance_id ?? "all hosts";
+  return (
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
+      <td className="truncate px-4 py-2.5 text-sm text-fg">{metric}</td>
+      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">{scope}</td>
+      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+        {sym} {rule.threshold}% / {minutes}m
+      </td>
+      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+        {(rule.channels || []).join(", ") || "—"}
+      </td>
+      <td className="px-4 py-2.5">
+        <span className="inline-flex items-center gap-1.5 text-xs">
+          <span
+            aria-hidden
+            className={clsx(
+              "h-1.5 w-1.5 rounded-full",
+              rule.enabled ? "bg-sev-resolved" : "bg-fg-subtle",
+            )}
+          />
+          <span className="text-fg-muted">{rule.enabled ? "on" : "off"}</span>
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+        <Button asChild size="sm" variant="ghost">
+          <Link href="/notifications/perf-alerts/quick">
+            <Pencil size={12} />
+          </Link>
+        </Button>
       </td>
     </tr>
   );
