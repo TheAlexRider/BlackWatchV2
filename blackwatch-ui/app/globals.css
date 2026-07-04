@@ -112,4 +112,39 @@
     background: var(--color-signal);
     opacity: 0.55;
   }
+
+  /* Global focus-visible ring — keyboard users need this; the design
+     was hiding focus outlines everywhere. Signal-colored 1px so it's
+     visible without being noisy. */
+  :focus-visible {
+    outline: 1px solid var(--color-signal);
+    outline-offset: 1px;
+  }
+
+  /* Honor the user's reduced-motion preference. Kills the drop-in
+     animations and pulses; leaves layout transitions unaffected so
+     essential state changes (sidebar collapse) still work. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Prevent long unbreakable identifiers (rule ids, event ids, ARNs) from
+     forcing horizontal scroll on mobile. */
+  code, pre, .font-mono {
+    overflow-wrap: anywhere;
+  }
+
+  /* Tables inside a horizontally-scrollable container should keep their
+     natural min-width. DataPanel now wraps its children in overflow-x-auto,
+     but `w-full table-fixed` would otherwise force the table to shrink
+     to container width — squishing columns on mobile. This preserves the
+     fixed column widths and lets the outer wrapper scroll instead. */
+  .overflow-x-auto > table {
+    min-width: max-content;
+  }
 }

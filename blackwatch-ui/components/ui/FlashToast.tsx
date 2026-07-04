@@ -67,6 +67,19 @@ export function FlashToast({
   const Icon = style.icon;
 
   useEffect(() => {
+    // Strip ?msg= from the URL right away so a page refresh doesn't
+    // re-render a stale banner. history.replaceState avoids a navigation.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("msg")) {
+        url.searchParams.delete("msg");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          url.pathname + (url.search ? url.search : "") + url.hash,
+        );
+      }
+    }
     const t = setTimeout(() => setVisible(false), ttlMs);
     return () => clearTimeout(t);
   }, [ttlMs]);
