@@ -117,6 +117,24 @@ _PROXY_TAG = re.compile(r"\[(?P<k>[^=]+)=(?P<v>[^\]]+)\]")
 _PROXY_AUTH_FAIL = re.compile(
     r"[Pp]roxy authentication.*failed for user \"(?P<user>[^\"]+)\""
 )
+# The proxy logs the source IP+port on the connect line (no user), then the
+# username on the auth-failure line (no IP). Both share the same
+# clientConnection= tag, so we cache conn_id -> ip briefly and enrich the
+# failure event when it arrives. Bounded to keep memory flat.
+_PROXY_CONN_OPEN = re.compile(
+    r"A new client connected from (?P<ip>\d{1,3}(?:\.\d{1,3}){3}):(?P<port>\d+)"
+)
+_PROXY_CONN_CLOSED = re.compile(r"The client connection closed")
+_PROXY_CONN_CACHE: dict[str, tuple[str, int | None, datetime]] = {}
+_PROXY_CACHE_MAX = 5000
+
+
+def _proxy_cache_put(conn_id: str, ip: str, port: int | None, ts: datetime) -> None:
+    if len(_PROXY_CONN_CACHE) >= _PROXY_CACHE_MAX:
+        # Evict the oldest half in insertion order — cheap bounded LRU.
+        for k in list(_PROXY_CONN_CACHE.keys())[: _PROXY_CACHE_MAX // 2]:
+            _PROXY_CONN_CACHE.pop(k, None)
+    _PROXY_CONN_CACHE[conn_id] = (ip, port, ts)
 
 
 class AwsRdsAdapter(Adapter):
@@ -287,14 +305,33 @@ class AwsRdsAdapter(Adapter):
         msg = m.group("msg") or ""
         conn_id = tags.get("clientConnection")
 
+        # Cache the source IP on the connect line so we can enrich the
+        # failure line that shares the same clientConnection id.
+        if conn_id:
+            opened = _PROXY_CONN_OPEN.search(msg)
+            if opened:
+                _proxy_cache_put(
+                    conn_id, opened.group("ip"),
+                    int(opened.group("port")), ts,
+                )
+                return None
+            if _PROXY_CONN_CLOSED.search(msg):
+                _PROXY_CONN_CACHE.pop(conn_id, None)
+                return None
+
         auth = _PROXY_AUTH_FAIL.search(msg)
         if auth:
+            cached_ip, cached_port = None, None
+            if conn_id:
+                cached = _PROXY_CONN_CACHE.get(conn_id)
+                if cached is not None:
+                    cached_ip, cached_port, _ = cached
             return _mkevent(
                 action="rds.auth.failure",
                 outcome=Outcome.failure,
                 ts=ts, db_instance=db_instance, source_type="rds_proxy",
                 user=auth.group("user"), db=None,
-                src_ip=None, src_port=None,
+                src_ip=cached_ip, src_port=cached_port,
                 session_id=None,
                 extra={
                     "reason": "invalid_credentials",
