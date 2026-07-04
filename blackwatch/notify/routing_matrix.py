@@ -207,7 +207,13 @@ def silence_card(module: str, hours: int) -> dict[str, Any]:
 
 
 def test_card(module: str) -> dict[str, Any]:
-    """Fire a synthetic test event through the card's channel."""
+    """Fire a synthetic test event through the card's channel.
+
+    Reloads the notifier's channels + rules first so the Test button always
+    reflects the latest state — otherwise a channel added via the UI in this
+    session might not yet be in the notifier's cache, and send_test would
+    return 'unknown_channel' when the user knows it exists.
+    """
     card = _find_card(module)
     if not card:
         return {"status": "unknown_module"}
@@ -215,7 +221,13 @@ def test_card(module: str) -> dict[str, Any]:
     if not channel:
         return {"status": "no_channel"}
     from . import router as router_module
-    return router_module.get_notifier().send_test(channel)
+    notifier = router_module.get_notifier()
+    try:
+        notifier.reload_channels()
+        notifier.reload_rules()
+    except Exception as exc:  # pragma: no cover — reload is best-effort
+        return {"status": "error", "detail": f"channel reload failed: {exc}"}
+    return notifier.send_test(channel)
 
 
 # --- helpers ----------------------------------------------------------------

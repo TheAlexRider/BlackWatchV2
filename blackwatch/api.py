@@ -3,6 +3,7 @@ event meaning beyond authenticating the source and routing to its module."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -603,6 +604,129 @@ def perf_alerts_update(
 def perf_alerts_delete(rule_id: str) -> dict[str, Any]:
     storage.delete_perf_alert_rule(rule_id)
     return {"ok": True}
+
+
+_PERF_QUICK_METRICS = {
+    "memory_pct": {
+        "label": "Memory used %",
+        "blurb": "Alert when total RAM utilisation stays high.",
+        "default_threshold": 85,
+        "default_window_minutes": 5,
+        "default_severity": "high",
+    },
+    "cpu_load_norm": {
+        "label": "CPU load (normalised)",
+        "blurb": "1-minute load average / CPU count, as a %.",
+        "default_threshold": 90,
+        "default_window_minutes": 10,
+        "default_severity": "high",
+    },
+    "disk_pct_max": {
+        "label": "Disk used % (worst mount)",
+        "blurb": "Highest used % across all mounts on the host.",
+        "default_threshold": 85,
+        "default_window_minutes": 15,
+        "default_severity": "high",
+    },
+}
+_PERF_QUICK_NAMESPACE = uuid.UUID("7c8b1d0e-d0b0-4a5f-b1a5-2a3e2f9c9c9c")
+
+
+def _perf_quick_rule_id(metric: str, scope_key: str) -> str:
+    return str(uuid.uuid5(
+        _PERF_QUICK_NAMESPACE, f"auto:perf:{metric}:{scope_key}"
+    ))
+
+
+@router.get("/notifications/perf-alerts/quick")
+def perf_alerts_quick_list() -> dict[str, Any]:
+    """Return one entry per metric with defaults + any existing card-saved
+    rule for it. Populates the /notifications/perf-alerts/quick UI."""
+    channels = [
+        {"name": c["name"], "type": c.get("type"), "enabled": c.get("enabled", True)}
+        for c in storage.list_notification_channels()
+    ]
+    instances = []
+    for h in storage.list_host_status():
+        instances.append({
+            "instance_id": h["instance_id"],
+            "hostname": h.get("hostname"),
+        })
+    # Map existing rules by their auto:perf: id so a card can reflect them.
+    rules_by_metric: dict[str, list[dict[str, Any]]] = {}
+    for r in storage.list_perf_alert_rules():
+        name = (r.get("name") or "")
+        if not name.startswith("auto:perf:"):
+            continue
+        metric = r.get("metric")
+        rules_by_metric.setdefault(metric, []).append(r)
+    cards = []
+    for key, spec in _PERF_QUICK_METRICS.items():
+        cards.append({
+            "metric": key,
+            **spec,
+            "existing": rules_by_metric.get(key, []),
+        })
+    return {"cards": cards, "channels": channels, "instances": instances}
+
+
+@router.post("/notifications/perf-alerts/quick")
+def perf_alerts_quick_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Upsert a single quick perf-alert card.
+
+    Payload:
+      metric          — one of _PERF_QUICK_METRICS keys
+      threshold       — number
+      window_minutes  — int (converted to window_seconds)
+      scope           — "all" | "instance"
+      instance_id     — required when scope == "instance"
+      channel         — channel name (required unless disabling)
+      enabled         — bool, defaults true
+      severity        — optional; falls back to the metric's default
+    """
+    metric = str(payload.get("metric") or "")
+    if metric not in _PERF_QUICK_METRICS:
+        raise HTTPException(status_code=400, detail=f"unknown metric {metric!r}")
+    scope = str(payload.get("scope") or "all")
+    instance_id = payload.get("instance_id") or None
+    if scope == "instance" and not instance_id:
+        raise HTTPException(status_code=400, detail="instance_id required for scope=instance")
+    scope_key = f"instance-{instance_id}" if scope == "instance" else "all"
+    channel = payload.get("channel") or None
+    if channel is not None:
+        channel = str(channel).strip() or None
+    rule_id = _perf_quick_rule_id(metric, scope_key)
+
+    # No channel = delete the card so it stops firing.
+    if not channel:
+        storage.delete_perf_alert_rule(rule_id)
+        return {"id": rule_id, "deleted": True}
+
+    spec = _PERF_QUICK_METRICS[metric]
+    threshold = float(payload.get("threshold") or spec["default_threshold"])
+    window_minutes = int(payload.get("window_minutes") or spec["default_window_minutes"])
+    severity = str(payload.get("severity") or spec["default_severity"])
+    scope_suffix = "all hosts" if scope == "all" else instance_id
+    name = f"auto:perf:{metric} · {scope_suffix}"
+
+    storage.upsert_perf_alert_rule(
+        rule_id,
+        name=name,
+        enabled=bool(payload.get("enabled", True)),
+        module="ec2.host",
+        instance_id=(instance_id if scope == "instance" else None),
+        tag_key=None,
+        tag_value=None,
+        metric=metric,
+        comparison="gte",
+        threshold=threshold,
+        window_seconds=max(60, window_minutes * 60),
+        min_breach_ratio=0.6,
+        severity=severity,
+        channels=[channel],
+        throttle_seconds=1800,
+    )
+    return {"id": rule_id, "saved": True}
 
 
 def _validate_perf_payload(p: dict[str, Any]) -> None:
@@ -1275,6 +1399,46 @@ def _build_preview_sample(kind: str, payload: dict[str, Any]):
             },
         )
 
+    if kind == "iam_key_created":
+        return Event(
+            source=Source(module="aws.cloudtrail", transport="queue",
+                          account="095899260107", vendor="aws", region="us-east-1"),
+            category=Category.iam,
+            action=sample_action or "iam.access_key.create",
+            outcome=Outcome.success,
+            severity=Severity.high,
+            actor=Actor(principal="arn:aws:iam::095899260107:user/deploy-bot",
+                        source_ip="18.204.55.12"),
+            target=Target(id="AKIA...NEW", type="iam.access_key",
+                          name="deploy-bot"),
+            extra={
+                "message": "New access key AKIA...NEW created for IAM user deploy-bot",
+                "tags": {"env": "prod", "account": "prod-mgmt"},
+            },
+        )
+
+    if kind == "rds_auth_failure":
+        return Event(
+            source=Source(module="aws.rds", transport="queue",
+                          account="095899260107", vendor="aws", region="us-west-1"),
+            category=Category.auth,
+            action=sample_action or "rds.auth.failure",
+            outcome=Outcome.failure,
+            severity=Severity.high,
+            actor=Actor(principal="vikyath_shetty", source_ip="172.16.1.97"),
+            target=Target(id="prod-database-healthlake",
+                          type="rds.db", name="prod-database-healthlake"),
+            extra={
+                "db_instance": "prod-database-healthlake",
+                "source_type": "rds_proxy",
+                "user": "vikyath_shetty",
+                "source_ip": "172.16.1.97",
+                "reason": "invalid_credentials",
+                "message": "prod-database-healthlake: failed proxy login for vikyath_shetty from 172.16.1.97",
+                "tags": {"env": "prod", "db_instance": "prod-database-healthlake"},
+            },
+        )
+
     # Default: VPN auth failure (kept for backward compat with UI callers).
     return Event(
         source=Source(module="vpn.openvpn", transport="queue", account="prod"),
@@ -1473,7 +1637,8 @@ def notif_rule_delete(rule_id: str) -> dict[str, Any]:
 def notif_cards_list() -> dict[str, Any]:
     from .notify import routing_matrix
     channels = [
-        {"name": c["name"], "type": c["type"], "enabled": c["enabled"]}
+        {"id": str(c["id"]), "name": c["name"], "type": c["type"],
+         "enabled": c["enabled"]}
         for c in storage.list_notification_channels()
     ]
     return {

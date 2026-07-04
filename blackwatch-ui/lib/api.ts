@@ -30,6 +30,7 @@ import type {
   NotificationRulesResponse,
   NotificationCardsResponse,
   NotificationLogResponse,
+  PerfQuickResponse,
   NotificationAcksResponse,
   LivePingResponse,
   FimViewResponse,
@@ -218,6 +219,14 @@ export async function fetchNotificationCards(): Promise<NotificationCardsRespons
   return (await res.json()) as NotificationCardsResponse;
 }
 
+export async function fetchPerfQuick(): Promise<PerfQuickResponse> {
+  const res = await fetch(`${API_BASE}/api/notifications/perf-alerts/quick`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`fetchPerfQuick failed: ${res.status}`);
+  return (await res.json()) as PerfQuickResponse;
+}
+
 export async function fetchNotificationRule(id: string): Promise<NotificationRule | null> {
   const res = await fetch(
     `${API_BASE}/api/notifications/rules/${encodeURIComponent(id)}`,
@@ -273,14 +282,31 @@ export async function fetchTemplatePresets(channelType: string): Promise<Templat
   return j.presets ?? [];
 }
 
+export type PreviewSampleKind =
+  | "vpn_failure"
+  | "perf_alert"
+  | "fim_modified"
+  | "ssh_failure"
+  | "iam_key_created"
+  | "rds_auth_failure";
+
 export async function previewTemplate(
   template: string,
-  channelName?: string,
+  opts?: {
+    channelName?: string;
+    channelType?: string;
+    sampleEvent?: PreviewSampleKind;
+  },
 ): Promise<{ rendered: string; error: string | null }> {
   const res = await fetch(`/api/notifications/templates/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ template, channel_name: channelName }),
+    body: JSON.stringify({
+      template,
+      channel_name: opts?.channelName,
+      channel_type: opts?.channelType,
+      sample_event: opts?.sampleEvent,
+    }),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`previewTemplate failed: ${res.status}`);

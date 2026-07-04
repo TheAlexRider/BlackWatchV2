@@ -311,8 +311,40 @@ export interface NotificationCard {
 
 export interface NotificationCardsResponse {
   cards: NotificationCard[];
-  channels: Array<{ name: string; type: string; enabled: boolean }>;
+  channels: Array<{ id: string; name: string; type: string; enabled: boolean }>;
   thresholds: CardThreshold[];
+}
+
+// --- Quick perf-alert cards ----------------------------------------------
+
+export type PerfQuickMetric = "memory_pct" | "cpu_load_norm" | "disk_pct_max";
+
+export interface PerfQuickExistingRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  instance_id: string | null;
+  metric: PerfQuickMetric | string;
+  threshold: number;
+  window_seconds: number;
+  severity: string;
+  channels: string[];
+}
+
+export interface PerfQuickCard {
+  metric: PerfQuickMetric;
+  label: string;
+  blurb: string;
+  default_threshold: number;
+  default_window_minutes: number;
+  default_severity: string;
+  existing: PerfQuickExistingRule[];
+}
+
+export interface PerfQuickResponse {
+  cards: PerfQuickCard[];
+  channels: Array<{ name: string; type: string; enabled: boolean }>;
+  instances: Array<{ instance_id: string; hostname: string | null }>;
 }
 
 export interface NotificationLogEntry {

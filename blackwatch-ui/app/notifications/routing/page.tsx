@@ -8,6 +8,7 @@ import {
   Eye,
   KeyRound,
   Network,
+  Pencil,
   Server,
   Shield,
 } from "lucide-react";
@@ -22,10 +23,9 @@ import type {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
-import { Button } from "@/components/ui/Button";
+import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
-import { TimestampCell } from "@/components/domain/TimestampCell";
-
+import { FlashToast } from "@/components/ui/FlashToast";
 import {
   saveCardAction,
   toggleCardAction,
@@ -56,7 +56,7 @@ export default async function RoutingPage({
         }
       />
 
-      {msg && <FlashBar message={msg} />}
+      {msg && <FlashToast message={msg} />}
 
       {noChannels && <NoChannelsHint />}
 
@@ -175,13 +175,47 @@ function ModuleCard({
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-1">
-          <Button type="submit" size="sm" variant="primary" disabled={disabled}>
+          <PendingButton
+            size="sm"
+            variant="primary"
+            disabled={disabled}
+            pendingLabel="Saving…"
+          >
             Save
-          </Button>
+          </PendingButton>
           <CardControls card={card} isRouted={isRouted} isSilenced={isSilenced} />
         </div>
       </form>
+
+      {isRouted && (
+        <CustomizeMessageLink
+          channelName={card.channel!}
+          channels={channels}
+        />
+      )}
     </DataPanel>
+  );
+}
+
+function CustomizeMessageLink({
+  channelName,
+  channels,
+}: {
+  channelName: string;
+  channels: NotificationCardsResponse["channels"];
+}) {
+  const channel = channels.find((c) => c.name === channelName);
+  if (!channel) return null;
+  return (
+    <div className="border-t border-line-soft bg-surface-1 px-4 py-2">
+      <Link
+        href={`/notifications/channels/${encodeURIComponent(channel.id)}`}
+        className="inline-flex items-center gap-1.5 text-[11px] text-fg-subtle hover:text-signal"
+      >
+        <Pencil size={10} />
+        <span>Customize message format for {channelName}</span>
+      </Link>
+    </div>
   );
 }
 
@@ -292,9 +326,14 @@ function CardControls({
     <div className="flex flex-wrap items-center justify-end gap-1.5">
       <form action={testCardAction} className="inline">
         <input type="hidden" name="module" value={card.module} />
-        <Button type="submit" size="sm" variant="secondary" disabled={!isRouted}>
+        <PendingButton
+          size="sm"
+          variant="secondary"
+          disabled={!isRouted}
+          pendingLabel="Sending…"
+        >
           Test
-        </Button>
+        </PendingButton>
       </form>
 
       {isRouted && (
@@ -306,9 +345,9 @@ function CardControls({
             <option value="24">24h</option>
             <option value="0">clear</option>
           </NativeSelect>
-          <Button type="submit" size="sm" variant="secondary">
+          <PendingButton size="sm" variant="secondary" pendingLabel="…">
             {isSilenced ? "Un-silence" : "Silence"}
-          </Button>
+          </PendingButton>
         </form>
       )}
 
@@ -318,9 +357,9 @@ function CardControls({
           <input type="hidden" name="channel" value={card.channel ?? ""} />
           <input type="hidden" name="threshold" value={card.threshold} />
           <input type="hidden" name="target" value={card.enabled ? "off" : "on"} />
-          <Button type="submit" size="sm" variant="secondary">
+          <PendingButton size="sm" variant="secondary" pendingLabel="…">
             {card.enabled ? "Turn off" : "Turn on"}
-          </Button>
+          </PendingButton>
         </form>
       )}
     </div>
@@ -330,14 +369,6 @@ function CardControls({
 // =========================================================================
 // Bits
 // =========================================================================
-
-function FlashBar({ message }: { message: string }) {
-  return (
-    <div className="mb-4 border-l-2 border-signal bg-surface-1 px-3 py-2 text-xs text-fg-muted">
-      <span className="text-signal">·</span> {message}
-    </div>
-  );
-}
 
 function NoChannelsHint() {
   return (

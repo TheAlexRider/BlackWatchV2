@@ -4,8 +4,18 @@ import { useEffect, useState, useTransition } from "react";
 import {
   fetchTemplatePresets,
   previewTemplate,
+  type PreviewSampleKind,
   type TemplatePreset,
 } from "@/lib/api";
+
+const SAMPLE_EVENTS: Array<{ value: PreviewSampleKind; label: string }> = [
+  { value: "vpn_failure", label: "VPN failed login" },
+  { value: "perf_alert", label: "Performance alert" },
+  { value: "fim_modified", label: "FIM file modified" },
+  { value: "ssh_failure", label: "SSH failed login" },
+  { value: "iam_key_created", label: "IAM access key created" },
+  { value: "rds_auth_failure", label: "RDS proxy auth failure" },
+];
 
 // The fields the operator can stick into a template, with one-line descriptions.
 // Insert-on-click puts `{{ event.X }}` at the textarea's cursor so the user
@@ -36,6 +46,7 @@ export function TemplateEditor({
   const [presets, setPresets] = useState<TemplatePreset[]>([]);
   const [preview, setPreview] = useState<string>("");
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [sample, setSample] = useState<PreviewSampleKind>("vpn_failure");
   const [, startTransition] = useTransition();
 
   // Load presets for this channel type once on mount.
@@ -58,7 +69,7 @@ export function TemplateEditor({
   useEffect(() => {
     const handle = setTimeout(() => {
       startTransition(() => {
-        previewTemplate(value)
+        previewTemplate(value, { channelType, sampleEvent: sample })
           .then((res) => {
             setPreview(res.rendered);
             setPreviewError(res.error);
@@ -70,7 +81,7 @@ export function TemplateEditor({
       });
     }, 300);
     return () => clearTimeout(handle);
-  }, [value]);
+  }, [value, sample, channelType]);
 
   function insertVariable(path: string) {
     // Insert at the textarea's cursor position (or append if no focus).
@@ -163,13 +174,24 @@ export function TemplateEditor({
 
       {/* Live preview */}
       <div className="border border-line-soft bg-surface-0">
-        <div className="flex items-baseline justify-between border-b border-line-soft px-3 py-1.5">
+        <div className="flex items-center justify-between gap-2 border-b border-line-soft px-3 py-1.5">
           <span className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
             Preview
           </span>
-          <span className="text-[10px] text-fg-disabled">
-            using a sample failed VPN login
-          </span>
+          <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
+            <span>sample:</span>
+            <select
+              value={sample}
+              onChange={(e) => setSample(e.target.value as PreviewSampleKind)}
+              className="border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
+            >
+              {SAMPLE_EVENTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="px-3 py-2.5">
           {previewError ? (

@@ -22,7 +22,9 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Button } from "@/components/ui/Button";
+import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
+import { FlashToast } from "@/components/ui/FlashToast";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 
@@ -69,11 +71,14 @@ export default async function NotificationsPage({
         }
       />
 
-      {msg && <FlashBar message={msg} />}
+      {msg && <FlashToast message={msg} />}
 
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}
 
-      <RoutingCta />
+      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+        <RoutingCta />
+        <PerfQuickCta />
+      </div>
 
       <ChannelsSection channels={channelsData.channels} />
       <RulesSection
@@ -97,15 +102,34 @@ function RoutingCta() {
   return (
     <Link
       href="/notifications/routing"
-      className="mt-2 flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
+      className="flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
     >
       <div className="flex items-baseline gap-3">
         <span className="text-signal">▸</span>
         <div>
           <div className="text-fg">Set up alerts by module</div>
           <div className="text-xs text-fg-subtle">
-            One channel + one severity per module. No rule editor. Recommended
-            for most setups.
+            One channel + one severity per module. No rule editor.
+          </div>
+        </div>
+      </div>
+      <ArrowRight size={14} className="text-signal" />
+    </Link>
+  );
+}
+
+function PerfQuickCta() {
+  return (
+    <Link
+      href="/notifications/perf-alerts/quick"
+      className="flex items-center justify-between border border-signal/30 bg-signal/5 px-4 py-3 text-sm transition-colors hover:bg-signal/10"
+    >
+      <div className="flex items-baseline gap-3">
+        <span className="text-signal">▸</span>
+        <div>
+          <div className="text-fg">Set up performance alerts</div>
+          <div className="text-xs text-fg-subtle">
+            Memory / CPU / disk cards with a threshold + a channel.
           </div>
         </div>
       </div>
@@ -193,16 +217,16 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
         <div className="inline-flex items-center gap-1.5">
           <form action={testChannelAction} className="inline">
             <input type="hidden" name="id" value={c.id} />
-            <Button type="submit" size="sm" variant="secondary">
+            <PendingButton size="sm" variant="secondary" pendingLabel="Sending…">
               Test
-            </Button>
+            </PendingButton>
           </form>
           <form action={toggleChannelAction} className="inline">
             <input type="hidden" name="id" value={c.id} />
             <input type="hidden" name="enabled" value={c.enabled ? "off" : "on"} />
-            <Button type="submit" size="sm" variant="secondary">
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
               {c.enabled ? "Disable" : "Enable"}
-            </Button>
+            </PendingButton>
           </form>
           <Button asChild size="sm" variant="ghost">
             <Link href={`/notifications/channels/${c.id}`}>
@@ -327,16 +351,16 @@ function RuleRow({ rule: r }: { rule: NotificationRule }) {
               <option value="24">24h</option>
               <option value="0">clear</option>
             </NativeSelect>
-            <Button type="submit" size="sm" variant="secondary">
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
               Silence
-            </Button>
+            </PendingButton>
           </form>
           <form action={toggleRuleAction} className="inline">
             <input type="hidden" name="id" value={r.id} />
             <input type="hidden" name="enabled" value={r.enabled ? "off" : "on"} />
-            <Button type="submit" size="sm" variant="secondary">
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
               {r.enabled ? "Disable" : "Enable"}
-            </Button>
+            </PendingButton>
           </form>
           <Button asChild size="sm" variant="ghost">
             <Link href={`/notifications/rules/${r.id}`}>
@@ -774,14 +798,6 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
 // =========================================================================
 // shared bits
 // =========================================================================
-
-function FlashBar({ message }: { message: string }) {
-  return (
-    <div className="mb-4 border-l-2 border-signal bg-surface-1 px-3 py-2 text-xs text-fg-muted">
-      <span className="text-signal">·</span> {message}
-    </div>
-  );
-}
 
 function EnabledPill({ enabled }: { enabled: boolean }) {
   return (
