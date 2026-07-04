@@ -14,7 +14,7 @@ fire (each channel dedupes on fingerprint per the standard path).
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -79,6 +79,10 @@ class Card:
     threshold: str = _DEFAULT_THRESHOLD
     silence_until: datetime | None = None
     rule_id: str | None = None
+    # Hand-written rules (not auto:*) that ALSO fire on this module. Surfaced
+    # in the UI so operators can see what else is already wired up and don't
+    # unknowingly create a duplicate via the card.
+    companion_rules: list[dict[str, Any]] = field(default_factory=list)
 
 
 # --- ID / name / match helpers ---------------------------------------------
@@ -112,6 +116,33 @@ def _severities_for_threshold(threshold: str) -> list[str]:
     return list(THRESHOLDS[1]["includes"])
 
 
+def _match_targets_module(match: dict[str, Any] | None, module: str) -> bool:
+    """Walk a Condition tree and return True if any leaf pins source.module
+    to `module` (either via equals or via `in` list containing it). Recursive
+    over `all`, `any`, `not`. Used to find custom rules that already cover
+    this module so the UI can warn about duplicates."""
+    if not match or not isinstance(match, dict):
+        return False
+    for group_key in ("all", "any"):
+        clauses = match.get(group_key)
+        if isinstance(clauses, list):
+            if any(_match_targets_module(c, module) for c in clauses):
+                return True
+    negated = match.get("not")
+    if isinstance(negated, dict) and _match_targets_module(negated, module):
+        # `not` still counts as targeting — an explicit exclusion of another
+        # module means this rule is effectively about this-module too.
+        return True
+    if match.get("field") == "source.module":
+        op = match.get("op")
+        val = match.get("value")
+        if op == "equals" and val == module:
+            return True
+        if op == "in" and isinstance(val, list) and module in val:
+            return True
+    return False
+
+
 def _threshold_from_match(match: dict[str, Any]) -> str:
     """Reverse-engineer the threshold key from a stored match. Falls back to
     the default if the match wasn't produced by this module (someone hand-
@@ -130,11 +161,15 @@ def _threshold_from_match(match: dict[str, Any]) -> str:
 
 def list_cards() -> list[dict[str, Any]]:
     """Return one entry per curated module. Modules the user has never touched
-    come back with their defaults (disabled, no channel)."""
+    come back with their defaults (disabled, no channel). Each card also
+    lists any hand-written notification_rules that already target the same
+    module — surfaced in the UI so the operator doesn't unknowingly create
+    a duplicate rule via the card."""
     try:
-        rules_by_id = {r["id"]: r for r in storage.list_notification_rules()}
+        all_rules = storage.list_notification_rules()
     except Exception:
-        rules_by_id = {}
+        all_rules = []
+    rules_by_id = {r["id"]: r for r in all_rules}
     out: list[dict[str, Any]] = []
     for spec in MODULE_CARDS:
         module = spec["key"]
@@ -152,7 +187,26 @@ def list_cards() -> list[dict[str, Any]]:
             card.channel = channels[0] if channels else None
             card.threshold = _threshold_from_match(rule.get("match") or {})
             card.silence_until = rule.get("silence_until")
+        # Companion rules: anything not auto:* that targets this module.
+        card.companion_rules = _find_companion_rules(all_rules, module)
         out.append(_card_to_dict(card))
+    return out
+
+
+def _find_companion_rules(all_rules: list[dict[str, Any]], module: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for r in all_rules:
+        name = r.get("name") or ""
+        if is_auto_rule_name(name):
+            continue
+        if not _match_targets_module(r.get("match"), module):
+            continue
+        out.append({
+            "id": r.get("id"),
+            "name": name,
+            "enabled": bool(r.get("enabled")),
+            "channels": r.get("channels") or [],
+        })
     return out
 
 
@@ -243,6 +297,7 @@ def _card_to_dict(card: Card) -> dict[str, Any]:
         "threshold": card.threshold,
         "silence_until": card.silence_until.isoformat() if card.silence_until else None,
         "rule_id": card.rule_id,
+        "companion_rules": card.companion_rules,
     }
 
 

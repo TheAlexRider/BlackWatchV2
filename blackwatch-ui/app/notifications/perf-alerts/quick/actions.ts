@@ -1,8 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+
+export type ActionResult = {
+  ok: boolean;
+  message: string;
+  at: number;
+} | null;
 
 async function postJson(path: string, body: Record<string, unknown>): Promise<Response> {
   return fetch(`${API_BASE}${path}`, {
@@ -13,15 +18,26 @@ async function postJson(path: string, body: Record<string, unknown>): Promise<Re
   });
 }
 
-function done(msg: string): never {
-  redirect(`/notifications/perf-alerts/quick?msg=${encodeURIComponent(msg)}`);
+async function bodyOr(fallback: string, res: Response): Promise<string> {
+  try {
+    const t = (await res.text()).slice(0, 200);
+    return t || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-export async function savePerfQuickAction(fd: FormData): Promise<void> {
+const now = () => Date.now();
+
+export async function savePerfQuickAction(
+  _prev: ActionResult,
+  fd: FormData,
+): Promise<ActionResult> {
   const metric = String(fd.get("metric") ?? "");
-  if (!metric) return;
+  if (!metric) return { ok: false, message: "missing metric", at: now() };
   const scope = String(fd.get("scope") ?? "all");
-  const instance_id = scope === "instance" ? (String(fd.get("instance_id") ?? "").trim() || null) : null;
+  const instance_id =
+    scope === "instance" ? String(fd.get("instance_id") ?? "").trim() || null : null;
   const payload = {
     metric,
     scope,
@@ -34,10 +50,16 @@ export async function savePerfQuickAction(fd: FormData): Promise<void> {
   };
   const res = await postJson("/api/notifications/perf-alerts/quick", payload);
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`savePerfQuick failed: ${res.status} ${body}`);
+    const body = await bodyOr("", res);
+    return { ok: false, message: `Save failed (${res.status}) ${body}`, at: now() };
   }
   revalidatePath("/notifications/perf-alerts/quick");
   revalidatePath("/notifications");
-  done(payload.channel ? `${metric} saved` : `${metric} disabled`);
+  return {
+    ok: true,
+    message: payload.channel
+      ? `Saved · alerting on ${metric} ≥ ${payload.threshold}% for ${payload.window_minutes}m`
+      : `${metric} turned off`,
+    at: now(),
+  };
 }

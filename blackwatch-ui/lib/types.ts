@@ -297,6 +297,13 @@ export interface CardThreshold {
   includes: string[];
 }
 
+export interface CompanionRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  channels: string[];
+}
+
 export interface NotificationCard {
   module: string;
   label: string;
@@ -307,6 +314,7 @@ export interface NotificationCard {
   threshold: CardThresholdKey;
   silence_until: string | null;
   rule_id: string | null;
+  companion_rules: CompanionRule[];
 }
 
 export interface NotificationCardsResponse {
