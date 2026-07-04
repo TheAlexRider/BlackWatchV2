@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 
 // ---------- shared helpers (kept local — actions file is the boundary) -------
 
@@ -11,7 +12,7 @@ async function jsonReq(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, {
+  return apiFetch(`${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -99,7 +100,7 @@ export async function togglePerfAlertAction(
 ): Promise<void> {
   // Get-then-PUT — we don't have a partial update endpoint and a full PUT
   // requires the whole shape. Read current state then flip enabled.
-  const res = await fetch(`${API_BASE}/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
+  const res = await apiFetch(`/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -116,7 +117,7 @@ export async function deletePerfAlertAction(
   ruleId: string,
   ruleName: string,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
+  const res = await apiFetch(`/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
     method: "DELETE",
     cache: "no-store",
   });

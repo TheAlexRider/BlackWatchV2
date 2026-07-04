@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 
 // Row-level quick actions on /notifications. Each returns via a redirect
 // with a ?msg=… so the page can show a flash toast; the wizard route (for
@@ -12,7 +13,7 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, {
+  return apiFetch(`${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -73,7 +74,7 @@ export async function deleteRouteAction(fd: FormData): Promise<void> {
 export async function testRouteAction(fd: FormData): Promise<void> {
   const channel = String(fd.get("channel") ?? "").trim();
   if (!channel) done("No channel to test");
-  const listRes = await fetch(`${API_BASE}/api/notifications/channels`, {
+  const listRes = await apiFetch(`/api/notifications/channels`, {
     cache: "no-store",
   });
   if (!listRes.ok) done("Could not load channels");

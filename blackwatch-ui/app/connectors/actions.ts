@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 
 // The existing FastAPI Jinja-era endpoints accept form-urlencoded bodies and
 // return 303 redirects. We POST to them server-side, ignore the redirect, and
@@ -10,7 +11,7 @@ import { API_BASE } from "@/lib/api";
 
 async function postForm(path: string, body: Record<string, string>): Promise<void> {
   const form = new URLSearchParams(body);
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),

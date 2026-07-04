@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 import type { ChannelType } from "@/lib/types";
 
 // =========================================================================
@@ -10,7 +11,7 @@ import type { ChannelType } from "@/lib/types";
 // =========================================================================
 
 async function postJson(path: string, body: Record<string, unknown>): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, {
+  return apiFetch(`${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -19,7 +20,7 @@ async function postJson(path: string, body: Record<string, unknown>): Promise<Re
 }
 
 async function deleteReq(path: string): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, { method: "DELETE", cache: "no-store" });
+  return apiFetch(`${path}`, { method: "DELETE", cache: "no-store" });
 }
 
 function notifRedirect(msg: string): never {

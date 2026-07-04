@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 
 // Helpers --------------------------------------------------------------------
 
 async function postJSON(path: string, body: unknown): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

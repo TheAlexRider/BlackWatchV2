@@ -42,6 +42,48 @@ import type {
 
 export const API_BASE = process.env.BW_API_URL ?? "http://localhost:8000";
 
+const SESSION_COOKIE = "bw_session";
+
+// Server-side fetches originating in Server Components do not automatically
+// carry the browser's cookies — Node.js has no idea which browser tab this
+// render belongs to. But the FastAPI backend now requires a valid session
+// cookie on every /api/* route (see blackwatch/main.py auth middleware).
+// So we look up the current request's cookie via next/headers and attach
+// it manually to every server-side fetch. Client-side fetches (from
+// components that use previewTemplate etc.) still work because the
+// browser attaches the cookie itself on relative-URL fetches.
+async function _authHeader(): Promise<Record<string, string>> {
+  if (typeof window !== "undefined") return {}; // client — browser handles it
+  try {
+    // Dynamic import so client bundles don't drag in next/headers.
+    const mod = await import("next/headers");
+    const store = await mod.cookies();
+    const sid = store.get(SESSION_COOKIE)?.value;
+    return sid ? { Cookie: `${SESSION_COOKIE}=${sid}` } : {};
+  } catch {
+    // Not inside a Next.js request context (e.g. during a static build).
+    return {};
+  }
+}
+
+// Exported so server actions in app/**/actions.ts can piggy-back on the
+// same cookie-forwarding logic instead of each hand-rolling its own auth.
+export async function bwFetch(pathOrUrl: string, init?: RequestInit): Promise<Response> {
+  const auth = await _authHeader();
+  // Accept either a plain path (`/api/events`) or an absolute URL. This
+  // matters because some callers build query strings on top of API_BASE
+  // and pass the full URL — we want them to work through bwFetch too.
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${API_BASE}${pathOrUrl}`;
+  return fetch(url, {
+    ...init,
+    cache: init?.cache ?? "no-store",
+    headers: {
+      ...(init?.headers as Record<string, string> | undefined),
+      ...auth,
+    },
+  });
+}
+
 export interface EventsQuery {
   q?: string;
   severity?: string;
@@ -60,7 +102,7 @@ export async function fetchEvents(query: EventsQuery = {}): Promise<EventsRespon
   if (!query.limit) search.set("limit", "200");
 
   const url = `${API_BASE}/api/events?${search.toString()}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (!res.ok) {
     throw new Error(`fetchEvents failed: ${res.status} ${res.statusText}`);
   }
@@ -69,7 +111,7 @@ export async function fetchEvents(query: EventsQuery = {}): Promise<EventsRespon
 
 export async function fetchEvent(eventId: string): Promise<EventEnvelope | null> {
   const url = `${API_BASE}/api/events/${encodeURIComponent(eventId)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(`fetchEvent failed: ${res.status} ${res.statusText}`);
@@ -92,7 +134,7 @@ export async function fetchPostureFindings(query: {
   if (query.account) search.set("account", query.account);
 
   const url = `${API_BASE}/api/posture/findings?${search.toString()}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (!res.ok) {
     throw new Error(`fetchPostureFindings failed: ${res.status} ${res.statusText}`);
   }
@@ -103,7 +145,7 @@ export async function fetchPostureFinding(
   findingId: string,
 ): Promise<PostureFinding | null> {
   const url = `${API_BASE}/api/posture/findings/${encodeURIComponent(findingId)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(`fetchPostureFinding failed: ${res.status} ${res.statusText}`);
@@ -114,7 +156,7 @@ export async function fetchPostureFinding(
 // --- Hosts ----------------------------------------------------------------
 
 export async function fetchHosts(): Promise<HostsListResponse> {
-  const res = await fetch(`${API_BASE}/api/hosts`, { cache: "no-store" });
+  const res = await bwFetch(`/api/hosts`);
   if (!res.ok) throw new Error(`fetchHosts failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as HostsListResponse;
 }
@@ -123,7 +165,7 @@ export async function fetchHostDetail(
   instanceId: string,
 ): Promise<HostDetailResponse> {
   const url = `${API_BASE}/api/hosts/${encodeURIComponent(instanceId)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (!res.ok) {
     throw new Error(`fetchHostDetail failed: ${res.status} ${res.statusText}`);
   }
@@ -133,7 +175,7 @@ export async function fetchHostDetail(
 // --- File Integrity (FIM) -------------------------------------------------
 
 export async function fetchFimView(): Promise<FimViewResponse> {
-  const res = await fetch(`${API_BASE}/api/fim`, { cache: "no-store" });
+  const res = await bwFetch(`/api/fim`);
   if (!res.ok) throw new Error(`fetchFimView failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as FimViewResponse;
 }
@@ -142,7 +184,7 @@ export async function fetchFimInstance(
   instanceId: string,
 ): Promise<FimInstanceResponse> {
   const url = `${API_BASE}/api/fim/${encodeURIComponent(instanceId)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (!res.ok) {
     throw new Error(`fetchFimInstance failed: ${res.status} ${res.statusText}`);
   }
@@ -152,14 +194,14 @@ export async function fetchFimInstance(
 // --- Performance alerts ---------------------------------------------------
 
 export async function fetchPerfAlerts(): Promise<PerfAlertsListResponse> {
-  const res = await fetch(`${API_BASE}/api/perf-alerts`, { cache: "no-store" });
+  const res = await bwFetch(`/api/perf-alerts`);
   if (!res.ok) throw new Error(`fetchPerfAlerts failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as PerfAlertsListResponse;
 }
 
 export async function fetchPerfAlert(ruleId: string): Promise<PerfAlertRule> {
   const url = `${API_BASE}/api/perf-alerts/${encodeURIComponent(ruleId)}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await bwFetch(url);
   if (!res.ok) {
     throw new Error(`fetchPerfAlert failed: ${res.status} ${res.statusText}`);
   }
@@ -169,7 +211,7 @@ export async function fetchPerfAlert(ruleId: string): Promise<PerfAlertRule> {
 // --- Services --------------------------------------------------------------
 
 export async function fetchServices(): Promise<ServicesListResponse> {
-  const res = await fetch(`${API_BASE}/api/services`, { cache: "no-store" });
+  const res = await bwFetch(`/api/services`);
   if (!res.ok) throw new Error(`fetchServices failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as ServicesListResponse;
 }
@@ -177,7 +219,7 @@ export async function fetchServices(): Promise<ServicesListResponse> {
 // --- Rules + noise -------------------------------------------------------
 
 export async function fetchRules(): Promise<RulesResponse> {
-  const res = await fetch(`${API_BASE}/api/rules`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rules`);
   if (!res.ok) throw new Error(`fetchRules failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as RulesResponse;
 }
@@ -185,7 +227,7 @@ export async function fetchRules(): Promise<RulesResponse> {
 // --- Buckets -------------------------------------------------------------
 
 export async function fetchBuckets(): Promise<BucketsListResponse> {
-  const res = await fetch(`${API_BASE}/api/buckets`, { cache: "no-store" });
+  const res = await bwFetch(`/api/buckets`);
   if (!res.ok) throw new Error(`fetchBuckets failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as BucketsListResponse;
 }
@@ -193,15 +235,14 @@ export async function fetchBuckets(): Promise<BucketsListResponse> {
 // --- Notifications -------------------------------------------------------
 
 export async function fetchNotificationChannels(): Promise<NotificationChannelsResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/channels`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/channels`);
   if (!res.ok) throw new Error(`fetchNotificationChannels failed: ${res.status}`);
   return (await res.json()) as NotificationChannelsResponse;
 }
 
 export async function fetchNotificationChannel(id: string): Promise<NotificationChannel | null> {
-  const res = await fetch(
-    `${API_BASE}/api/notifications/channels/${encodeURIComponent(id)}`,
-    { cache: "no-store" },
+  const res = await bwFetch(
+    `/api/notifications/channels/${encodeURIComponent(id)}`,
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`fetchNotificationChannel failed: ${res.status}`);
@@ -209,25 +250,25 @@ export async function fetchNotificationChannel(id: string): Promise<Notification
 }
 
 export async function fetchNotificationRules(): Promise<NotificationRulesResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/rules`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/rules`);
   if (!res.ok) throw new Error(`fetchNotificationRules failed: ${res.status}`);
   return (await res.json()) as NotificationRulesResponse;
 }
 
 export async function fetchNotificationCards(): Promise<NotificationCardsResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/cards`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/cards`);
   if (!res.ok) throw new Error(`fetchNotificationCards failed: ${res.status}`);
   return (await res.json()) as NotificationCardsResponse;
 }
 
 export async function fetchNotificationRoutes(): Promise<RoutesResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/routes`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/routes`);
   if (!res.ok) throw new Error(`fetchNotificationRoutes failed: ${res.status}`);
   return (await res.json()) as RoutesResponse;
 }
 
 export async function fetchPerfQuick(): Promise<PerfQuickResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/perf-alerts/quick`, {
+  const res = await bwFetch(`/api/notifications/perf-alerts/quick`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`fetchPerfQuick failed: ${res.status}`);
@@ -235,9 +276,8 @@ export async function fetchPerfQuick(): Promise<PerfQuickResponse> {
 }
 
 export async function fetchNotificationRule(id: string): Promise<NotificationRule | null> {
-  const res = await fetch(
-    `${API_BASE}/api/notifications/rules/${encodeURIComponent(id)}`,
-    { cache: "no-store" },
+  const res = await bwFetch(
+    `/api/notifications/rules/${encodeURIComponent(id)}`,
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`fetchNotificationRule failed: ${res.status}`);
@@ -254,13 +294,13 @@ export async function fetchNotificationLog(query: {
   for (const [k, v] of Object.entries(query)) {
     if (v !== undefined && v !== null && v !== "") search.set(k, String(v));
   }
-  const res = await fetch(`${API_BASE}/api/notifications/log?${search}`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/log?${search}`);
   if (!res.ok) throw new Error(`fetchNotificationLog failed: ${res.status}`);
   return (await res.json()) as NotificationLogResponse;
 }
 
 export async function fetchNotificationAcks(): Promise<NotificationAcksResponse> {
-  const res = await fetch(`${API_BASE}/api/notifications/acks`, { cache: "no-store" });
+  const res = await bwFetch(`/api/notifications/acks`);
   if (!res.ok) throw new Error(`fetchNotificationAcks failed: ${res.status}`);
   return (await res.json()) as NotificationAcksResponse;
 }
@@ -347,7 +387,7 @@ export async function fetchRecentEventsForPreview(
 // --- IAM ------------------------------------------------------------------
 
 export async function fetchIam(): Promise<IamViewResponse> {
-  const res = await fetch(`${API_BASE}/api/iam`, { cache: "no-store" });
+  const res = await bwFetch(`/api/iam`);
   if (!res.ok) throw new Error(`fetchIam failed: ${res.status}`);
   return (await res.json()) as IamViewResponse;
 }
@@ -355,7 +395,7 @@ export async function fetchIam(): Promise<IamViewResponse> {
 // --- VPN ------------------------------------------------------------------
 
 export async function fetchVpn(): Promise<VpnResponse> {
-  const res = await fetch(`${API_BASE}/api/vpn`, { cache: "no-store" });
+  const res = await bwFetch(`/api/vpn`);
   if (!res.ok) throw new Error(`fetchVpn failed: ${res.status}`);
   return (await res.json()) as VpnResponse;
 }
@@ -363,20 +403,20 @@ export async function fetchVpn(): Promise<VpnResponse> {
 // --- RDS ------------------------------------------------------------------
 
 export async function fetchRds(): Promise<RdsViewResponse> {
-  const res = await fetch(`${API_BASE}/api/rds`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rds`);
   if (!res.ok) throw new Error(`fetchRds failed: ${res.status}`);
   return (await res.json()) as RdsViewResponse;
 }
 
 export async function fetchRdsSummary(): Promise<RdsSummaryResponse> {
-  const res = await fetch(`${API_BASE}/api/rds/summary`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rds/summary`);
   if (!res.ok) throw new Error(`fetchRdsSummary failed: ${res.status}`);
   return (await res.json()) as RdsSummaryResponse;
 }
 
 export async function fetchRdsLive(db?: string): Promise<RdsLiveResponse> {
   const qs = db ? `?db=${encodeURIComponent(db)}` : "";
-  const res = await fetch(`${API_BASE}/api/rds/live${qs}`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rds/live${qs}`);
   if (!res.ok) throw new Error(`fetchRdsLive failed: ${res.status}`);
   return (await res.json()) as RdsLiveResponse;
 }
@@ -387,7 +427,7 @@ export async function fetchRdsSessions(
   const parts = [`hours=${hours}`];
   if (db) parts.push(`db=${encodeURIComponent(db)}`);
   if (user) parts.push(`user=${encodeURIComponent(user)}`);
-  const res = await fetch(`${API_BASE}/api/rds/sessions?${parts.join("&")}`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rds/sessions?${parts.join("&")}`);
   if (!res.ok) throw new Error(`fetchRdsSessions failed: ${res.status}`);
   return (await res.json()) as RdsSessionsResponse;
 }
@@ -397,7 +437,7 @@ export async function fetchRdsAuthFailures(
 ): Promise<RdsAuthFailuresResponse> {
   const parts = [`hours=${hours}`];
   if (db) parts.push(`db=${encodeURIComponent(db)}`);
-  const res = await fetch(`${API_BASE}/api/rds/auth-failures?${parts.join("&")}`, { cache: "no-store" });
+  const res = await bwFetch(`/api/rds/auth-failures?${parts.join("&")}`);
   if (!res.ok) throw new Error(`fetchRdsAuthFailures failed: ${res.status}`);
   return (await res.json()) as RdsAuthFailuresResponse;
 }
@@ -405,7 +445,7 @@ export async function fetchRdsAuthFailures(
 // --- Live ping (called from the LiveCounter client component) -------------
 
 export async function fetchLivePing(): Promise<LivePingResponse> {
-  const res = await fetch(`${API_BASE}/api/live/ping`, { cache: "no-store" });
+  const res = await bwFetch(`/api/live/ping`);
   if (!res.ok) throw new Error(`fetchLivePing failed: ${res.status}`);
   return (await res.json()) as LivePingResponse;
 }
@@ -413,7 +453,7 @@ export async function fetchLivePing(): Promise<LivePingResponse> {
 // --- Overview ------------------------------------------------------------
 
 export async function fetchOverview(): Promise<OverviewResponse> {
-  const res = await fetch(`${API_BASE}/api/overview`, { cache: "no-store" });
+  const res = await bwFetch(`/api/overview`);
   if (!res.ok) throw new Error(`fetchOverview failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as OverviewResponse;
 }
@@ -421,15 +461,14 @@ export async function fetchOverview(): Promise<OverviewResponse> {
 // --- Connectors ----------------------------------------------------------
 
 export async function fetchConnectors(): Promise<ConnectorsListResponse> {
-  const res = await fetch(`${API_BASE}/api/connectors`, { cache: "no-store" });
+  const res = await bwFetch(`/api/connectors`);
   if (!res.ok) throw new Error(`fetchConnectors failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as ConnectorsListResponse;
 }
 
 export async function fetchConnector(id: string): Promise<Connector | null> {
-  const res = await fetch(
-    `${API_BASE}/api/connectors/${encodeURIComponent(id)}`,
-    { cache: "no-store" },
+  const res = await bwFetch(
+    `/api/connectors/${encodeURIComponent(id)}`,
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`fetchConnector failed: ${res.status} ${res.statusText}`);

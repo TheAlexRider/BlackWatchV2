@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/server-fetch";
 
 async function bodyOr(fallback: string, res: Response): Promise<string> {
   try {
@@ -28,7 +29,7 @@ export async function saveAlertRouteAction(fd: FormData): Promise<void> {
     redirect("/notifications?msg=Pick at least one severity");
   }
 
-  const res = await fetch(`${API_BASE}/api/notifications/routes/save`, {
+  const res = await apiFetch(`/api/notifications/routes/save`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
