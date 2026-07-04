@@ -81,16 +81,7 @@ export default async function NotificationsPage({
       <AutoRefresh intervalMs={30000} />
       <PageHeader
         title="Notifications"
-        subtitle={
-          <span className="font-mono text-xs text-fg-muted">
-            {coverage.routed} of {coverage.total} modules covered ·{" "}
-            <span className="text-fg">{sent24h}</span> sent (24h) ·{" "}
-            <span className={failed24h > 0 ? "text-sev-critical" : "text-fg"}>
-              {failed24h}
-            </span>{" "}
-            failed
-          </span>
-        }
+        subtitle={`${coverage.routed} of ${coverage.total} modules covered · ${sent24h} sent (24h) · ${failed24h} failed`}
       />
 
       {msg && <FlashToast message={msg} />}
