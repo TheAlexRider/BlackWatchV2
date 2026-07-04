@@ -296,6 +296,7 @@ export async function previewTemplate(
     channelName?: string;
     channelType?: string;
     sampleEvent?: PreviewSampleKind;
+    eventId?: string;
   },
 ): Promise<{ rendered: string; error: string | null }> {
   const res = await fetch(`/api/notifications/templates/preview`, {
@@ -306,11 +307,34 @@ export async function previewTemplate(
       channel_name: opts?.channelName,
       channel_type: opts?.channelType,
       sample_event: opts?.sampleEvent,
+      event_id: opts?.eventId,
     }),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`previewTemplate failed: ${res.status}`);
   return (await res.json()) as { rendered: string; error: string | null };
+}
+
+export interface RecentEventSample {
+  event_id: string;
+  event_time: string;
+  action: string;
+  severity: string | null;
+  module: string | null;
+  principal: string | null;
+  target_name: string | null;
+}
+
+export async function fetchRecentEventsForPreview(
+  limit = 20,
+): Promise<RecentEventSample[]> {
+  const res = await fetch(
+    `/api/notifications/templates/recent-events?limit=${limit}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`fetchRecentEventsForPreview failed: ${res.status}`);
+  const j = (await res.json()) as { events: RecentEventSample[] };
+  return j.events ?? [];
 }
 
 // --- IAM ------------------------------------------------------------------

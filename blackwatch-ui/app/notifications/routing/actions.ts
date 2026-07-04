@@ -17,6 +17,19 @@ function done(msg: string): never {
   redirect(`/notifications/routing?msg=${encodeURIComponent(msg)}`);
 }
 
+// Surface non-2xx bodies to the user as a red flash toast rather than
+// throwing (which produces an unfriendly Next.js error page). The toast
+// classifier already colours "failed" / "error" red.
+async function bail(prefix: string, res: Response): never {
+  let detail = "";
+  try {
+    detail = (await res.text()).slice(0, 200);
+  } catch {
+    // ignore
+  }
+  done(`${prefix} failed (${res.status}) ${detail}`);
+}
+
 export async function saveCardAction(fd: FormData): Promise<void> {
   const module = String(fd.get("module") ?? "");
   if (!module) return;
@@ -29,7 +42,7 @@ export async function saveCardAction(fd: FormData): Promise<void> {
     `/api/notifications/cards/${encodeURIComponent(module)}/save`,
     payload,
   );
-  if (!res.ok) throw new Error(`saveCard failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) await bail(`save ${module}`, res);
   revalidatePath("/notifications/routing");
   revalidatePath("/notifications");
   done(payload.channel ? `saved ${module}` : `${module} turned off`);
@@ -45,7 +58,7 @@ export async function toggleCardAction(fd: FormData): Promise<void> {
     `/api/notifications/cards/${encodeURIComponent(module)}/save`,
     { enabled, channel, threshold },
   );
-  if (!res.ok) throw new Error(`toggleCard failed: ${res.status}`);
+  if (!res.ok) await bail(`toggle ${module}`, res);
   revalidatePath("/notifications/routing");
   revalidatePath("/notifications");
   done(`${module} ${enabled ? "on" : "off"}`);
@@ -58,7 +71,7 @@ export async function testCardAction(fd: FormData): Promise<void> {
     `/api/notifications/cards/${encodeURIComponent(module)}/test`,
     {},
   );
-  if (!res.ok) throw new Error(`testCard failed: ${res.status}`);
+  if (!res.ok) await bail(`test ${module}`, res);
   const data = (await res.json()) as { status?: string; detail?: string };
   revalidatePath("/notifications/routing");
   done(
@@ -74,7 +87,7 @@ export async function silenceCardAction(fd: FormData): Promise<void> {
     `/api/notifications/cards/${encodeURIComponent(module)}/silence`,
     { hours },
   );
-  if (!res.ok) throw new Error(`silenceCard failed: ${res.status}`);
+  if (!res.ok) await bail(`silence ${module}`, res);
   revalidatePath("/notifications/routing");
   done(hours > 0 ? `${module} silenced ${hours}h` : `${module} silence cleared`);
 }

@@ -139,12 +139,11 @@ function ModuleCard({
       {/* Blurb */}
       <div className="px-4 pt-3 text-xs text-fg-muted">{card.blurb}</div>
 
-      {/* Setup form */}
+      {/* Setup form — Save only. Other actions (Test / Silence / Toggle)
+          are separate forms in the footer below; nested forms are invalid
+          HTML and silently break the inner submits. */}
       <form action={saveCardAction} className="space-y-3 px-4 pb-4 pt-3">
         <input type="hidden" name="module" value={card.module} />
-        {/* Always send enabled=on when Save is clicked — the toggle for
-            on/off lives in a separate row below the form so the user's Save
-            doesn't accidentally flip enablement back on. */}
         <input type="hidden" name="enabled" value={card.enabled ? "on" : "off"} />
 
         <div className="space-y-1.5">
@@ -174,7 +173,7 @@ function ModuleCard({
           <ThresholdRadios name="threshold" current={card.threshold} />
         </div>
 
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex justify-end pt-1">
           <PendingButton
             size="sm"
             variant="primary"
@@ -183,9 +182,13 @@ function ModuleCard({
           >
             Save
           </PendingButton>
-          <CardControls card={card} isRouted={isRouted} isSilenced={isSilenced} />
         </div>
       </form>
+
+      {/* Footer actions — OUTSIDE the save form (nested forms are invalid). */}
+      <div className="border-t border-line-soft bg-surface-1 px-4 py-2">
+        <CardControls card={card} isRouted={isRouted} isSilenced={isSilenced} />
+      </div>
 
       {isRouted && (
         <CustomizeMessageLink
@@ -231,34 +234,34 @@ const THRESHOLD_OPTIONS: Array<{ key: CardThresholdKey; label: string; hint: str
 ];
 
 function ThresholdRadios({ name, current }: { name: string; current: CardThresholdKey }) {
+  // The blue-box highlight follows the ACTUAL DOM radio state via `has-[]`,
+  // not the initial `current` prop — otherwise clicking a different radio
+  // updates only the dot, and the box stays on the initial option (which is
+  // exactly what the user was seeing).
   return (
     <div className="grid grid-cols-2 gap-2">
-      {THRESHOLD_OPTIONS.map((opt) => {
-        const selected = opt.key === current;
-        return (
-          <label
-            key={opt.key}
-            className={clsx(
-              "flex cursor-pointer flex-col gap-0.5 border px-2.5 py-2 text-xs transition-colors",
-              selected
-                ? "border-signal/50 bg-signal/5 text-fg"
-                : "border-line-soft bg-surface-1 text-fg-muted hover:bg-surface-2",
-            )}
-          >
-            <span className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                name={name}
-                value={opt.key}
-                defaultChecked={selected}
-                className="accent-signal"
-              />
-              <span>{opt.label}</span>
-            </span>
-            <span className="pl-5 text-[10px] text-fg-subtle">{opt.hint}</span>
-          </label>
-        );
-      })}
+      {THRESHOLD_OPTIONS.map((opt) => (
+        <label
+          key={opt.key}
+          className={clsx(
+            "flex cursor-pointer flex-col gap-0.5 border bg-surface-1 px-2.5 py-2 text-xs text-fg-muted transition-colors",
+            "border-line-soft hover:bg-surface-2",
+            "has-[input:checked]:border-signal/50 has-[input:checked]:bg-signal/5 has-[input:checked]:text-fg",
+          )}
+        >
+          <span className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              name={name}
+              value={opt.key}
+              defaultChecked={opt.key === current}
+              className="accent-signal"
+            />
+            <span>{opt.label}</span>
+          </span>
+          <span className="pl-5 text-[10px] text-fg-subtle">{opt.hint}</span>
+        </label>
+      ))}
     </div>
   );
 }

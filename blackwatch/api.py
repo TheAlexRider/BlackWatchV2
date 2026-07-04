@@ -1270,6 +1270,34 @@ def test_notification(channel: str) -> dict[str, Any]:
 # Mutation endpoints accept JSON bodies so the Next.js UI can ship per-type
 # channel config dicts and Condition trees without a YAML textarea.
 
+@router.get("/notifications/templates/recent-events")
+def notif_recent_events(
+    module: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Real recent events for template preview. Lets the operator render
+    their template against actual traffic — closer to CloudWatch Logs
+    Insights' "test pattern against sample records" flow than a hand-crafted
+    sample. Newest first."""
+    events = storage.query_events(module=module or None, limit=limit)
+    out = []
+    for env in events:
+        # Envelope shape: event_id, event_time, action, severity, actor, target...
+        actor = env.get("actor") or {}
+        target = env.get("target") or {}
+        source = env.get("source") or {}
+        out.append({
+            "event_id": env.get("event_id"),
+            "event_time": env.get("event_time"),
+            "action": env.get("action"),
+            "severity": env.get("severity"),
+            "module": source.get("module"),
+            "principal": actor.get("principal"),
+            "target_name": target.get("name") or target.get("id"),
+        })
+    return {"count": len(out), "events": out}
+
+
 @router.get("/notifications/templates")
 def notif_templates(channel_type: str | None = None) -> dict[str, Any]:
     """Named message templates per channel type. Powers the UI's template
@@ -1302,6 +1330,9 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
     from .event import Event, Source, Actor, Target, Severity, Outcome, Category
     from .notify import channels as channels_module
 
+    import logging
+    import traceback
+
     channel_type = str(payload.get("channel_type") or "slack").lower()
     template = str(payload.get("template") or "").strip()
     # Empty / null template → preview the channel-type default. Lets the UI
@@ -1312,17 +1343,44 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
         return {"rendered": "", "error": None}
 
     sample_kind = str(payload.get("sample_event") or "vpn_failure").lower()
-    sample = _build_preview_sample(sample_kind, payload)
 
-    env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
+    # Widened try — the previous version only caught template render errors,
+    # so any exception in sample construction (missing field, bad enum, etc.)
+    # became a 500 with no useful hint in the UI. Now everything is caught,
+    # returned as `error`, AND logged with a full traceback so operators can
+    # see the underlying problem in `docker compose logs app`.
     try:
+        # Support event_id -> hydrate a real recent event instead of a canned
+        # sample. Lets the operator preview against actual traffic, like
+        # CloudWatch Logs Insights preview.
+        event_id = payload.get("event_id")
+        if event_id:
+            envelope = storage.get_event(str(event_id))
+            if envelope is None:
+                return {"rendered": "",
+                        "error": f"event {event_id!r} not found"}
+            # get_event returns the envelope JSONB directly.
+            sample_dict = envelope
+        else:
+            sample = _build_preview_sample(sample_kind, payload)
+            sample_dict = sample.model_dump(mode="json")
+
+        env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
         rendered = env.from_string(template).render(
-            event=sample.model_dump(mode="json"),
+            event=sample_dict,
             channel_name=str(payload.get("channel_name") or "preview"),
         )
         return {"rendered": rendered, "error": None}
     except Exception as exc:
-        return {"rendered": "", "error": f"{exc.__class__.__name__}: {exc}"}
+        logging.getLogger(__name__).exception(
+            "template preview failed: sample_kind=%s", sample_kind,
+        )
+        # Show the operator the actual exception + first traceback line — the
+        # full trace is in docker logs but the immediate cause is enough to
+        # guide most fixes.
+        tb_last = traceback.format_exc().splitlines()[-1] if exc else ""
+        return {"rendered": "",
+                "error": f"{exc.__class__.__name__}: {exc} — {tb_last}"}
 
 
 def _build_preview_sample(kind: str, payload: dict[str, Any]):

@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useTransition } from "react";
 import {
+  fetchRecentEventsForPreview,
   fetchTemplatePresets,
   previewTemplate,
   type PreviewSampleKind,
+  type RecentEventSample,
   type TemplatePreset,
 } from "@/lib/api";
 
@@ -16,6 +18,21 @@ const SAMPLE_EVENTS: Array<{ value: PreviewSampleKind; label: string }> = [
   { value: "iam_key_created", label: "IAM access key created" },
   { value: "rds_auth_failure", label: "RDS proxy auth failure" },
 ];
+
+type SampleSource = "canned" | "recent";
+
+function formatRecentEventLabel(ev: RecentEventSample): string {
+  // Compact one-liner: HH:mm · action · principal → target
+  const ts = ev.event_time ? new Date(ev.event_time) : null;
+  const t = ts
+    ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "??:??";
+  const parts = [t, ev.action || "(no action)"];
+  if (ev.principal) parts.push(`by ${ev.principal}`);
+  if (ev.target_name) parts.push(`→ ${ev.target_name}`);
+  const label = parts.join(" · ");
+  return label.length > 80 ? `${label.slice(0, 79)}…` : label;
+}
 
 // The fields the operator can stick into a template, with one-line descriptions.
 // Insert-on-click puts `{{ event.X }}` at the textarea's cursor so the user
@@ -46,8 +63,34 @@ export function TemplateEditor({
   const [presets, setPresets] = useState<TemplatePreset[]>([]);
   const [preview, setPreview] = useState<string>("");
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [sampleSource, setSampleSource] = useState<SampleSource>("canned");
   const [sample, setSample] = useState<PreviewSampleKind>("vpn_failure");
+  const [recentEvents, setRecentEvents] = useState<RecentEventSample[]>([]);
+  const [recentEventId, setRecentEventId] = useState<string>("");
+  const [recentLoading, setRecentLoading] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Load recent real events the first time the user flips to "recent".
+  useEffect(() => {
+    if (sampleSource !== "recent" || recentEvents.length > 0) return;
+    let cancelled = false;
+    setRecentLoading(true);
+    fetchRecentEventsForPreview(30)
+      .then((rows) => {
+        if (cancelled) return;
+        setRecentEvents(rows);
+        if (rows.length > 0 && !recentEventId) setRecentEventId(rows[0].event_id);
+      })
+      .catch(() => {
+        // Non-fatal — user can flip back to canned.
+      })
+      .finally(() => {
+        if (!cancelled) setRecentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sampleSource, recentEvents.length, recentEventId]);
 
   // Load presets for this channel type once on mount.
   useEffect(() => {
@@ -64,12 +107,15 @@ export function TemplateEditor({
     };
   }, [channelType]);
 
-  // Debounce-ish: re-render preview when value changes, but not on every keystroke.
-  // 300ms feels live without spamming the backend.
+  // Debounce-ish: re-render preview when value / sample selection changes.
   useEffect(() => {
     const handle = setTimeout(() => {
       startTransition(() => {
-        previewTemplate(value, { channelType, sampleEvent: sample })
+        const opts =
+          sampleSource === "recent" && recentEventId
+            ? { channelType, eventId: recentEventId }
+            : { channelType, sampleEvent: sample };
+        previewTemplate(value, opts)
           .then((res) => {
             setPreview(res.rendered);
             setPreviewError(res.error);
@@ -81,7 +127,7 @@ export function TemplateEditor({
       });
     }, 300);
     return () => clearTimeout(handle);
-  }, [value, sample, channelType]);
+  }, [value, sample, sampleSource, recentEventId, channelType]);
 
   function insertVariable(path: string) {
     // Insert at the textarea's cursor position (or append if no focus).
@@ -174,24 +220,75 @@ export function TemplateEditor({
 
       {/* Live preview */}
       <div className="border border-line-soft bg-surface-0">
-        <div className="flex items-center justify-between gap-2 border-b border-line-soft px-3 py-1.5">
-          <span className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
-            Preview
-          </span>
-          <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
-            <span>sample:</span>
-            <select
-              value={sample}
-              onChange={(e) => setSample(e.target.value as PreviewSampleKind)}
-              className="border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
-            >
-              {SAMPLE_EVENTS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="space-y-1.5 border-b border-line-soft px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
+              Preview
+            </span>
+            {/* Source toggle: canned sample vs a real recent event.
+                Think: CloudWatch's "test pattern against sample records". */}
+            <div className="flex overflow-hidden border border-line-soft">
+              <button
+                type="button"
+                onClick={() => setSampleSource("canned")}
+                className={
+                  sampleSource === "canned"
+                    ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
+                    : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
+                }
+              >
+                canned sample
+              </button>
+              <button
+                type="button"
+                onClick={() => setSampleSource("recent")}
+                className={
+                  sampleSource === "recent"
+                    ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
+                    : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
+                }
+              >
+                real recent event
+              </button>
+            </div>
+          </div>
+          {sampleSource === "canned" ? (
+            <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
+              <span>event type:</span>
+              <select
+                value={sample}
+                onChange={(e) => setSample(e.target.value as PreviewSampleKind)}
+                className="border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
+              >
+                {SAMPLE_EVENTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
+              <span>event:</span>
+              {recentLoading ? (
+                <span className="text-fg-subtle">loading…</span>
+              ) : recentEvents.length === 0 ? (
+                <span className="text-fg-subtle">no events yet</span>
+              ) : (
+                <select
+                  value={recentEventId}
+                  onChange={(e) => setRecentEventId(e.target.value)}
+                  className="max-w-[60%] border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
+                >
+                  {recentEvents.map((ev) => (
+                    <option key={ev.event_id} value={ev.event_id}>
+                      {formatRecentEventLabel(ev)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+          )}
         </div>
         <div className="px-3 py-2.5">
           {previewError ? (
