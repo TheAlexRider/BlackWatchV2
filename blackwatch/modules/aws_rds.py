@@ -13,10 +13,12 @@ message is one CloudWatch Logs batch, shaped as:
 
 We emit normalized actions:
 
-  * rds.session.start     — successful connection (from `LOG: connection authorized`)
-  * rds.session.end       — client disconnected (from `LOG: disconnection`)
-  * rds.auth.failure      — bad credentials / hba mismatch (from FATAL/proxy auth failed)
-  * rds.error             — engine-side errors (schema mismatch, deadlock, etc.)
+  * rds.session.start                 — successful connection (from `LOG: connection authorized`)
+  * rds.session.end                   — client disconnected (from `LOG: disconnection`)
+  * rds.auth.failure                  — bad credentials / hba mismatch (from FATAL/proxy auth failed)
+  * rds.proxy.misconfig               — proxy Secrets Manager mapping has duplicate entries for a user
+  * rds.proxy.backend_hba_reject      — proxy → backend rejected because backend's pg_hba.conf lacks the proxy ENI IP
+  * rds.error                         — engine-side errors (schema mismatch, deadlock, etc.)
   * rds.query.ddl / rds.query.role / rds.query.misc — pgaudit-decoded rows
 
 The projection turns session.start/end into rows in rds_active_sessions. This
@@ -125,6 +127,23 @@ _PROXY_CONN_OPEN = re.compile(
     r"A new client connected from (?P<ip>\d{1,3}(?:\.\d{1,3}){3}):(?P<port>\d+)"
 )
 _PROXY_CONN_CLOSED = re.compile(r"The client connection closed")
+# Proxy → backend Postgres rejected because the backend's pg_hba.conf doesn't
+# list the proxy ENI's IP. The username here is the proxy service account
+# (e.g. "application_user"), NOT a human. Still high-signal for infra health.
+_PROXY_BACKEND_HBA = re.compile(
+    r'no pg_hba\.conf entry for host "(?P<host>[^"]+)",\s*'
+    r'user "(?P<user>[^"]+)",\s*database "(?P<db>[^"]+)"'
+)
+# Proxy config error: a database user is mapped to multiple entries in the
+# proxy's Secrets Manager auth config, so the proxy can't decide which secret
+# to use. This log line arrives BARE (no timestamp / [INFO] / [proxyEndpoint]
+# prefix) on a per-invocation hash-named log stream — different shape from
+# every other proxy line. Carries a real human username.
+_PROXY_CRED_MISCONFIG = re.compile(
+    r"Credentials couldn't be retrieved\.\s*"
+    r'The database user "(?P<user>[^"]+)" was found in multiple '
+    r"DB proxy authentication entries"
+)
 _PROXY_CONN_CACHE: dict[str, tuple[str, int | None, datetime]] = {}
 _PROXY_CACHE_MAX = 5000
 
@@ -300,7 +319,11 @@ class AwsRdsAdapter(Adapter):
     ) -> Event | None:
         m = _PROXY_PREFIX.match(line)
         if not m:
-            return None
+            # Some proxy log lines arrive without the usual
+            # "<ts> [INFO] [proxyEndpoint=…] [clientConnection=…]" prefix —
+            # they come on a per-invocation hash-named log stream. Try the
+            # bare-message patterns before giving up.
+            return self._parse_proxy_bare_line(line, ts, db_instance, transport)
         tags = {t.group("k"): t.group("v") for t in _PROXY_TAG.finditer(m.group("tags"))}
         msg = m.group("msg") or ""
         conn_id = tags.get("clientConnection")
@@ -338,6 +361,47 @@ class AwsRdsAdapter(Adapter):
                     "proxy_endpoint": tags.get("proxyEndpoint"),
                     "client_connection": conn_id,
                     "message": msg[:300],
+                },
+                transport=transport,
+            )
+
+        # The proxy → backend hop was rejected because the backend Postgres's
+        # pg_hba.conf doesn't list the proxy's ENI IP. Username here is the
+        # shared proxy service account (e.g. "application_user"), not a human.
+        # High-signal for infra health; the fix is DBA-side.
+        hba = _PROXY_BACKEND_HBA.search(msg)
+        if hba:
+            return _mkevent(
+                action="rds.proxy.backend_hba_reject",
+                outcome=Outcome.failure,
+                ts=ts, db_instance=db_instance, source_type="rds_proxy",
+                user=hba.group("user"), db=hba.group("db"),
+                src_ip=hba.group("host"), src_port=None,
+                session_id=None,
+                extra={
+                    "reason": "backend_hba_missing",
+                    "db_connection": tags.get("dbConnection"),
+                    "message": msg[:300],
+                },
+                transport=transport,
+            )
+        return None
+
+    def _parse_proxy_bare_line(
+        self, line: str, ts: datetime, db_instance: str, transport: Transport,
+    ) -> Event | None:
+        misconfig = _PROXY_CRED_MISCONFIG.search(line)
+        if misconfig:
+            return _mkevent(
+                action="rds.proxy.misconfig",
+                outcome=Outcome.failure,
+                ts=ts, db_instance=db_instance, source_type="rds_proxy",
+                user=misconfig.group("user"), db=None,
+                src_ip=None, src_port=None,
+                session_id=None,
+                extra={
+                    "reason": "multiple_auth_entries",
+                    "message": line[:300],
                 },
                 transport=transport,
             )
