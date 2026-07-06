@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { API_BASE } from "@/lib/api";
 import { apiFetch } from "@/lib/server-fetch";
 
 // Row-level quick actions on /notifications. Each returns via a redirect
@@ -62,8 +61,8 @@ export async function silenceRouteAction(fd: FormData): Promise<void> {
 export async function deleteRouteAction(fd: FormData): Promise<void> {
   const id = String(fd.get("id") ?? "").trim();
   if (!id) done("Missing route id");
-  const res = await fetch(
-    `${API_BASE}/api/notifications/routes/${encodeURIComponent(id)}`,
+  const res = await apiFetch(
+    `/api/notifications/routes/${encodeURIComponent(id)}`,
     { method: "DELETE", cache: "no-store" },
   );
   if (!res.ok) done(`Delete failed (${res.status}) ${await bodyOr("", res)}`);
