@@ -2171,3 +2171,44 @@ def rds_allowlist_remove(username: str) -> dict[str, Any]:
     return {"status": "ok", "username": username}
 
 
+_SHAPE_B_ACTIONS = (
+    "rds.proxy.source.new",
+    "rds.session.new_source",
+    "rds.user.unknown",
+)
+
+
+@router.get("/rds/shape-b")
+def rds_shape_b(
+    hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Shape-B ('stolen credential / new source') detection feed. Rolls up
+    rds.proxy.source.new + rds.session.new_source + rds.user.unknown into
+    one endpoint the UI can render as a single unified panel."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    alerts: list[dict[str, Any]] = []
+    for action in _SHAPE_B_ACTIONS:
+        rows = storage.query_events(
+            module="aws.rds", action=action,
+            since=since, limit=limit,
+        )
+        for r in rows:
+            extra = r.get("extra") or {}
+            actor = r.get("actor") or {}
+            target = r.get("target") or {}
+            alerts.append({
+                "event_id": r.get("event_id"),
+                "event_time": r.get("event_time"),
+                "action": action,
+                "db_instance": extra.get("db_instance") or target.get("id"),
+                "user": extra.get("user") or actor.get("principal"),
+                "source_ip": extra.get("source_ip") or actor.get("source_ip"),
+                "trigger": extra.get("trigger"),
+                "message": extra.get("message"),
+            })
+    alerts.sort(key=lambda a: a.get("event_time") or "", reverse=True)
+    return {"count": len(alerts[:limit]), "hours": hours,
+            "alerts": alerts[:limit]}
+
+

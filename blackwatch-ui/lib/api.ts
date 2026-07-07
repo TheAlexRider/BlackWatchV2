@@ -23,6 +23,9 @@ import type {
   RdsLiveResponse,
   RdsSessionsResponse,
   RdsAuthFailuresResponse,
+  RdsProxySourcesResponse,
+  RdsShapeBResponse,
+  RdsAllowlistResponse,
   IamViewResponse,
   NotificationChannel,
   NotificationChannelsResponse,
@@ -440,6 +443,30 @@ export async function fetchRdsAuthFailures(
   const res = await bwFetch(`/api/rds/auth-failures?${parts.join("&")}`);
   if (!res.ok) throw new Error(`fetchRdsAuthFailures failed: ${res.status}`);
   return (await res.json()) as RdsAuthFailuresResponse;
+}
+
+// --- RDS Shape B --------------------------------------------------------
+
+export async function fetchRdsProxySources(
+  limit: number = 100,
+): Promise<RdsProxySourcesResponse> {
+  const res = await bwFetch(`/api/rds/proxy-sources?limit=${limit}`);
+  if (!res.ok) throw new Error(`fetchRdsProxySources failed: ${res.status}`);
+  return (await res.json()) as RdsProxySourcesResponse;
+}
+
+export async function fetchRdsShapeB(
+  hours: number = 24,
+): Promise<RdsShapeBResponse> {
+  const res = await bwFetch(`/api/rds/shape-b?hours=${hours}`);
+  if (!res.ok) throw new Error(`fetchRdsShapeB failed: ${res.status}`);
+  return (await res.json()) as RdsShapeBResponse;
+}
+
+export async function fetchRdsAllowlist(): Promise<RdsAllowlistResponse> {
+  const res = await bwFetch(`/api/rds/allowlist`);
+  if (!res.ok) throw new Error(`fetchRdsAllowlist failed: ${res.status}`);
+  return (await res.json()) as RdsAllowlistResponse;
 }
 
 // --- Live ping (called from the LiveCounter client component) -------------

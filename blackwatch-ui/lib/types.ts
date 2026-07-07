@@ -229,6 +229,54 @@ export interface RdsAuthFailuresResponse {
   failures: RdsAuthFailure[];
 }
 
+// --- RDS Shape B --------------------------------------------------------
+
+export interface RdsProxySource {
+  source_ip: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  connect_count: number;
+}
+
+export interface RdsProxySourcesResponse {
+  count: number;
+  sources: RdsProxySource[];
+}
+
+export type RdsShapeBAction =
+  | "rds.proxy.source.new"
+  | "rds.session.new_source"
+  | "rds.user.unknown";
+
+export interface RdsShapeBAlert {
+  event_id: string | null;
+  event_time: string | null;
+  action: RdsShapeBAction;
+  db_instance: string | null;
+  user: string | null;
+  source_ip: string | null;
+  trigger: string | null;
+  message: string | null;
+}
+
+export interface RdsShapeBResponse {
+  count: number;
+  hours: number;
+  alerts: RdsShapeBAlert[];
+}
+
+export interface RdsAllowlistEntry {
+  username: string;
+  kind: "human" | "service";
+  note: string | null;
+  added_at: string;
+}
+
+export interface RdsAllowlistResponse {
+  count: number;
+  users: RdsAllowlistEntry[];
+}
+
 // --- Notifications ---------------------------------------------------------
 
 export type ChannelType =
