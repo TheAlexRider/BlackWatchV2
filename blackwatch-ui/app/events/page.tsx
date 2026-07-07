@@ -68,11 +68,13 @@ function FilterBar({ params }: { params: SearchParams }) {
     >
       <Input
         name="q"
+        aria-label="Search events"
+        autoComplete="off"
         defaultValue={params.q ?? ""}
         placeholder="search…"
         className="w-48"
       />
-      <NativeSelect name="severity" defaultValue={params.severity ?? ""}>
+      <NativeSelect name="severity" aria-label="Severity" defaultValue={params.severity ?? ""}>
         <option value="">any severity</option>
         {SEVERITY_VALUES.map((s) => (
           <option key={s} value={s}>
@@ -82,20 +84,26 @@ function FilterBar({ params }: { params: SearchParams }) {
       </NativeSelect>
       <Input
         name="category"
+        aria-label="Category"
+        autoComplete="off"
         defaultValue={params.category ?? ""}
-        placeholder="category"
+        placeholder="category…"
         className="w-32"
       />
       <Input
         name="module"
+        aria-label="Module"
+        autoComplete="off"
         defaultValue={params.module ?? ""}
-        placeholder="module"
+        placeholder="module…"
         className="w-32"
       />
       <Input
         name="action"
+        aria-label="Action"
+        autoComplete="off"
         defaultValue={params.action ?? ""}
-        placeholder="action"
+        placeholder="action…"
         className="w-32"
       />
       <Button type="submit" variant="primary" size="sm">
