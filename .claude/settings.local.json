@@ -66,7 +66,14 @@
       "Bash(awk '/^---$/{c++; if\\(c==2\\) exit} c==1 || \\(c==2 && /^---$/\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')",
       "Bash(python3 -c 'import yaml, sys; f=open\\(sys.argv[1]\\).read\\(\\).split\\('\\\\''---'\\\\''\\)[1]; d=yaml.safe_load\\(f\\); print\\('\\\\''PARSED OK:'\\\\'', list\\(d.keys\\(\\)\\)\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')",
       "Bash(py -3 -c 'import yaml, sys; f=open\\(sys.argv[1]\\).read\\(\\).split\\('\\\\''---'\\\\''\\)[1]; d=yaml.safe_load\\(f\\); print\\('\\\\''PARSED OK:'\\\\'', list\\(d.keys\\(\\)\\), '\\\\''| desc len:'\\\\'', len\\(d.get\\('\\\\''description'\\\\'','\\\\'''\\\\''\\)\\)\\)' 'C:\\\\Users\\\\TheAl/.claude/skills/ui-ux-pro-max/SKILL.md')",
-      "Bash(grep -c 'fetch\\(`${API_BASE}' blackwatch-ui/lib/api.ts)"
+      "Bash(grep -c 'fetch\\(`${API_BASE}' blackwatch-ui/lib/api.ts)",
+      "Bash(gh repo *)",
+      "WebFetch(domain:github.com)",
+      "PowerShell(npx --yes impeccable --help 2>&1)",
+      "PowerShell(npx --yes impeccable skills install --help 2>&1)",
+      "Bash(kill %1)",
+      "PowerShell(npx --yes impeccable skills install --providers=claude --scope=global 2>&1)",
+      "Bash(until [ -s \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\" ]; do sleep 2; done; cat \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\")"
     ]
   }
 }

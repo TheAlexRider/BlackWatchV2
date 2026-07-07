@@ -146,7 +146,7 @@ function EventRow({ event }: { event: EventEnvelope }) {
 
   return (
     <tr className="group relative border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="relative px-4 py-2.5">
+      <td data-label="Time" className="relative px-4 py-2.5">
         {/* 2px severity left-border indicator — never a background fill */}
         <span
           aria-hidden
@@ -157,13 +157,13 @@ function EventRow({ event }: { event: EventEnvelope }) {
         />
         <TimestampCell value={event.event_time} />
       </td>
-      <td className="px-4 py-2.5">
+      <td data-label="Severity" className="px-4 py-2.5">
         <SeverityBadge severity={severity} />
       </td>
-      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+      <td data-label="Module" className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
         {moduleName}
       </td>
-      <td className="truncate px-4 py-2.5">
+      <td data-label="Action" className="truncate px-4 py-2.5">
         <Link
           href={`/events/${event.event_id}`}
           className="font-mono text-xs text-fg transition-colors hover:text-signal"
@@ -171,8 +171,8 @@ function EventRow({ event }: { event: EventEnvelope }) {
           {event.action}
         </Link>
       </td>
-      <td className="truncate px-4 py-2.5 text-xs text-fg-muted">{actor}</td>
-      <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
+      <td data-label="Actor" className="truncate px-4 py-2.5 text-xs text-fg-muted">{actor}</td>
+      <td data-label="Target" className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
         {target}
       </td>
     </tr>

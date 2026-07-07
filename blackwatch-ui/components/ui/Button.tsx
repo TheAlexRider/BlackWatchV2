@@ -36,7 +36,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           variant === "ghost" &&
             "border-transparent bg-transparent text-fg-muted hover:bg-surface-1 hover:text-fg",
           variant === "danger" &&
-            "border-line bg-transparent text-sev-critical hover:border-sev-critical/40",
+            "border-transparent bg-sev-critical text-canvas hover:bg-sev-critical/90",
 
           className,
         )}
