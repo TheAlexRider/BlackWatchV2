@@ -19,7 +19,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         className={clsx(
           // base
-          "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap border font-medium",
+          "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap border font-medium cursor-pointer",
           "transition-colors duration-100",
           "focus-visible:outline-none focus-visible:border-signal",
           "disabled:cursor-not-allowed disabled:opacity-40",
@@ -36,7 +36,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           variant === "ghost" &&
             "border-transparent bg-transparent text-fg-muted hover:bg-surface-1 hover:text-fg",
           variant === "danger" &&
-            "border-transparent bg-sev-critical text-canvas hover:bg-sev-critical/90",
+            "border-sev-critical/30 bg-sev-critical/10 text-sev-critical hover:bg-sev-critical hover:text-canvas hover:border-sev-critical",
 
           className,
         )}
