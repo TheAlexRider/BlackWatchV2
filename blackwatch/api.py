@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Cookie, Header, HTTPException, Query, Request, Response
+from pydantic import BaseModel
 
 from . import auth, noise, storage
 from .config import settings
@@ -2132,5 +2133,41 @@ def rds_auth_failures(
             "message": extra.get("message"),
         })
     return {"count": len(out), "hours": hours, "failures": out}
+
+
+# ---- RDS Shape B: proxy sources + user allowlist -------------------------
+
+@router.get("/rds/proxy-sources")
+def rds_proxy_sources(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
+    """Every real client IP that has ever touched the RDS Proxy, most-recent
+    first. This is the raw feed behind rds.proxy.source.new alerts."""
+    rows = storage.list_rds_proxy_sources(limit=limit)
+    return {"count": len(rows), "sources": rows}
+
+
+@router.get("/rds/allowlist")
+def rds_allowlist_list() -> dict[str, Any]:
+    """The operator-maintained list of expected DB usernames. Any auth
+    attempt for a user NOT on this list fires rds.user.unknown."""
+    rows = storage.list_rds_user_allowlist()
+    return {"count": len(rows), "users": rows}
+
+
+class _AllowlistAdd(BaseModel):
+    username: str
+    kind: Literal["human", "service"]
+    note: str | None = None
+
+
+@router.post("/rds/allowlist")
+def rds_allowlist_add(body: _AllowlistAdd) -> dict[str, Any]:
+    storage.add_rds_user_allowlist(body.username, body.kind, body.note)
+    return {"status": "ok", "username": body.username, "kind": body.kind}
+
+
+@router.delete("/rds/allowlist/{username}")
+def rds_allowlist_remove(username: str) -> dict[str, Any]:
+    storage.remove_rds_user_allowlist(username)
+    return {"status": "ok", "username": username}
 
 

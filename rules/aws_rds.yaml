@@ -118,3 +118,60 @@
     field: action
     op: equals
     value: rds.error
+
+# ---- Shape B: stolen-credential / new-source detection --------------------
+
+- id: rds-proxy-source-new
+  title: New source IP connected to the RDS Proxy
+  description: A real client IP that has never been seen before opened a
+    connection to the RDS Proxy. Legitimate for new employee laptops, new
+    VPN IPs, new AWS pods. Suspicious for compromised VPN certs, ex-employee
+    reconnecting, or an attacker with stolen creds trying from unfamiliar
+    infrastructure. Emitted once per (source_ip, day) by the projection.
+  severity: high
+  tags: [rds, session, shape_b, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: rds.proxy.source.new
+
+- id: rds-session-new-source
+  title: DB user connected from a new source IP
+  description: A known DB user authenticated from a client IP we have never
+    seen for them before (only detectable when the proxy session was pinned
+    to a backend db conn — non-pinned sessions can't be traced back to a real
+    client IP). Strong stolen-credential signal.
+  severity: high
+  tags: [rds, session, shape_b, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: rds.session.new_source
+
+- id: rds-user-unknown
+  title: Unknown DB user authenticated
+  description: A DB user that is NOT on the operator-maintained allowlist
+    attempted to authenticate (success or failure). Catches ex-employees
+    whose creds were not rotated, rogue users created via CloudFormation,
+    and typo-squatting. Add legitimate users via the /rds/allowlist API.
+    Emitted once per (user, day).
+  severity: critical
+  tags: [rds, auth, shape_b, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: rds.user.unknown
+
+# ---- Proxy-side operational issues ---------------------------------------
+
+- id: rds-proxy-backend-hba
+  title: RDS Proxy could not reach backend Postgres (pg_hba reject)
+  description: The proxy tried to open a backend connection and the backend's
+    pg_hba.conf did not list the proxy ENI. Requires a DBA fix on the backend
+    postgresql pg_hba.conf. Muted while the DBA sorts it — unmute after fix.
+  severity: medium
+  tags: [rds, proxy, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: rds.proxy.backend_hba_reject

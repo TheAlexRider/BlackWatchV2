@@ -13,9 +13,13 @@ message is one CloudWatch Logs batch, shaped as:
 
 We emit normalized actions:
 
-  * rds.session.start                 — successful connection (from `LOG: connection authorized`)
+  * rds.session.start                 — successful connection (from `LOG: connection authorized`);
+                                        enriched with real_client_ip when the session was
+                                        pinned on the proxy side (Shape B forensics)
   * rds.session.end                   — client disconnected (from `LOG: disconnection`)
   * rds.auth.failure                  — bad credentials / hba mismatch (from FATAL/proxy auth failed)
+  * rds.proxy.client.connect          — real client IP touched the proxy (100% coverage, no user)
+  * rds.proxy.client.disconnect       — real client IP disconnected from the proxy
   * rds.proxy.misconfig               — proxy Secrets Manager mapping has duplicate entries for a user
   * rds.proxy.backend_hba_reject      — proxy → backend rejected because backend's pg_hba.conf lacks the proxy ENI IP
   * rds.error                         — engine-side errors (schema mismatch, deadlock, etc.)
@@ -144,8 +148,46 @@ _PROXY_CRED_MISCONFIG = re.compile(
     r'The database user "(?P<user>[^"]+)" was found in multiple '
     r"DB proxy authentication entries"
 )
+# Session-pinning line — one of the two log lines that ties a client to
+# a backend db connection. Emitted when the proxy can't reuse a db conn
+# across clients (session state, big query, etc). Carries both IDs.
+_PROXY_SESSION_PINNED = re.compile(
+    r"pinned to the database connection \[dbConnection=(?P<db_conn>\d+)\]"
+)
+# TCP-established line — the proxy telling us which (proxy_ip, proxy_port)
+# a given dbConnection is bound to. That IP:port is what postgres will see
+# as the session's remote host.
+_PROXY_TCP_ESTABLISHED = re.compile(
+    r"A TCP connection was established from the proxy at "
+    r"(?P<proxy_ip>\d{1,3}(?:\.\d{1,3}){3}):(?P<proxy_port>\d+) "
+    r"to the database"
+)
 _PROXY_CONN_CACHE: dict[str, tuple[str, int | None, datetime]] = {}
 _PROXY_CACHE_MAX = 5000
+
+# --- Shape-B correlation caches --------------------------------------------
+# The RDS Proxy hides real client IPs from backend Postgres — Postgres only
+# sees the proxy's ENI. To enrich postgres session_start with the real
+# client IP we chain three pieces of state that appear across separate
+# proxy log lines:
+#   1. `[clientConnection=X] A new client connected from IP:PORT`
+#      → _PROXY_CONN_CACHE keeps X → (real_ip, real_port)  (already existed)
+#   2. `[clientConnection=X] pinned to [dbConnection=Y]`
+#      → _PROXY_DB_TO_CLIENT keeps Y → X
+#   3. `[dbConnection=Y] TCP connection was established from the proxy at
+#      PROXY_IP:PROXY_PORT to the database`
+#      → _PROXY_DB_TO_PORT keeps Y → (proxy_ip, proxy_port)
+# Then when a postgres session_start arrives with remote=(proxy_ip,
+# proxy_port), we lookup Y via _PROXY_DB_TO_PORT (reverse), Y → X via
+# _PROXY_DB_TO_CLIENT, and X → real IP via _PROXY_CONN_CACHE. Only works
+# for pinned sessions (multi-statement / stateful), which is exactly the
+# subset worth watching for stolen-credential detection.
+_PROXY_DB_TO_CLIENT: dict[str, str] = {}
+_PROXY_DB_TO_PORT: dict[str, tuple[str, int]] = {}
+# Reverse index for the postgres-side lookup: (proxy_ip, proxy_port) → dbConn.
+# Kept in sync with _PROXY_DB_TO_PORT; separate map so we don't scan on every
+# postgres session_start.
+_PROXY_PORT_TO_DB: dict[tuple[str, int], str] = {}
 
 
 def _proxy_cache_put(conn_id: str, ip: str, port: int | None, ts: datetime) -> None:
@@ -154,6 +196,45 @@ def _proxy_cache_put(conn_id: str, ip: str, port: int | None, ts: datetime) -> N
         for k in list(_PROXY_CONN_CACHE.keys())[: _PROXY_CACHE_MAX // 2]:
             _PROXY_CONN_CACHE.pop(k, None)
     _PROXY_CONN_CACHE[conn_id] = (ip, port, ts)
+
+
+def _proxy_pin_cache_put(client_conn: str, db_conn: str) -> None:
+    if len(_PROXY_DB_TO_CLIENT) >= _PROXY_CACHE_MAX:
+        for k in list(_PROXY_DB_TO_CLIENT.keys())[: _PROXY_CACHE_MAX // 2]:
+            _PROXY_DB_TO_CLIENT.pop(k, None)
+    _PROXY_DB_TO_CLIENT[db_conn] = client_conn
+
+
+def _proxy_port_cache_put(db_conn: str, proxy_ip: str, proxy_port: int) -> None:
+    if len(_PROXY_DB_TO_PORT) >= _PROXY_CACHE_MAX:
+        for k in list(_PROXY_DB_TO_PORT.keys())[: _PROXY_CACHE_MAX // 2]:
+            old = _PROXY_DB_TO_PORT.pop(k, None)
+            if old is not None:
+                _PROXY_PORT_TO_DB.pop(old, None)
+    _PROXY_DB_TO_PORT[db_conn] = (proxy_ip, proxy_port)
+    _PROXY_PORT_TO_DB[(proxy_ip, proxy_port)] = db_conn
+
+
+def _lookup_real_client_ip(
+    proxy_ip: str | None, proxy_port: int | None,
+) -> tuple[str, int | None] | None:
+    """Given a postgres session's remote (proxy_ip, proxy_port), walk the
+    dbConnection → clientConnection → real client IP chain. Returns None
+    when any link is missing (i.e. non-pinned session, or we booted after
+    the chain-establishing log lines rolled out of the cache)."""
+    if not proxy_ip or not proxy_port:
+        return None
+    db_conn = _PROXY_PORT_TO_DB.get((proxy_ip, proxy_port))
+    if db_conn is None:
+        return None
+    client_conn = _PROXY_DB_TO_CLIENT.get(db_conn)
+    if client_conn is None:
+        return None
+    cached = _PROXY_CONN_CACHE.get(client_conn)
+    if cached is None:
+        return None
+    real_ip, real_port, _ = cached
+    return real_ip, real_port
 
 
 class AwsRdsAdapter(Adapter):
@@ -211,16 +292,27 @@ class AwsRdsAdapter(Adapter):
             db = m.group("db")
             if _is_system_user(user):
                 return None                    # AWS control-plane chatter -- skip
+            # For sessions that came in via the RDS Proxy, the postgres
+            # "remote" is the proxy's ENI IP, which is useless for
+            # forensics. If we've cached the client→db pinning chain,
+            # look through it to get the real client IP.
+            real = _lookup_real_client_ip(src_ip, src_port)
+            extra: dict[str, Any] = {
+                "backend_pid": pid,
+                "session_key": session_key,
+            }
+            if real is not None:
+                extra["real_client_ip"] = real[0]
+                extra["real_client_port"] = real[1]
+                extra["proxy_ip"] = src_ip
+                extra["proxy_port"] = src_port
             return _mkevent(
                 action="rds.session.start",
                 outcome=Outcome.success,
                 ts=ts, db_instance=db_instance, source_type="postgres",
                 user=user, db=db, src_ip=src_ip, src_port=src_port,
                 session_id=_session_id(db_instance, pid),
-                extra={
-                    "backend_pid": pid,
-                    "session_key": session_key,
-                },
+                extra=extra,
                 transport=transport,
             )
 
@@ -327,19 +419,66 @@ class AwsRdsAdapter(Adapter):
         tags = {t.group("k"): t.group("v") for t in _PROXY_TAG.finditer(m.group("tags"))}
         msg = m.group("msg") or ""
         conn_id = tags.get("clientConnection")
+        db_conn_id = tags.get("dbConnection")
+
+        # TCP connection established from proxy → backend db. Bind the
+        # dbConnection id to the (proxy_ip, proxy_port) tuple postgres will
+        # log as its session remote. No event emitted — this is state used
+        # to enrich later postgres session events.
+        if db_conn_id:
+            tcp = _PROXY_TCP_ESTABLISHED.search(msg)
+            if tcp:
+                _proxy_port_cache_put(
+                    db_conn_id, tcp.group("proxy_ip"), int(tcp.group("proxy_port")),
+                )
+                return None
 
         # Cache the source IP on the connect line so we can enrich the
-        # failure line that shares the same clientConnection id.
+        # failure line that shares the same clientConnection id, AND emit
+        # a proxy.client.connect event so we can track real-client-IP
+        # activity independent of user attribution.
         if conn_id:
             opened = _PROXY_CONN_OPEN.search(msg)
             if opened:
-                _proxy_cache_put(
-                    conn_id, opened.group("ip"),
-                    int(opened.group("port")), ts,
+                real_ip = opened.group("ip")
+                real_port = int(opened.group("port"))
+                _proxy_cache_put(conn_id, real_ip, real_port, ts)
+                return _mkevent(
+                    action="rds.proxy.client.connect",
+                    outcome=Outcome.success,
+                    ts=ts, db_instance=db_instance, source_type="rds_proxy",
+                    user=None, db=None,
+                    src_ip=real_ip, src_port=real_port,
+                    session_id=None,
+                    extra={
+                        "proxy_endpoint": tags.get("proxyEndpoint"),
+                        "client_connection": conn_id,
+                    },
+                    transport=transport,
                 )
-                return None
             if _PROXY_CONN_CLOSED.search(msg):
-                _PROXY_CONN_CACHE.pop(conn_id, None)
+                cached = _PROXY_CONN_CACHE.pop(conn_id, None)
+                real_ip = cached[0] if cached else None
+                real_port = cached[1] if cached else None
+                return _mkevent(
+                    action="rds.proxy.client.disconnect",
+                    outcome=Outcome.success,
+                    ts=ts, db_instance=db_instance, source_type="rds_proxy",
+                    user=None, db=None,
+                    src_ip=real_ip, src_port=real_port,
+                    session_id=None,
+                    extra={
+                        "proxy_endpoint": tags.get("proxyEndpoint"),
+                        "client_connection": conn_id,
+                    },
+                    transport=transport,
+                )
+            # Session-pinning line: bind this clientConnection to the
+            # dbConnection it was pinned to. Used later to trace a postgres
+            # session back to its real client IP.
+            pinned = _PROXY_SESSION_PINNED.search(msg)
+            if pinned:
+                _proxy_pin_cache_put(conn_id, pinned.group("db_conn"))
                 return None
 
         auth = _PROXY_AUTH_FAIL.search(msg)

@@ -3,13 +3,22 @@
 Consumes events from the aws.rds adapter, maintains rds_active_sessions,
 and emits a few derived detection events:
 
-  * rds.session.start       -> INSERT (or refresh last_seen_at).
-                               Also checks for concurrent sessions across
-                               multiple source IPs -> rds.session.concurrent.
-  * rds.session.end         -> mark disconnected, record duration.
-  * rds.auth.failure        -> counts recent failures for the same user
-                               in the last N minutes; when the Nth failure
-                               tips the burst threshold, emits rds.auth.burst.
+  * rds.session.start          -> INSERT (or refresh last_seen_at).
+                                  Checks for concurrent sessions across
+                                  multiple source IPs -> rds.session.concurrent.
+                                  Also: if we have a real_client_ip (pinned
+                                  session via proxy), first-seen (user, ip)
+                                  emits rds.session.new_source.
+                                  Any user not on the allowlist emits
+                                  rds.user.unknown.
+  * rds.session.end            -> mark disconnected, record duration.
+  * rds.auth.failure           -> counts recent failures for the same user
+                                  in the last N minutes; the Nth failure
+                                  tips into rds.auth.burst. Also: any user
+                                  not on the allowlist -> rds.user.unknown.
+  * rds.proxy.client.connect   -> record the real client IP in
+                                  rds_proxy_sources; first-seen fires
+                                  rds.proxy.source.new.
 
 Long-idle session detection lives in blackwatch/rds/staleness.py (periodic
 sweep) because it's timer-driven, not event-driven.
@@ -55,11 +64,18 @@ def project(event: Event) -> list[Event]:
                 source_ip=e.get("source_ip"),
                 source_port=e.get("source_port"),
                 connected_at=ts,
-                extra={"backend_pid": e.get("backend_pid")},
+                extra={
+                    "backend_pid": e.get("backend_pid"),
+                    "real_client_ip": e.get("real_client_ip"),
+                    "real_client_port": e.get("real_client_port"),
+                },
             )
         except Exception:
             return []
-        return _detect_concurrent(event, ts)
+        derived = _detect_concurrent(event, ts)
+        derived.extend(_detect_unknown_user(event, ts))
+        derived.extend(_detect_new_user_source(event, ts))
+        return derived
 
     if action == "rds.session.end":
         session_id = e.get("session_id")
@@ -76,7 +92,12 @@ def project(event: Event) -> list[Event]:
         return []
 
     if action == "rds.auth.failure":
-        return _detect_burst(event, ts)
+        derived = _detect_burst(event, ts)
+        derived.extend(_detect_unknown_user(event, ts))
+        return derived
+
+    if action == "rds.proxy.client.connect":
+        return _record_proxy_source(event, ts)
 
     return []
 
@@ -193,4 +214,140 @@ def _detect_burst(event: Event, ts: datetime) -> list[Event]:
             ),
         },
         raw={"derived_from": "rds.auth.failure"},
+    )]
+
+
+# --- Shape B detectors ------------------------------------------------------
+
+def _record_proxy_source(event: Event, ts: datetime) -> list[Event]:
+    """Every rds.proxy.client.connect carries a real client IP. Record it in
+    rds_proxy_sources; if this is the first time we've ever seen this IP,
+    emit rds.proxy.source.new. That's the "unusual IP touched the proxy"
+    signal — VPN cert compromise, unrecognized laptop, etc."""
+    e = event.extra or {}
+    ip = e.get("source_ip") or (event.actor.source_ip if event.actor else None)
+    if not ip:
+        return []
+    try:
+        is_new = storage.upsert_rds_proxy_source(ip, ts)
+    except Exception:
+        return []
+    if not is_new:
+        return []
+    db_instance = e.get("db_instance") or "unknown"
+    day = ts.strftime("%Y%m%d")
+    event_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"rds.proxy.source.new::{ip}::{day}",
+    ))
+    return [Event(
+        event_id=event_id,
+        source=Source(module=_MODULE, transport=Transport.api),
+        event_time=ts,
+        category=Category.other,
+        action="rds.proxy.source.new",
+        outcome=Outcome.failure,
+        actor=Actor(principal=None, source_ip=ip),
+        target=Target(id=db_instance, type="rds.db", name=db_instance),
+        extra={
+            "db_instance": db_instance,
+            "source_ip": ip,
+            "tags": {"env": "prod", "db_instance": db_instance},
+            "message": (
+                f"{db_instance}: new source IP {ip} connected to the RDS "
+                f"Proxy — never seen before"
+            ),
+        },
+        raw={"derived_from": "rds.proxy.client.connect"},
+    )]
+
+
+def _detect_new_user_source(event: Event, ts: datetime) -> list[Event]:
+    """When we successfully traced a postgres session back to its real
+    client IP (via the proxy pinning chain), record (user, real_ip) and
+    fire when the pair is first-seen. This is the credential-theft-from-
+    unusual-location signal."""
+    e = event.extra or {}
+    user = e.get("user")
+    real_ip = e.get("real_client_ip")
+    if not user or not real_ip:
+        return []
+    try:
+        is_new = storage.upsert_rds_user_source(user, real_ip, ts)
+    except Exception:
+        return []
+    if not is_new:
+        return []
+    db_instance = e.get("db_instance") or "unknown"
+    day = ts.strftime("%Y%m%d")
+    event_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"rds.session.new_source::{db_instance}::{user}::{real_ip}::{day}",
+    ))
+    return [Event(
+        event_id=event_id,
+        source=Source(module=_MODULE, transport=Transport.api),
+        event_time=ts,
+        category=Category.other,
+        action="rds.session.new_source",
+        outcome=Outcome.failure,
+        actor=Actor(principal=user, source_ip=real_ip),
+        target=Target(id=db_instance, type="rds.db", name=db_instance),
+        extra={
+            "db_instance": db_instance,
+            "user": user,
+            "source_ip": real_ip,
+            "tags": {"env": "prod", "db_instance": db_instance},
+            "message": (
+                f"{db_instance}: {user} connected from a new source IP "
+                f"({real_ip}) — never seen for this user before"
+            ),
+        },
+        raw={"derived_from": "rds.session.start"},
+    )]
+
+
+def _detect_unknown_user(event: Event, ts: datetime) -> list[Event]:
+    """Fires when someone authenticates (success or fail) as a username
+    that isn't on the operator's allowlist. Cheapest possible offboarding
+    detector — no baseline, no ML, just a list. One event per (user, day)
+    to avoid re-firing on every reconnection."""
+    e = event.extra or {}
+    user = e.get("user") or (event.actor.principal if event.actor else None)
+    if not user:
+        return []
+    try:
+        if storage.is_rds_user_allowlisted(user):
+            return []
+    except Exception:
+        return []
+    db_instance = e.get("db_instance") or "unknown"
+    day = ts.strftime("%Y%m%d")
+    event_id = str(uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"rds.user.unknown::{db_instance}::{user}::{day}",
+    ))
+    return [Event(
+        event_id=event_id,
+        source=Source(module=_MODULE, transport=Transport.api),
+        event_time=ts,
+        category=Category.other,
+        action="rds.user.unknown",
+        outcome=Outcome.failure,
+        actor=Actor(
+            principal=user,
+            source_ip=(event.actor.source_ip if event.actor else None),
+        ),
+        target=Target(id=db_instance, type="rds.db", name=db_instance),
+        extra={
+            "db_instance": db_instance,
+            "user": user,
+            "trigger": event.action,
+            "tags": {"env": "prod", "db_instance": db_instance},
+            "message": (
+                f"{db_instance}: DB user {user!r} is not on the allowlist "
+                f"(triggered by {event.action})"
+            ),
+        },
+        raw={"derived_from": event.action},
     )]

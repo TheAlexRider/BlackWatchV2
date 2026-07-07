@@ -54,6 +54,12 @@ _PROJECTION_ONLY_ACTIONS = {
     "s3.scan.completed",
     "aws.posture.finding",
     "aws.posture.scan.completed",
+    # RDS Proxy client connects/disconnects fire ~1000/hour on a busy DB —
+    # they feed the rds_proxy_sources projection (which fires the once-per-
+    # new-IP rds.proxy.source.new event) but we don't want them cluttering
+    # the events table or notification pipeline.
+    "rds.proxy.client.connect",
+    "rds.proxy.client.disconnect",
 }
 
 

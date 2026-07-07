@@ -1844,3 +1844,103 @@ def prune_expired_sessions() -> int:
             "DELETE FROM auth_sessions WHERE expires_at < now()"
         )
         return cur.rowcount or 0
+
+
+# ---- RDS Shape B detection helpers ---------------------------------------
+
+def upsert_rds_proxy_source(source_ip: str, ts: datetime) -> bool:
+    """Record that source_ip touched the proxy at ts. Returns True if this is
+    the FIRST time we've ever seen this IP (used to fire rds.proxy.source.new)."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO rds_proxy_sources
+              (source_ip, first_seen_at, last_seen_at, connect_count)
+            VALUES (%s, %s, %s, 1)
+            ON CONFLICT (source_ip) DO UPDATE
+              SET last_seen_at  = EXCLUDED.last_seen_at,
+                  connect_count = rds_proxy_sources.connect_count + 1
+            RETURNING (xmax = 0) AS is_new
+            """,
+            (source_ip, ts, ts),
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def upsert_rds_user_source(username: str, source_ip: str, ts: datetime) -> bool:
+    """Record that (username, source_ip) was observed. Returns True if this is
+    the first time we've seen this pair (fires rds.session.new_source)."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO rds_user_source_history
+              (username, source_ip, first_seen_at, last_seen_at, session_count)
+            VALUES (%s, %s, %s, %s, 1)
+            ON CONFLICT (username, source_ip) DO UPDATE
+              SET last_seen_at  = EXCLUDED.last_seen_at,
+                  session_count = rds_user_source_history.session_count + 1
+            RETURNING (xmax = 0) AS is_new
+            """,
+            (username, source_ip, ts, ts),
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def is_rds_user_allowlisted(username: str) -> bool:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM rds_user_allowlist WHERE username = %s",
+            (username,),
+        ).fetchone()
+    return row is not None
+
+
+def list_rds_user_allowlist() -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT username, kind, note, added_at "
+            "FROM rds_user_allowlist ORDER BY kind, username"
+        ).fetchall()
+    return [
+        {"username": r[0], "kind": r[1], "note": r[2], "added_at": r[3]}
+        for r in rows
+    ]
+
+
+def add_rds_user_allowlist(username: str, kind: str, note: str | None) -> None:
+    if kind not in ("human", "service"):
+        raise ValueError(f"kind must be 'human' or 'service', got {kind!r}")
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO rds_user_allowlist (username, kind, note)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (username) DO UPDATE
+              SET kind = EXCLUDED.kind,
+                  note = EXCLUDED.note
+            """,
+            (username, kind, note),
+        )
+
+
+def remove_rds_user_allowlist(username: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            "DELETE FROM rds_user_allowlist WHERE username = %s",
+            (username,),
+        )
+
+
+def list_rds_proxy_sources(limit: int = 100) -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT source_ip, first_seen_at, last_seen_at, connect_count "
+            "FROM rds_proxy_sources "
+            "ORDER BY last_seen_at DESC LIMIT %s",
+            (limit,),
+        ).fetchall()
+    return [
+        {"source_ip": r[0], "first_seen_at": r[1],
+         "last_seen_at": r[2], "connect_count": r[3]}
+        for r in rows
+    ]
