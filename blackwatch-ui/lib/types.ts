@@ -879,8 +879,14 @@ export interface ServicesListResponse {
 export interface Rule {
   id: string;
   title: string;
+  description?: string;
   enabled: boolean;
-  action: string;
+  /** The rule's OWN action — "alert" or "suppress". */
+  rule_action: "alert" | "suppress";
+  /** The event action strings this rule fires on, extracted from the
+   *  match condition. Empty for rules that match on non-action fields
+   *  (e.g. tag-based matches). */
+  matched_actions: string[];
   severity: Severity | string | null;
   tags: string[];
 }

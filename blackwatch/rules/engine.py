@@ -16,6 +16,46 @@ from .model import Condition, Rule
 from .operators import OPERATORS
 
 
+def extract_matched_actions(cond: Condition) -> list[str]:
+    """Walk a rule's condition tree and return every event `action` value it
+    tests against. Used by the /rules API to show operators which event
+    type each rule fires on — otherwise they'd have to open the YAML to
+    find out. Compound rules (all/any/not) may return multiple values, or
+    an empty list if the rule matches on non-action fields (e.g. tags,
+    source_ip). Order-preserving, de-duplicated."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(v: Any) -> None:
+        if isinstance(v, str) and v not in seen:
+            seen.add(v)
+            out.append(v)
+        elif isinstance(v, (list, tuple)):
+            for item in v:
+                _add(item)
+
+    def _walk(c: Condition | None) -> None:
+        if c is None:
+            return
+        if c.all is not None:
+            for child in c.all:
+                _walk(child)
+            return
+        if c.any is not None:
+            for child in c.any:
+                _walk(child)
+            return
+        if c.not_ is not None:
+            # Negated action match isn't the same as "fires on this action",
+            # so we intentionally skip children of NOT.
+            return
+        if c.field == "action":
+            _add(c.value)
+
+    _walk(cond)
+    return out
+
+
 def get_field(event: Event, path: str) -> Any:
     """Resolve a dotted field path against a normalized event."""
     if path == "observables.value":
@@ -59,6 +99,13 @@ class RuleEngine:
         for rule in self.rules:
             if rule.id == rule_id:
                 rule.enabled = enabled
+                return True
+        return False
+
+    def set_severity(self, rule_id: str, severity: Severity | None) -> bool:
+        for rule in self.rules:
+            if rule.id == rule_id:
+                rule.severity = severity
                 return True
         return False
 

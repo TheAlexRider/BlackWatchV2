@@ -23,10 +23,17 @@ async def lifespan(app: FastAPI):
     init_pool()
     registry.register_builtins()
     rule_engine.init_engine(settings.rules_dir)
-    # Apply UI rule enable/disable overrides on top of the YAML defaults.
+    # Apply UI overrides (enabled + severity) on top of the YAML defaults.
     engine = rule_engine.get_engine()
-    for rule_id, enabled in storage.get_rule_overrides().items():
-        engine.set_enabled(rule_id, enabled)
+    from .event import Severity as _Severity
+    for rule_id, override in storage.get_rule_override_map().items():
+        engine.set_enabled(rule_id, override["enabled"])
+        sev_str = override.get("severity")
+        if sev_str:
+            try:
+                engine.set_severity(rule_id, _Severity(sev_str))
+            except ValueError:
+                pass  # stale severity string in DB — fall back to YAML
     noise.refresh()
     notify_router.init_notifier(settings.notifications_file)
     notify_worker.start()

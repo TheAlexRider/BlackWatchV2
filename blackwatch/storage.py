@@ -322,9 +322,25 @@ def delete_connector(connector_id: str) -> None:
 # --- Dashboard controls: rule overrides, muted actions, volume -----------------
 
 def get_rule_overrides() -> dict[str, bool]:
+    """Legacy shim: return only enabled overrides. Prefer
+    get_rule_override_map() for new call sites."""
     with get_pool().connection() as conn:
         rows = conn.execute("SELECT rule_id, enabled FROM rule_overrides").fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+def get_rule_override_map() -> dict[str, dict[str, Any]]:
+    """All overrides, keyed by rule id. Values are dicts with `enabled`
+    (bool) and `severity` (str | None). Loaded once at startup so the
+    engine can apply UI overrides on top of YAML defaults."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT rule_id, enabled, severity FROM rule_overrides"
+        ).fetchall()
+    return {
+        r[0]: {"enabled": r[1], "severity": r[2]}
+        for r in rows
+    }
 
 
 def set_rule_override(rule_id: str, enabled: bool) -> None:
@@ -335,6 +351,22 @@ def set_rule_override(rule_id: str, enabled: bool) -> None:
             ON CONFLICT (rule_id) DO UPDATE SET enabled = EXCLUDED.enabled
             """,
             (rule_id, enabled),
+        )
+
+
+def set_rule_severity_override(rule_id: str, severity: str | None) -> None:
+    """Set (or clear when severity=None) a UI-driven severity override.
+    Preserves the existing `enabled` value — pass through a default of
+    True on first-insert so the rule doesn't get accidentally disabled."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO rule_overrides (rule_id, enabled, severity)
+                 VALUES (%s, TRUE, %s)
+            ON CONFLICT (rule_id) DO UPDATE
+                 SET severity = EXCLUDED.severity
+            """,
+            (rule_id, severity),
         )
 
 

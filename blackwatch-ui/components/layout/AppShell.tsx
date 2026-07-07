@@ -31,7 +31,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 overflow-hidden">
         <SideNav mobileOpen={navOpen} onCloseMobile={() => setNavOpen(false)} />
         <main className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
-          <div className="mx-auto w-full max-w-[1280px]">{children}</div>
+          <div data-impeccable-variants="e6f6884f" data-impeccable-variant-count="3" style={{ display: "contents" }}>
+            {/* impeccable-variants-start e6f6884f */}
+            {/* Original */}
+            <div data-impeccable-variant="original">
+              <div className="mx-auto w-full max-w-[1280px]">{children}</div>
+            </div>
+            {/* Variants: insert below this line */}
+            {/* impeccable-variants-end e6f6884f */}
+          </div>
         </main>
       </div>
     </div>

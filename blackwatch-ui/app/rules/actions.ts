@@ -50,3 +50,29 @@ export async function unmuteAction(formData: FormData): Promise<void> {
   revalidatePath("/rules");
   rulesRedirect(`unmuted ${action}`);
 }
+
+const ALLOWED_SEVERITIES = new Set([
+  "informational",
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+export async function setSeverityAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("rule_id") ?? "").trim();
+  const raw = String(formData.get("severity") ?? "").trim();
+  if (!ruleId) return;
+  // Empty string / "default" from the <select> clears the override.
+  const severity =
+    raw && raw !== "default" && ALLOWED_SEVERITIES.has(raw) ? raw : null;
+  await postJSON(`/api/rules/${encodeURIComponent(ruleId)}/severity`, {
+    severity,
+  });
+  revalidatePath("/rules");
+  rulesRedirect(
+    severity
+      ? `${ruleId} severity → ${severity}`
+      : `${ruleId} severity reset to YAML default`,
+  );
+}

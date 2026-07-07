@@ -208,8 +208,10 @@ def list_rules() -> dict[str, Any]:
             {
                 "id": r.id,
                 "title": r.title,
+                "description": r.description,
                 "enabled": r.enabled,
-                "action": r.action,
+                "rule_action": r.action,        # "alert" | "suppress"
+                "matched_actions": rule_engine.extract_matched_actions(r.match),
                 "severity": r.severity.value if r.severity else None,
                 "tags": r.tags,
             }
@@ -226,6 +228,28 @@ def rule_toggle(rule_id: str, enabled: bool = Body(..., embed=True)) -> dict[str
     storage.set_rule_override(rule_id, enabled)
     rule_engine.get_engine().set_enabled(rule_id, enabled)
     return {"rule_id": rule_id, "enabled": enabled}
+
+
+_ALLOWED_SEVERITIES = {"informational", "low", "medium", "high", "critical"}
+
+
+@router.post("/rules/{rule_id}/severity")
+def rule_severity(
+    rule_id: str,
+    severity: str | None = Body(None, embed=True),
+) -> dict[str, Any]:
+    """Override a rule's severity. Passing null clears the override and
+    the rule falls back to whatever the YAML defines."""
+    if severity is not None and severity not in _ALLOWED_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {sorted(_ALLOWED_SEVERITIES)} or null",
+        )
+    storage.set_rule_severity_override(rule_id, severity)
+    from .event import Severity
+    sev_obj = Severity(severity) if severity else None
+    rule_engine.get_engine().set_severity(rule_id, sev_obj)
+    return {"rule_id": rule_id, "severity": severity}
 
 
 @router.post("/noise/mute")
