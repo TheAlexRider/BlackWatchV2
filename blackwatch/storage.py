@@ -370,22 +370,49 @@ def set_rule_severity_override(rule_id: str, severity: str | None) -> None:
         )
 
 
-def list_muted_actions() -> list[str]:
+def list_muted_events() -> list[dict[str, Any]]:
+    """Every mute rule with its filter columns. NULL in a filter column
+    means the mute matches any value for that field on the incoming event."""
     with get_pool().connection() as conn:
-        rows = conn.execute("SELECT action FROM muted_actions ORDER BY action").fetchall()
-    return [r[0] for r in rows]
+        rows = conn.execute(
+            """
+            SELECT id, action, source_type, username, reason, note, created_at
+            FROM muted_events
+            ORDER BY action, id
+            """
+        ).fetchall()
+    return [
+        {
+            "id": r[0], "action": r[1], "source_type": r[2],
+            "username": r[3], "reason": r[4], "note": r[5],
+            "created_at": r[6],
+        }
+        for r in rows
+    ]
 
 
-def add_muted_action(action: str) -> None:
+def add_muted_event(
+    action: str, *,
+    source_type: str | None = None,
+    username: str | None = None,
+    reason: str | None = None,
+    note: str | None = None,
+) -> int:
     with get_pool().connection() as conn:
-        conn.execute(
-            "INSERT INTO muted_actions (action) VALUES (%s) ON CONFLICT DO NOTHING", (action,)
-        )
+        row = conn.execute(
+            """
+            INSERT INTO muted_events (action, source_type, username, reason, note)
+                 VALUES (%s, %s, %s, %s, %s)
+              RETURNING id
+            """,
+            (action, source_type, username, reason, note),
+        ).fetchone()
+    return int(row[0]) if row else 0
 
 
-def remove_muted_action(action: str) -> None:
+def remove_muted_event(mute_id: int) -> None:
     with get_pool().connection() as conn:
-        conn.execute("DELETE FROM muted_actions WHERE action = %s", (action,))
+        conn.execute("DELETE FROM muted_events WHERE id = %s", (mute_id,))
 
 
 def action_counts(since: datetime, limit: int = 15) -> list[dict[str, Any]]:

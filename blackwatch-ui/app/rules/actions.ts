@@ -37,18 +37,32 @@ export async function toggleRuleAction(formData: FormData): Promise<void> {
 
 export async function muteAction(formData: FormData): Promise<void> {
   const action = String(formData.get("action") ?? "").trim();
+  const source_type = String(formData.get("source_type") ?? "").trim() || null;
+  const username = String(formData.get("username") ?? "").trim() || null;
+  const reason = String(formData.get("reason") ?? "").trim() || null;
+  const note = String(formData.get("note") ?? "").trim() || null;
   if (!action) return;
-  await postJSON("/api/noise/mute", { action });
+  await postJSON("/api/noise/mute", {
+    action,
+    source_type,
+    username,
+    reason,
+    note,
+  });
   revalidatePath("/rules");
-  rulesRedirect(`muting ${action}`);
+  const filters = [source_type, username, reason].filter(Boolean).join(" · ");
+  rulesRedirect(
+    filters ? `muting ${action} where ${filters}` : `muting ${action}`,
+  );
 }
 
 export async function unmuteAction(formData: FormData): Promise<void> {
-  const action = String(formData.get("action") ?? "").trim();
-  if (!action) return;
-  await postJSON("/api/noise/unmute", { action });
+  const idRaw = String(formData.get("id") ?? "").trim();
+  const id = Number.parseInt(idRaw, 10);
+  if (!Number.isFinite(id) || id <= 0) return;
+  await postJSON("/api/noise/unmute", { id });
   revalidatePath("/rules");
-  rulesRedirect(`unmuted ${action}`);
+  rulesRedirect(`unmuted #${id}`);
 }
 
 const ALLOWED_SEVERITIES = new Set([

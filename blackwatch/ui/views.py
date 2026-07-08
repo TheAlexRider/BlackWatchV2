@@ -244,12 +244,15 @@ def hosts(request: Request) -> Any:
 
 @router.get("/ui/rules", response_class=HTMLResponse)
 def rules(request: Request, msg: str | None = None) -> Any:
+    # Legacy Jinja page — kept working for anyone with a bookmark. The
+    # `muted` list here is intentionally the simple action-only view
+    # (the old template can't render the new filter columns anyway).
     return _TEMPLATES.TemplateResponse(
         request,
         "rules.html",
         {
             "rules": rule_engine.get_engine().rules,
-            "muted": noise.muted_actions(),
+            "muted": [m["action"] for m in storage.list_muted_events()],
             "msg": msg,
         },
     )
@@ -270,16 +273,23 @@ def rule_toggle(rule_id: str, enabled: str = Form("")) -> RedirectResponse:
 
 @router.post("/ui/mute")
 def mute_action(action: str = Form(...)) -> RedirectResponse:
+    """Legacy no-filter mute. New UI at /rules supports contextual filters
+    (source_type / username / reason). Left here for backwards compat."""
     action = action.strip()
     if action:
-        storage.add_muted_action(action)
+        storage.add_muted_event(action)
         noise.refresh()
     return _rules_redirect(f"muting {action}")
 
 
 @router.post("/ui/unmute")
 def unmute_action(action: str = Form(...)) -> RedirectResponse:
-    storage.remove_muted_action(action.strip())
+    """Legacy unmute-by-action-string. Drops every mute rule whose action
+    matches (the old data model had at most one per action)."""
+    action = action.strip()
+    for m in storage.list_muted_events():
+        if m["action"] == action:
+            storage.remove_muted_event(int(m["id"]))
     noise.refresh()
     return _rules_redirect(f"unmuted {action}")
 

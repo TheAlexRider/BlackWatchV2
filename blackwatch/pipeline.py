@@ -122,7 +122,7 @@ def ingest_payload(
     muted = 0
     transient = 0
     for event in events:
-        if noise.is_muted(event.action):  # dropped at ingest (dashboard noise control)
+        if noise.is_muted(event):  # dropped at ingest (dashboard noise control)
             muted += 1
             continue
         if event.action in _PROJECTION_ONLY_ACTIONS:
@@ -139,7 +139,7 @@ def ingest_payload(
             except Exception as exc:
                 summaries.append({"action": "projection.error", "detail": str(exc)})
         for derived_event in derived:
-            if noise.is_muted(derived_event.action):
+            if noise.is_muted(derived_event):
                 muted += 1
                 continue
             summaries.append(_process(derived_event))

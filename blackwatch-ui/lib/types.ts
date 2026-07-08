@@ -891,10 +891,21 @@ export interface Rule {
   tags: string[];
 }
 
+export interface MutedEvent {
+  id: number;
+  action: string;
+  /** NULL = matches any value on the incoming event. */
+  source_type: string | null;
+  username: string | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 export interface RulesResponse {
   count: number;
   rules: Rule[];
-  muted: string[];
+  muted: MutedEvent[];
 }
 
 // --- Buckets --------------------------------------------------------------

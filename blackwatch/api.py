@@ -217,7 +217,10 @@ def list_rules() -> dict[str, Any]:
             }
             for r in rules
         ],
-        "muted": noise.muted_actions(),
+        # Full mute rows (id + all filters + note + created_at). The UI
+        # renders id-driven unmute buttons and shows the filter columns so
+        # the operator can see which specific combo is silenced.
+        "muted": storage.list_muted_events(),
     }
 
 
@@ -252,24 +255,44 @@ def rule_severity(
     return {"rule_id": rule_id, "severity": severity}
 
 
+class _MuteAdd(BaseModel):
+    action: str
+    source_type: str | None = None
+    username: str | None = None
+    reason: str | None = None
+    note: str | None = None
+
+
 @router.post("/noise/mute")
-def noise_mute(action: str = Body(..., embed=True)) -> dict[str, Any]:
-    """Add an event action to the mute list. Muted actions are dropped at
-    ingest before storage (does not reduce AWS cost — see EventBridge pattern
-    in deploy/iam/ for that)."""
-    action = action.strip()
+def noise_mute(body: _MuteAdd) -> dict[str, Any]:
+    """Add a mute rule. Only `action` is required; source_type / username /
+    reason narrow the mute to a specific combo (all optional, NULL matches
+    any). Note: this stops events from being stored/scored/notified but
+    does NOT reduce AWS cost — see EventBridge pattern in deploy/iam/."""
+
+    def _clean(s: str | None) -> str | None:
+        s = (s or "").strip()
+        return s or None
+
+    action = _clean(body.action)
     if not action:
         raise HTTPException(status_code=400, detail="action required")
-    storage.add_muted_action(action)
+    mute_id = storage.add_muted_event(
+        action,
+        source_type=_clean(body.source_type),
+        username=_clean(body.username),
+        reason=_clean(body.reason),
+        note=_clean(body.note),
+    )
     noise.refresh()
-    return {"action": action, "muted": True}
+    return {"id": mute_id, "action": action, "muted": True}
 
 
 @router.post("/noise/unmute")
-def noise_unmute(action: str = Body(..., embed=True)) -> dict[str, Any]:
-    storage.remove_muted_action(action)
+def noise_unmute(id: int = Body(..., embed=True)) -> dict[str, Any]:
+    storage.remove_muted_event(id)
     noise.refresh()
-    return {"action": action, "muted": False}
+    return {"id": id, "muted": False}
 
 
 @router.get("/connectors")
