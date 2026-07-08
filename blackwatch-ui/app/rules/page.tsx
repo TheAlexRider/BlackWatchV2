@@ -29,7 +29,7 @@ export default async function RulesPage({
 
       <section className="space-y-2">
         <SectionLabel>rules</SectionLabel>
-        <DataPanel className="overflow-hidden">
+        <DataPanel className="overflow-x-auto">
           <RulesTable rules={rules} />
         </DataPanel>
       </section>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import clsx from "clsx";
 import type { Rule } from "@/lib/types";
 import { Table } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { toggleRuleAction, setSeverityAction } from "./actions";
+import * as Select from "@radix-ui/react-select";
 
 const SEVERITY_OPTIONS = [
   { value: "critical", label: "critical" },
@@ -24,6 +25,21 @@ const SEVERITY_OPTIONS = [
  */
 export function RulesTable({ rules }: { rules: Rule[] }) {
   const [q, setQ] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "/" || (e.key === "k" && (e.metaKey || e.ctrlKey))) {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select") return;
+        
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -47,10 +63,12 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
     <div>
       <div className="flex items-center gap-2 border-b border-line-soft bg-surface-1 px-3 py-2">
         <input
+          ref={inputRef}
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Filter by id, title, event action, tag…"
+          aria-label="Filter rules"
           className="min-w-0 flex-1 rounded border border-line-soft bg-surface-1 px-3 py-1.5 text-xs text-fg placeholder:text-fg-disabled focus:border-sig-teal focus:outline-none"
         />
         <span className="text-[11px] text-fg-subtle">
@@ -80,9 +98,9 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
               key={r.id}
               className="border-b border-line-soft last:border-0 hover:bg-surface-2"
             >
-              <td className="truncate px-4 py-2 font-mono text-xs text-fg">
+              <th scope="row" className="truncate px-4 py-2 text-left font-mono text-xs font-normal text-fg">
                 {r.id}
-              </td>
+              </th>
               <td className="truncate px-4 py-2 text-sm text-fg-muted">
                 {r.title}
               </td>
@@ -163,29 +181,66 @@ function SeverityPicker({
   ruleId: string;
   current: string | null;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   return (
-    <form action={setSeverityAction} className="inline-flex items-center gap-1">
+    <form ref={formRef} action={setSeverityAction} className="inline-flex items-center gap-1">
       <input type="hidden" name="rule_id" value={ruleId} />
       <span className="pointer-events-none">
         {current ? <SeverityBadge severity={current} /> : null}
       </span>
-      <select
+      <Select.Root
         name="severity"
         defaultValue={current ?? "default"}
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
-        className={clsx(
-          "cursor-pointer rounded border border-line-soft bg-surface-1 px-1.5 py-1 text-[11px] text-fg",
-          "focus:border-sig-teal focus:outline-none",
-        )}
-        aria-label={`Set severity for ${ruleId}`}
+        onValueChange={() => {
+          setTimeout(() => formRef.current?.requestSubmit(), 0);
+        }}
       >
-        <option value="default">— clear override —</option>
-        {SEVERITY_OPTIONS.map((s) => (
-          <option key={s.value} value={s.value}>
-            {s.label}
-          </option>
-        ))}
-      </select>
+        <Select.Trigger
+          aria-label={`Set severity for ${ruleId}`}
+          className={clsx(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded border border-line-soft bg-surface-1 px-1.5 py-1 text-[11px] text-fg transition-colors",
+            "focus-visible:border-sig-teal focus-visible:outline-none",
+            "hover:bg-surface-2"
+          )}
+        >
+          <Select.Value />
+          <Select.Icon>
+             <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </Select.Icon>
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Content
+            className="z-50 overflow-hidden rounded border border-line-soft bg-surface-1 shadow-xl"
+            position="popper"
+            sideOffset={4}
+          >
+            <Select.Viewport className="p-1">
+              <Select.Item
+                value="default"
+                className="relative flex cursor-pointer select-none items-center rounded px-6 py-1.5 text-[11px] text-fg outline-none data-[highlighted]:bg-surface-2"
+              >
+                <Select.ItemText>— clear override —</Select.ItemText>
+                <Select.ItemIndicator className="absolute left-1 inline-flex w-4 items-center justify-center">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </Select.ItemIndicator>
+              </Select.Item>
+              {SEVERITY_OPTIONS.map((s) => (
+                <Select.Item
+                  key={s.value}
+                  value={s.value}
+                  className="relative flex cursor-pointer select-none items-center rounded px-6 py-1.5 text-[11px] text-fg outline-none data-[highlighted]:bg-surface-2"
+                >
+                  <Select.ItemText>{s.label}</Select.ItemText>
+                  <Select.ItemIndicator className="absolute left-1 inline-flex w-4 items-center justify-center">
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </Select.ItemIndicator>
+                </Select.Item>
+              ))}
+            </Select.Viewport>
+          </Select.Content>
+        </Select.Portal>
+      </Select.Root>
     </form>
   );
 }
