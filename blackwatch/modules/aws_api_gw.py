@@ -265,8 +265,9 @@ def _mkevent(
     observables: list[Observable] = []
     if ip:
         observables.append(Observable(type="ip", value=ip))
-    if ua:
-        observables.append(Observable(type="user_agent", value=ua))
+    # NOTE: user-agent isn't in the ObservableType enum, so we don't promote
+    # it here. The full UA string still lives in extra.user_agent for the
+    # scanner-UA rule and the /api-gw UI to render.
     tags = {"env": "prod", "api": api_name}
     payload = {**extra, "tags": tags}
     # Deterministic event_id so at-least-once SQS delivery dedupes cleanly.
