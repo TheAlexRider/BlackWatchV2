@@ -82,6 +82,7 @@ def query_events(
     severity: str | None = None,
     severities: list[str] | None = None,
     actor_principal: str | None = None,
+    actor_source_ip: str | None = None,
     target_id: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
@@ -109,6 +110,8 @@ def query_events(
         add("severity = ANY(%s)", list(severities))
     if actor_principal:
         add("actor_principal = %s", actor_principal)
+    if actor_source_ip:
+        add("actor_source_ip = %s", actor_source_ip)
     if target_id:
         add("target_id = %s", target_id)
     if since:
@@ -2003,3 +2006,81 @@ def list_rds_proxy_sources(limit: int = 100) -> list[dict[str, Any]]:
          "last_seen_at": r[2], "connect_count": r[3]}
         for r in rows
     ]
+
+
+# ---- API Gateway Phase 1 helpers -----------------------------------------
+
+def upsert_api_source(
+    source_ip: str, api_name: str, ts: datetime, *,
+    is_4xx: bool = False, is_5xx: bool = False,
+) -> bool:
+    """Record that source_ip touched api_name at ts. Bumps request_count and
+    optionally the 4xx/5xx roll-up counters. Returns True on first sighting."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO api_sources
+              (source_ip, api_name, first_seen_at, last_seen_at,
+               request_count, error_4xx_count, error_5xx_count)
+            VALUES (%s, %s, %s, %s, 1, %s, %s)
+            ON CONFLICT (source_ip) DO UPDATE
+              SET api_name         = EXCLUDED.api_name,
+                  last_seen_at     = EXCLUDED.last_seen_at,
+                  request_count    = api_sources.request_count + 1,
+                  error_4xx_count  = api_sources.error_4xx_count + EXCLUDED.error_4xx_count,
+                  error_5xx_count  = api_sources.error_5xx_count + EXCLUDED.error_5xx_count
+            RETURNING (xmax = 0) AS is_new
+            """,
+            (source_ip, api_name, ts, ts, 1 if is_4xx else 0, 1 if is_5xx else 0),
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def list_api_sources(
+    api_name: str | None = None, limit: int = 100,
+) -> list[dict[str, Any]]:
+    sql = (
+        "SELECT source_ip, api_name, first_seen_at, last_seen_at, "
+        "request_count, error_4xx_count, error_5xx_count "
+        "FROM api_sources"
+    )
+    args: tuple[Any, ...] = ()
+    if api_name is not None:
+        sql += " WHERE api_name = %s"
+        args = (api_name,)
+    sql += " ORDER BY last_seen_at DESC LIMIT %s"
+    args = args + (limit,)
+    with get_pool().connection() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [
+        {"source_ip": r[0], "api_name": r[1],
+         "first_seen_at": r[2], "last_seen_at": r[3],
+         "request_count": r[4],
+         "error_4xx_count": r[5], "error_5xx_count": r[6]}
+        for r in rows
+    ]
+
+
+def api_gw_summary() -> dict[str, Any]:
+    """Aggregate counters for the /api-gw page header."""
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+              COUNT(*),
+              COALESCE(SUM(request_count), 0),
+              COALESCE(SUM(error_4xx_count), 0),
+              COALESCE(SUM(error_5xx_count), 0),
+              MAX(last_seen_at)
+            FROM api_sources
+            """
+        ).fetchone()
+    if not row:
+        return {"sources": 0, "requests": 0, "err_4xx": 0, "err_5xx": 0, "last_activity": None}
+    return {
+        "sources": int(row[0] or 0),
+        "requests": int(row[1] or 0),
+        "err_4xx": int(row[2] or 0),
+        "err_5xx": int(row[3] or 0),
+        "last_activity": row[4],
+    }

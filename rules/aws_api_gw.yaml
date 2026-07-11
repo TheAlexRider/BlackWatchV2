@@ -1,0 +1,96 @@
+# API Gateway detections. Fed by the aws.api_gw adapter which parses each
+# JSON access-log line from the CloudWatch log group of a stage.
+#
+# Tag convention: notify:critical/high/medium (see rules/aws_iam.yaml).
+# `api.request` is PROJECTION_ONLY and never reaches the rule engine.
+# The rules below fire on either raw adapter events (auth.failure, error,
+# scanner_ua) or projection-derived alerts (source.new, auth.burst).
+
+# ---- Auth failures --------------------------------------------------------
+
+- id: api-auth-failure
+  title: API auth failure (single 401 or 403)
+  description: |
+    One request returned 401 or 403. Informational per-event; the burst
+    rule below is what escalates on repeated failures.
+  severity: low
+  tags: [api_gw, auth]
+  match:
+    field: action
+    op: equals
+    value: api.auth.failure
+
+- id: api-auth-burst
+  title: API auth failure burst
+  description: |
+    10+ auth failures from the same source IP within 5 minutes — likely
+    credential stuffing, password spray, or a leaked API key being tried
+    from a new location. Emitted by the projection.
+  severity: high
+  tags: [api_gw, auth, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: api.auth.burst
+
+# ---- Server errors --------------------------------------------------------
+
+- id: api-error
+  title: API 5xx response
+  description: |
+    One request returned a 5xx status. Informational per-event; the burst
+    rule handles bulk 5xx signals.
+  severity: low
+  tags: [api_gw, error]
+  match:
+    field: action
+    op: equals
+    value: api.error
+
+- id: api-error-burst
+  title: API 5xx burst from single client
+  description: |
+    25+ 5xx responses for requests from the same source IP in 5 minutes.
+    Usually indicates fuzzing that trips backend exceptions, or an outage
+    localized to one client's request pattern. Not always security —
+    triage before paging.
+  severity: medium
+  tags: [api_gw, error, "notify:medium"]
+  match:
+    field: action
+    op: equals
+    value: api.error.burst
+
+# ---- Recon / scanning -----------------------------------------------------
+
+- id: api-scanner-ua
+  title: API request from known scanner
+  description: |
+    User-agent matches a known scanner signature (sqlmap, nikto, nuclei,
+    dirbuster, burp collaborator, etc). Regardless of the response status,
+    someone is actively probing the API surface. Fires once per request,
+    so a scan produces bursty alerts — the operator should silence the
+    source IP after triage or add an ingress deny at the WAF/CloudFront.
+  severity: high
+  tags: [api_gw, recon, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: api.scanner_ua
+
+# ---- Shape B: new source --------------------------------------------------
+
+- id: api-source-new
+  title: New source IP touched the API Gateway
+  description: |
+    A source IP that has never been seen before hit the API. Legitimate
+    for new employee laptops, new corporate egress IPs, new integrations.
+    Suspicious for VPN cert compromise, an ex-employee coming back, or an
+    attacker with stolen creds trying from unfamiliar infrastructure.
+    Emitted once per (source_ip, day) by the projection.
+  severity: high
+  tags: [api_gw, shape_b, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: api.source.new

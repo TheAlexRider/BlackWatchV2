@@ -9,13 +9,13 @@ from typing import Any
 
 from .. import storage
 from . import (
-    aws_ecs, aws_ecs_probe_sqs, aws_posture_drift, aws_rds_sqs,
-    aws_s3_drift, aws_sqs, cert_probe,
+    aws_api_gw_sqs, aws_ecs, aws_ecs_probe_sqs, aws_posture_drift,
+    aws_rds_sqs, aws_s3_drift, aws_sqs, cert_probe,
 )
 from .models import (
-    AwsCloudtrailSqsConfig, AwsEcsHealthConfig, AwsEcsProbeSqsConfig,
-    AwsPostureDriftConfig, AwsRdsSqsConfig, AwsS3DriftConfig,
-    CertProbeConfig,
+    AwsApiGwSqsConfig, AwsCloudtrailSqsConfig, AwsEcsHealthConfig,
+    AwsEcsProbeSqsConfig, AwsPostureDriftConfig, AwsRdsSqsConfig,
+    AwsS3DriftConfig, CertProbeConfig,
 )
 
 
@@ -42,6 +42,10 @@ def run_connector(connector_id: str) -> dict[str, Any]:
         elif ctype == "aws_rds_sqs":
             cfg = AwsRdsSqsConfig(**connector["config"])
             stats = aws_rds_sqs.drain(cfg)
+            outcome = {"ingested": stats["ingested"], "messages": stats["messages"]}
+        elif ctype == "aws_api_gw_sqs":
+            cfg = AwsApiGwSqsConfig(**connector["config"])
+            stats = aws_api_gw_sqs.drain(cfg)
             outcome = {"ingested": stats["ingested"], "messages": stats["messages"]}
         elif ctype == "aws_s3_drift":
             cfg = AwsS3DriftConfig(**connector["config"])

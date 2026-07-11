@@ -6,6 +6,7 @@ under that module id — no core changes required."""
 
 from __future__ import annotations
 
+from .aws_api_gw import AwsApiGwAdapter
 from .aws_cloudtrail import AwsCloudTrailAdapter
 from .aws_posture import AwsPostureAdapter
 from .aws_rds import AwsRdsAdapter
@@ -40,6 +41,7 @@ def register_builtins() -> None:
     register(VpnOpenVpnAdapter())
     register(AwsCloudTrailAdapter())
     register(AwsRdsAdapter())
+    register(AwsApiGwAdapter())
     register(Ec2HostAdapter())
     register(EcsProbeAdapter())
     register(AwsS3Adapter())

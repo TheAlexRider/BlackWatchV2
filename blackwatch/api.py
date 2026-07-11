@@ -2259,3 +2259,96 @@ def rds_shape_b(
             "alerts": alerts[:limit]}
 
 
+# ---- API Gateway (Phase 1) ------------------------------------------------
+
+@router.get("/api-gw/summary")
+def api_gw_summary_endpoint() -> dict[str, Any]:
+    """Aggregate counters + last-activity for the /api-gw page header."""
+    return storage.api_gw_summary()
+
+
+@router.get("/api-gw/sources")
+def api_gw_sources(
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Every source IP seen at the API Gateway with per-IP rollups."""
+    rows = storage.list_api_sources(limit=limit)
+    return {"count": len(rows), "sources": rows}
+
+
+_API_GW_ALERT_ACTIONS = (
+    "api.source.new",
+    "api.auth.burst",
+    "api.error.burst",
+    "api.scanner_ua",
+)
+
+
+@router.get("/api-gw/alerts")
+def api_gw_alerts(
+    hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Recent Shape-A + Shape-B API Gateway alerts — the operator feed."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    alerts: list[dict[str, Any]] = []
+    for action in _API_GW_ALERT_ACTIONS:
+        rows = storage.query_events(
+            module="aws.api_gw", action=action,
+            since=since, limit=limit,
+        )
+        for r in rows:
+            extra = r.get("extra") or {}
+            actor = r.get("actor") or {}
+            target = r.get("target") or {}
+            alerts.append({
+                "event_id": r.get("event_id"),
+                "event_time": r.get("event_time"),
+                "action": action,
+                "api_name": extra.get("api_name") or target.get("id"),
+                "source_ip": extra.get("source_ip") or actor.get("source_ip"),
+                "user_agent": extra.get("user_agent"),
+                "scanner_signature": extra.get("scanner_signature"),
+                "failure_count": extra.get("failure_count"),
+                "error_count": extra.get("error_count"),
+                "message": extra.get("message"),
+            })
+    alerts.sort(key=lambda a: a.get("event_time") or "", reverse=True)
+    return {"count": len(alerts[:limit]), "hours": hours,
+            "alerts": alerts[:limit]}
+
+
+@router.get("/api-gw/failures")
+def api_gw_failures(
+    hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Raw auth failures + 5xx errors from the API Gateway, most-recent
+    first. Used by the /api-gw failures panel."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    out: list[dict[str, Any]] = []
+    for action in ("api.auth.failure", "api.error"):
+        rows = storage.query_events(
+            module="aws.api_gw", action=action,
+            since=since, limit=limit,
+        )
+        for r in rows:
+            extra = r.get("extra") or {}
+            actor = r.get("actor") or {}
+            target = r.get("target") or {}
+            out.append({
+                "event_id": r.get("event_id"),
+                "event_time": r.get("event_time"),
+                "action": action,
+                "api_name": extra.get("api_name") or target.get("id"),
+                "source_ip": extra.get("source_ip") or actor.get("source_ip"),
+                "method": extra.get("method"),
+                "status": extra.get("status"),
+                "user_agent": extra.get("user_agent"),
+                "reason": extra.get("reason"),
+                "response_latency_ms": extra.get("response_latency_ms"),
+            })
+    out.sort(key=lambda x: x.get("event_time") or "", reverse=True)
+    return {"count": len(out[:limit]), "hours": hours, "failures": out[:limit]}
+
+

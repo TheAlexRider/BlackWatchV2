@@ -277,6 +277,75 @@ export interface RdsAllowlistResponse {
   users: RdsAllowlistEntry[];
 }
 
+// --- API Gateway --------------------------------------------------------
+
+export interface ApiGwSummary {
+  sources: number;
+  requests: number;
+  err_4xx: number;
+  err_5xx: number;
+  last_activity: string | null;
+}
+
+export interface ApiGwSource {
+  source_ip: string;
+  api_name: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  request_count: number;
+  error_4xx_count: number;
+  error_5xx_count: number;
+}
+
+export interface ApiGwSourcesResponse {
+  count: number;
+  sources: ApiGwSource[];
+}
+
+export type ApiGwAlertAction =
+  | "api.source.new"
+  | "api.auth.burst"
+  | "api.error.burst"
+  | "api.scanner_ua";
+
+export interface ApiGwAlert {
+  event_id: string | null;
+  event_time: string | null;
+  action: ApiGwAlertAction;
+  api_name: string | null;
+  source_ip: string | null;
+  user_agent: string | null;
+  scanner_signature: string | null;
+  failure_count: number | null;
+  error_count: number | null;
+  message: string | null;
+}
+
+export interface ApiGwAlertsResponse {
+  count: number;
+  hours: number;
+  alerts: ApiGwAlert[];
+}
+
+export interface ApiGwFailure {
+  event_id: string | null;
+  event_time: string | null;
+  action: "api.auth.failure" | "api.error";
+  api_name: string | null;
+  source_ip: string | null;
+  method: string | null;
+  status: number | null;
+  user_agent: string | null;
+  reason: string | null;
+  response_latency_ms: number | null;
+}
+
+export interface ApiGwFailuresResponse {
+  count: number;
+  hours: number;
+  failures: ApiGwFailure[];
+}
+
 // --- Notifications ---------------------------------------------------------
 
 export type ChannelType =

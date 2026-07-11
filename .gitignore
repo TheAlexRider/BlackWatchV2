@@ -22,3 +22,5 @@ proxy-lines.txt
 /.claude
 PRODUCT.md
 /.impeccable
+/graphify-out
+/.claude

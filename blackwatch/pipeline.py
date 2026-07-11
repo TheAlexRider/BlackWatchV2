@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import correlation, noise, storage
+from .api_gateway import projection as api_gw_projection
 from .event import Event
 from .hosts import projection as host_projection
 from .modules import registry
@@ -31,6 +32,7 @@ _PROJECTIONS = [
     s3_projection.project,
     posture_projection.project,
     rds_projection.project,
+    api_gw_projection.project,
     correlation.observe,
 ]
 
@@ -60,6 +62,11 @@ _PROJECTION_ONLY_ACTIONS = {
     # the events table or notification pipeline.
     "rds.proxy.client.connect",
     "rds.proxy.client.disconnect",
+    # Every API Gateway request produces one api.request event. Volume is
+    # enormous (potentially millions/day). Feed the source-IP projection
+    # but don't store or notify — projections emit api.source.new,
+    # api.auth.burst, api.error.burst, etc. which ARE stored.
+    "api.request",
 }
 
 

@@ -114,6 +114,20 @@ class AwsRdsSqsConfig(BaseModel):
     max_batches: int = 5
 
 
+class AwsApiGwSqsConfig(BaseModel):
+    """SQS-backed API Gateway access-log drain. The BW forwarder Lambda
+    subscribes to each API Gateway stage's access log group and puts one
+    message per log batch on this queue. The connector polls the queue and
+    feeds each batch through the aws.api_gw adapter."""
+
+    queue_url: str
+    aws_region: str = "us-west-1"
+    aws_profile: str | None = None
+    interval_seconds: int = 60
+    wait_seconds: int = 10
+    max_batches: int = 5
+
+
 class AwsPostureDriftConfig(BaseModel):
     """AWS posture drift scan. Walks the account's resources and flags Tier-1
     posture problems. Per-check booleans let operators ramp up coverage

@@ -26,6 +26,10 @@ import type {
   RdsProxySourcesResponse,
   RdsShapeBResponse,
   RdsAllowlistResponse,
+  ApiGwSummary,
+  ApiGwSourcesResponse,
+  ApiGwAlertsResponse,
+  ApiGwFailuresResponse,
   IamViewResponse,
   NotificationChannel,
   NotificationChannelsResponse,
@@ -467,6 +471,38 @@ export async function fetchRdsAllowlist(): Promise<RdsAllowlistResponse> {
   const res = await bwFetch(`/api/rds/allowlist`);
   if (!res.ok) throw new Error(`fetchRdsAllowlist failed: ${res.status}`);
   return (await res.json()) as RdsAllowlistResponse;
+}
+
+// --- API Gateway --------------------------------------------------------
+
+export async function fetchApiGwSummary(): Promise<ApiGwSummary> {
+  const res = await bwFetch(`/api/api-gw/summary`);
+  if (!res.ok) throw new Error(`fetchApiGwSummary failed: ${res.status}`);
+  return (await res.json()) as ApiGwSummary;
+}
+
+export async function fetchApiGwSources(
+  limit: number = 100,
+): Promise<ApiGwSourcesResponse> {
+  const res = await bwFetch(`/api/api-gw/sources?limit=${limit}`);
+  if (!res.ok) throw new Error(`fetchApiGwSources failed: ${res.status}`);
+  return (await res.json()) as ApiGwSourcesResponse;
+}
+
+export async function fetchApiGwAlerts(
+  hours: number = 24,
+): Promise<ApiGwAlertsResponse> {
+  const res = await bwFetch(`/api/api-gw/alerts?hours=${hours}`);
+  if (!res.ok) throw new Error(`fetchApiGwAlerts failed: ${res.status}`);
+  return (await res.json()) as ApiGwAlertsResponse;
+}
+
+export async function fetchApiGwFailures(
+  hours: number = 24,
+): Promise<ApiGwFailuresResponse> {
+  const res = await bwFetch(`/api/api-gw/failures?hours=${hours}`);
+  if (!res.ok) throw new Error(`fetchApiGwFailures failed: ${res.status}`);
+  return (await res.json()) as ApiGwFailuresResponse;
 }
 
 // --- Live ping (called from the LiveCounter client component) -------------

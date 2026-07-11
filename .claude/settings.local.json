@@ -73,7 +73,28 @@
       "PowerShell(npx --yes impeccable skills install --help 2>&1)",
       "Bash(kill %1)",
       "PowerShell(npx --yes impeccable skills install --providers=claude --scope=global 2>&1)",
-      "Bash(until [ -s \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\" ]; do sleep 2; done; cat \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\")"
+      "Bash(until [ -s \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\" ]; do sleep 2; done; cat \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/80fbb1a0-f788-4aba-87e0-e2b3b4dd9337/tasks/bk5lg9z0f.output\")",
+      "Bash(until [ -s \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/faf5f77e-963b-4018-b802-da4e2a1315e9/tasks/bt4tjxpyl.output\" ]; do sleep 1; done; cat \"/c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/faf5f77e-963b-4018-b802-da4e2a1315e9/tasks/bt4tjxpyl.output\")",
+      "PowerShell(pip install --user --upgrade graphifyy 2>&1)",
+      "PowerShell(python -c \"import graphify; print\\(graphify.__file__\\)\" 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\graphify.exe\" install 2>&1)",
+      "PowerShell($PYEXE = \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe\"; New-Item -ItemType Directory -Force -Path graphify-out | Out-Null; [System.IO.File]::WriteAllText\\(\\(Join-Path \\(Get-Location\\) \"graphify-out\\\\.graphify_python\"\\), $PYEXE\\); [System.IO.File]::WriteAllText\\(\\(Join-Path \\(Get-Location\\) \"graphify-out\\\\.graphify_root\"\\), \\(Resolve-Path .\\).Path\\); & $PYEXE -c \"import graphify; print\\('graphify OK'\\)\" 2>&1)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_filter.py 2>&1 | Select-Object -Last 10)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_ast.py 2>&1 | Select-Object -Last 10)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_build.py 2>&1 | Select-Object -Last 15)",
+      "PowerShell(py -3.12 -c \"import sys; print\\(sys.executable\\)\" 2>&1)",
+      "PowerShell(py -3.12 -c \"import graphify; print\\('graphify import OK'\\)\" 2>&1)",
+      "PowerShell($PY312 = \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\"; [System.IO.File]::WriteAllText\\(\\(Join-Path \\(Get-Location\\) \"graphify-out\\\\.graphify_python\"\\), $PY312\\); Write-Output \"interpreter updated to 3.12\")",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_ast.py 2>&1 | Select-Object -Last 15)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_ast.py 2>&1 | Select-Object -Last 8)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_build.py 2>&1 | Select-Object -Last 10)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_health.py 2>&1 | Select-Object -Last 20)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_communities.py 2>&1 | Select-Object -Last 60)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_label.py 2>&1 | Select-Object -Last 5)",
+      "PowerShell(& \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Scripts\\\\graphify.exe\" export html 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Roaming\\\\Python\\\\Python312\\\\Scripts\\\\graphify.exe\" export html 2>&1)",
+      "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_finalize.py 2>&1 | Select-Object -Last 3; Remove-Item graphify-out\\\\_filter.py, graphify-out\\\\_ast.py, graphify-out\\\\_build.py, graphify-out\\\\_communities.py, graphify-out\\\\_health.py, graphify-out\\\\_label.py, graphify-out\\\\_finalize.py, graphify-out\\\\.graphify_detect.json, graphify-out\\\\.graphify_extract.json, graphify-out\\\\.graphify_ast.json, graphify-out\\\\.graphify_semantic.json, graphify-out\\\\.graphify_analysis.json -ErrorAction SilentlyContinue; Get-ChildItem graphify-out | Select-Object Name, @{N='SizeKB';E={[math]::Round\\($_.Length/1KB,1\\)}})",
+      "PowerShell(& \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Roaming\\\\Python\\\\Python312\\\\Scripts\\\\graphify.exe\" claude install 2>&1)"
     ]
   }
 }
