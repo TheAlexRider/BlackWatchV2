@@ -199,8 +199,20 @@ def _derive_events(
         transport=transport,
     ))
 
-    # Auth failure — 401 / 403
-    if status in (401, 403):
+    # Client failure — any 4xx (auth failure, forbidden, not found, bad
+    # body, etc). We deliberately DON'T pretend to know whether a 400 is
+    # a real credential attack, a schema mismatch, or an enumeration
+    # attempt — without paths (PHI-safe log format) we can't tell. Group
+    # them into one bucket; the burst rule fires on any 4xx pattern from
+    # one client IP. Rate limiting (429) is server-side throttling, not
+    # a client-side failure — kept separate.
+    if 400 <= status < 500 and status != 429:
+        reason_default = {
+            400: "bad_request", 401: "unauthorized", 403: "forbidden",
+            404: "not_found", 405: "method_not_allowed",
+            409: "conflict", 413: "payload_too_large",
+            415: "unsupported_media_type", 422: "unprocessable_entity",
+        }.get(status, f"client_error_{status}")
         out.append(_mkevent(
             action="api.auth.failure",
             outcome=Outcome.failure,
@@ -208,7 +220,7 @@ def _derive_events(
             ip=ip, ua=ua, method=method, status=status,
             extra={
                 **base_extra,
-                "reason": error_type or ("unauthorized" if status == 401 else "forbidden"),
+                "reason": error_type or reason_default,
                 "error_message": _truncate(error_msg),
             },
             transport=transport,
@@ -241,6 +253,11 @@ def _derive_events(
             extra={
                 **base_extra,
                 "scanner_signature": scanner_sig,
+                "message": (
+                    f"{api_name}: request from {ip or 'unknown'} used "
+                    f"known scanner signature '{scanner_sig}' "
+                    f"(status {status}, method {method or '?'})"
+                ),
             },
             transport=transport,
         ))
