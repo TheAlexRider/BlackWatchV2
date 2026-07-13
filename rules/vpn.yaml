@@ -31,6 +31,16 @@
     op: equals
     value: vpn.session.concurrent
 
+- id: vpn-auth-failure
+  title: VPN auth failure
+  description: A single failed VPN login. Low severity — one failure could be a typo. Aggregate patterns (per-IP burst, per-user stuffing) fire on the separate brute-force rules below.
+  severity: low
+  tags: [vpn, auth]
+  match:
+    field: action
+    op: equals
+    value: vpn.auth.failure
+
 - id: vpn-auth-brute-force
   title: VPN auth brute-force
   description: 5+ failed VPN logins from the same source IP within 5 minutes. Emitted once per IP per window.
