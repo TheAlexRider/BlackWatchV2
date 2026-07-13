@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import clsx from "clsx";
 import { RefreshCw } from "lucide-react";
 
-import { refreshModules } from "@/lib/api";
+import { refreshModulesAction } from "@/app/refresh-actions";
 
 // Small module-page action: click → immediately drain the named connector
 // type(s), then re-fetch page data. Complements AutoRefresh (which polls on
@@ -13,6 +13,11 @@ import { refreshModules } from "@/lib/api";
 // 15s. If connectorTypes is empty, it just refreshes the page data without
 // touching the backend — useful for pages whose data source has no BW
 // connector (e.g. host agent-driven).
+//
+// Wire pattern mirrors /connectors' Run-Now button: server action does the
+// backend work (so the browser never talks to FastAPI directly — server-
+// side apiFetch forwards cookies + hits localhost cleanly), then
+// router.refresh() re-runs the server component with the fresh state.
 //
 // State: idle → running (spinner) → flash "ingested N" for ~2s → idle.
 // Errors: flash "failed" for ~4s.
@@ -24,6 +29,7 @@ export function RefreshButton({
   label?: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<
@@ -46,28 +52,28 @@ export function RefreshButton({
     setBusy(true);
     setFlash(null);
     try {
-      if (connectorTypes.length > 0) {
-        const result = await refreshModules(connectorTypes);
-        const ingested = result.total_ingested;
-        const errors = result.ran.filter((r) => r.status !== "ok");
-        if (errors.length > 0) {
-          setFlash({
-            kind: "err",
-            message:
-              errors[0].error ??
-              `${errors.length} connector${errors.length === 1 ? "" : "s"} errored`,
-          });
-        } else if (result.ran.length === 0) {
-          setFlash({ kind: "ok", message: "no connectors matched" });
-        } else {
-          setFlash({
-            kind: "ok",
-            message:
-              ingested === 0
-                ? "already fresh"
-                : `+${ingested} event${ingested === 1 ? "" : "s"}`,
-          });
-        }
+      const result = await refreshModulesAction(connectorTypes, pathname);
+      const ingested = result.total_ingested;
+      const errors = result.ran.filter((r) => r.status !== "ok");
+      if (connectorTypes.length === 0) {
+        setFlash({ kind: "ok", message: "reloaded" });
+      } else if (errors.length > 0) {
+        setFlash({
+          kind: "err",
+          message:
+            errors[0].error ??
+            `${errors.length} connector${errors.length === 1 ? "" : "s"} errored`,
+        });
+      } else if (result.ran.length === 0) {
+        setFlash({ kind: "ok", message: "no connectors matched" });
+      } else {
+        setFlash({
+          kind: "ok",
+          message:
+            ingested === 0
+              ? "already fresh"
+              : `+${ingested} event${ingested === 1 ? "" : "s"}`,
+        });
       }
       startTransition(() => router.refresh());
     } catch (e) {

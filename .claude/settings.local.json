@@ -98,7 +98,8 @@
       "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify update .)",
       "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify query \"vpn.auth.failure rule definition and how rules are loaded and listed\")",
       "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify query \"api_sources storage function and connector scheduler run mechanism\")",
-      "Bash(grep -n \"connectors/.*\\\\/run\\\\|/run\\\\\"\" blackwatch/api.py blackwatch/ui/*.py)"
+      "Bash(grep -n \"connectors/.*\\\\/run\\\\|/run\\\\\"\" blackwatch/api.py blackwatch/ui/*.py)",
+      "Bash(grep -rn \"typeof window\\\\|fetch\\(\\\\`/api\" blackwatch-ui/lib blackwatch-ui/components)"
     ]
   }
 }

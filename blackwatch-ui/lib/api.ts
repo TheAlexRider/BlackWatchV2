@@ -31,7 +31,6 @@ import type {
   ApiGwSourcesResponse,
   ApiGwAlertsResponse,
   ApiGwFailuresResponse,
-  ModulesRefreshResponse,
   IamViewResponse,
   NotificationChannel,
   NotificationChannelsResponse,
@@ -511,21 +510,6 @@ export async function fetchApiGwFailures(
   const res = await bwFetch(`/api/api-gw/failures?hours=${hours}`);
   if (!res.ok) throw new Error(`fetchApiGwFailures failed: ${res.status}`);
   return (await res.json()) as ApiGwFailuresResponse;
-}
-
-// --- Run-now: trigger drain of matching connectors on demand -------------
-
-export async function refreshModules(
-  connectorTypes: string[],
-): Promise<ModulesRefreshResponse> {
-  const res = await bwFetch(`/api/modules/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ connector_types: connectorTypes }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`refreshModules failed: ${res.status}`);
-  return (await res.json()) as ModulesRefreshResponse;
 }
 
 // --- Live ping (called from the LiveCounter client component) -------------
