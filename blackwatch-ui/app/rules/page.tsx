@@ -23,14 +23,14 @@ export default async function RulesPage({
     <>
       <PageHeader
         title="Rules"
-        subtitle={`${count} loaded · toggle + set severity below, or edit YAML in rules/ and restart`}
+        subtitle={`${count} loaded · filter, toggle, and override severity below. YAML edits in rules/ need a restart.`}
       />
 
       {msg && <MessageBar message={msg} />}
 
       <section className="space-y-2">
         <SectionLabel>rules</SectionLabel>
-        <DataPanel className="overflow-x-auto">
+        <DataPanel className="overflow-hidden">
           <RulesTable rules={rules} />
         </DataPanel>
       </section>
