@@ -17,6 +17,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { IpCell } from "@/components/domain/IpCell";
 
 export default async function ApiGwPage() {
   const [summary, sources, alerts, failures] = await Promise.all([
@@ -168,7 +169,7 @@ function AlertsTable({ alerts }: { alerts: ApiGwAlert[] }) {
               <AlertPill action={a.action} />
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-              {a.source_ip || <span className="text-fg-disabled">—</span>}
+              <IpCell value={a.source_ip} />
             </td>
             <td className="px-4 py-2.5 text-xs text-fg-muted">
               {a.message || <span className="text-fg-disabled">—</span>}
@@ -221,7 +222,7 @@ function SourcesTable({ sources }: { sources: ApiGwSource[] }) {
             className="border-b border-line-soft last:border-0 hover:bg-surface-2"
           >
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
-              {s.source_ip}
+              <IpCell value={s.source_ip} />
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
               {s.api_name}
@@ -311,7 +312,7 @@ function FailuresTable({ failures }: { failures: ApiGwFailure[] }) {
               </span>
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-              {f.source_ip || "—"}
+              <IpCell value={f.source_ip} />
             </td>
             <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
               {f.reason || <span className="text-fg-disabled">—</span>}

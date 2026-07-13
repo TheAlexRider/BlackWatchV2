@@ -23,6 +23,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { IpCell } from "@/components/domain/IpCell";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { PendingButton } from "@/components/ui/PendingButton";
 import {
@@ -293,7 +294,7 @@ function ShapeBAlertsTable({ alerts }: { alerts: RdsShapeBAlert[] }) {
               {a.user || <span className="text-fg-disabled">—</span>}
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-              {a.source_ip || <span className="text-fg-disabled">—</span>}
+              <IpCell value={a.source_ip} />
             </td>
             <td className="px-4 py-2.5 text-xs text-fg-muted">
               {a.message || <span className="text-fg-disabled">—</span>}
@@ -358,7 +359,7 @@ function ProxySourcesTable({ sources }: { sources: RdsProxySource[] }) {
             className="border-b border-line-soft last:border-0 hover:bg-surface-2"
           >
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
-              {s.source_ip}
+              <IpCell value={s.source_ip} />
             </td>
             <td className="px-4 py-2.5 text-right font-mono text-xs text-fg-muted">
               {s.connect_count.toLocaleString()}
@@ -621,8 +622,10 @@ function SessionsTable({
               {s.db_user || <span className="text-fg-disabled">—</span>}
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-              {s.source_ip || "—"}
-              {s.source_port ? `:${s.source_port}` : ""}
+              <IpCell value={s.source_ip} />
+              {s.source_ip && s.source_port ? (
+                <span className="text-fg-subtle">:{s.source_port}</span>
+              ) : null}
             </td>
             <td className="px-4 py-2.5 font-mono text-xs text-fg-muted">
               {formatDuration(s.duration_seconds)}
@@ -687,7 +690,7 @@ function AuthFailuresTable({ failures }: { failures: RdsAuthFailure[] }) {
               {f.user || <span className="text-fg-disabled">—</span>}
             </td>
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
-              {f.source_ip || "—"}
+              <IpCell value={f.source_ip} />
             </td>
             <td className="px-4 py-2.5">
               <SourcePill type={f.source_type || "unknown"} />
