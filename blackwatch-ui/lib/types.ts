@@ -287,6 +287,35 @@ export interface ApiGwSummary {
   last_activity: string | null;
 }
 
+export interface ApiGwApi {
+  api_name: string;
+  source_count: number;
+  request_count: number;
+  error_4xx_count: number;
+  error_5xx_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface ApiGwApisResponse {
+  count: number;
+  apis: ApiGwApi[];
+}
+
+export interface ModulesRefreshRunEntry {
+  connector_id: string;
+  connector_name: string | null;
+  type: string;
+  status: string | null;
+  ingested: number;
+  error: string | null;
+}
+
+export interface ModulesRefreshResponse {
+  ran: ModulesRefreshRunEntry[];
+  total_ingested: number;
+}
+
 export interface ApiGwSource {
   source_ip: string;
   api_name: string;

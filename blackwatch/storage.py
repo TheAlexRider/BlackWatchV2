@@ -2061,6 +2061,35 @@ def list_api_sources(
     ]
 
 
+def list_api_gw_apis() -> list[dict[str, Any]]:
+    """One row per distinct api_name, aggregating per-source counters.
+    Powers the top-of-page 'active APIs' table on /api-gw."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              api_name,
+              COUNT(*)                              AS source_count,
+              COALESCE(SUM(request_count), 0)       AS request_count,
+              COALESCE(SUM(error_4xx_count), 0)     AS error_4xx_count,
+              COALESCE(SUM(error_5xx_count), 0)     AS error_5xx_count,
+              MIN(first_seen_at)                    AS first_seen_at,
+              MAX(last_seen_at)                     AS last_seen_at
+            FROM api_sources
+            GROUP BY api_name
+            ORDER BY last_seen_at DESC NULLS LAST
+            """
+        ).fetchall()
+    return [
+        {"api_name": r[0], "source_count": int(r[1] or 0),
+         "request_count": int(r[2] or 0),
+         "error_4xx_count": int(r[3] or 0),
+         "error_5xx_count": int(r[4] or 0),
+         "first_seen_at": r[5], "last_seen_at": r[6]}
+        for r in rows
+    ]
+
+
 def api_gw_summary() -> dict[str, Any]:
     """Aggregate counters for the /api-gw page header."""
     with get_pool().connection() as conn:

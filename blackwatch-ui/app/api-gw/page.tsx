@@ -2,12 +2,14 @@ import clsx from "clsx";
 
 import {
   fetchApiGwSummary,
+  fetchApiGwApis,
   fetchApiGwSources,
   fetchApiGwAlerts,
   fetchApiGwFailures,
 } from "@/lib/api";
 import type {
   ApiGwAlert,
+  ApiGwApi,
   ApiGwSource,
   ApiGwFailure,
 } from "@/lib/types";
@@ -16,12 +18,14 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
+import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 
 export default async function ApiGwPage() {
-  const [summary, sources, alerts, failures] = await Promise.all([
+  const [summary, apis, sources, alerts, failures] = await Promise.all([
     fetchApiGwSummary(),
+    fetchApiGwApis(),
     fetchApiGwSources(100),
     fetchApiGwAlerts(24),
     fetchApiGwFailures(24),
@@ -58,10 +62,33 @@ export default async function ApiGwPage() {
             </>
           )
         }
+        actions={<RefreshButton connectorTypes={["aws_api_gw_sqs"]} />}
       />
 
-      {/* -------- Alerts (top) --------------------------------------------- */}
+      {/* -------- Active APIs (top) --------------------------------------- */}
       <section className="space-y-2">
+        <div className="flex items-baseline justify-between">
+          <SectionLabel>active APIs</SectionLabel>
+          <span className="text-[11px] text-fg-subtle">
+            one row per API name seen in the log stream ·{" "}
+            <span className="font-mono text-fg-muted">{apis.count}</span>
+          </span>
+        </div>
+        <DataPanel className="overflow-hidden">
+          {apis.apis.length === 0 ? (
+            <EmptyState>
+              No APIs ingested yet. Configure a Gateway stage&apos;s access
+              log to point at a log group under <code>/aws/gateway/*</code>{" "}
+              and hook it into the BW forwarder.
+            </EmptyState>
+          ) : (
+            <ApisTable apis={apis.apis} />
+          )}
+        </DataPanel>
+      </section>
+
+      {/* -------- Alerts --------------------------------------------------- */}
+      <section className="mt-6 space-y-2">
         <div className="flex items-baseline justify-between">
           <SectionLabel>alerts</SectionLabel>
           <span className="text-[11px] text-fg-subtle">
@@ -134,6 +161,82 @@ export default async function ApiGwPage() {
         </DataPanel>
       </section>
     </>
+  );
+}
+
+// =========================================================================
+// Alerts
+// =========================================================================
+
+// =========================================================================
+// Active APIs
+// =========================================================================
+
+function ApisTable({ apis }: { apis: ApiGwApi[] }) {
+  return (
+    <Table>
+      <thead>
+        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+          <th className="px-4 py-2 text-left font-normal">API name</th>
+          <th className="w-24 px-4 py-2 text-right font-normal">Sources</th>
+          <th className="w-28 px-4 py-2 text-right font-normal">Requests</th>
+          <th className="w-24 px-4 py-2 text-right font-normal">4xx</th>
+          <th className="w-24 px-4 py-2 text-right font-normal">5xx</th>
+          <th className="w-40 px-4 py-2 text-left font-normal">First seen</th>
+          <th className="w-40 px-4 py-2 text-left font-normal">Last request</th>
+        </tr>
+      </thead>
+      <tbody>
+        {apis.map((a) => (
+          <tr
+            key={a.api_name}
+            className="border-b border-line-soft last:border-0 hover:bg-surface-2"
+          >
+            <td className="truncate px-4 py-2.5 font-mono text-xs text-fg">
+              {a.api_name}
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs text-fg-muted">
+              {a.source_count.toLocaleString()}
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs text-fg-muted">
+              {a.request_count.toLocaleString()}
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs">
+              <span
+                className={
+                  a.error_4xx_count > 0 ? "text-sev-medium" : "text-fg-disabled"
+                }
+              >
+                {a.error_4xx_count.toLocaleString()}
+              </span>
+            </td>
+            <td className="px-4 py-2.5 text-right font-mono text-xs">
+              <span
+                className={
+                  a.error_5xx_count > 0 ? "text-sev-critical" : "text-fg-disabled"
+                }
+              >
+                {a.error_5xx_count.toLocaleString()}
+              </span>
+            </td>
+            <td className="px-4 py-2.5 font-mono text-xs">
+              {a.first_seen_at ? (
+                <TimestampCell value={a.first_seen_at} />
+              ) : (
+                <span className="text-fg-disabled">—</span>
+              )}
+            </td>
+            <td className="px-4 py-2.5 font-mono text-xs">
+              {a.last_seen_at ? (
+                <TimestampCell value={a.last_seen_at} />
+              ) : (
+                <span className="text-fg-disabled">—</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
   );
 }
 

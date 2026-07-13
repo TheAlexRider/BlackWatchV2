@@ -13,6 +13,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
+import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 import { Button } from "@/components/ui/Button";
@@ -35,6 +36,7 @@ export default async function VpnPage() {
             ? "No VPN data yet."
             : `${activeCount}/${servers.length} server${servers.length === 1 ? "" : "s"} active · ${totalClients} client${totalClients === 1 ? "" : "s"} connected`
         }
+        actions={<RefreshButton connectorTypes={["aws_cloudtrail_sqs"]} />}
       />
 
       {servers.length === 0 ? (

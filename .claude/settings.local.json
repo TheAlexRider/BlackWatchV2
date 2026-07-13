@@ -96,7 +96,9 @@
       "PowerShell($PYEXE = Get-Content graphify-out\\\\.graphify_python -Raw; & $PYEXE graphify-out\\\\_finalize.py 2>&1 | Select-Object -Last 3; Remove-Item graphify-out\\\\_filter.py, graphify-out\\\\_ast.py, graphify-out\\\\_build.py, graphify-out\\\\_communities.py, graphify-out\\\\_health.py, graphify-out\\\\_label.py, graphify-out\\\\_finalize.py, graphify-out\\\\.graphify_detect.json, graphify-out\\\\.graphify_extract.json, graphify-out\\\\.graphify_ast.json, graphify-out\\\\.graphify_semantic.json, graphify-out\\\\.graphify_analysis.json -ErrorAction SilentlyContinue; Get-ChildItem graphify-out | Select-Object Name, @{N='SizeKB';E={[math]::Round\\($_.Length/1KB,1\\)}})",
       "PowerShell(& \"C:\\\\Users\\\\TheAl\\\\AppData\\\\Roaming\\\\Python\\\\Python312\\\\Scripts\\\\graphify.exe\" claude install 2>&1)",
       "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify update .)",
-      "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify query \"vpn.auth.failure rule definition and how rules are loaded and listed\")"
+      "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify query \"vpn.auth.failure rule definition and how rules are loaded and listed\")",
+      "Bash(\"C:/Users/TheAl/AppData/Local/Programs/Python/Python312/python.exe\" -m graphify query \"api_sources storage function and connector scheduler run mechanism\")",
+      "Bash(grep -n \"connectors/.*\\\\/run\\\\|/run\\\\\"\" blackwatch/api.py blackwatch/ui/*.py)"
     ]
   }
 }

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Cookie, Header, HTTPException, Query, Reque
 from pydantic import BaseModel
 
 from . import auth, noise, storage
+from .connectors import runner as connector_runner
 from .config import settings
 from .notify import router as notify_router
 from .pipeline import NormalizationError, ingest_payload
@@ -293,6 +294,42 @@ def noise_unmute(id: int = Body(..., embed=True)) -> dict[str, Any]:
     storage.remove_muted_event(id)
     noise.refresh()
     return {"id": id, "muted": False}
+
+
+class ModulesRefreshBody(BaseModel):
+    """Body of POST /modules/refresh — a small set of connector types to
+    drain synchronously on demand. Used by the Refresh button on each
+    module page (/api-gw, /rds, /iam, /vpn) so the operator can pull the
+    freshest events without waiting for the scheduler poll interval."""
+    connector_types: list[str]
+
+
+@router.post("/modules/refresh")
+def modules_refresh(body: ModulesRefreshBody) -> dict[str, Any]:
+    """Trigger a one-shot run of every enabled connector whose type is in
+    the request. Returns per-connector outcome plus the aggregate
+    ingested count so the UI can show a toast."""
+    wanted = {t for t in body.connector_types if isinstance(t, str) and t}
+    if not wanted:
+        return {"ran": [], "total_ingested": 0}
+    ran: list[dict[str, Any]] = []
+    total = 0
+    for c in storage.list_connectors():
+        if c["type"] not in wanted or not c.get("enabled"):
+            continue
+        result = connector_runner.run_connector(c["id"])
+        ingested = result.get("ingested")
+        ran.append({
+            "connector_id": c["id"],
+            "connector_name": c.get("name"),
+            "type": c["type"],
+            "status": result.get("status"),
+            "ingested": ingested if isinstance(ingested, int) else 0,
+            "error": result.get("error"),
+        })
+        if isinstance(ingested, int):
+            total += ingested
+    return {"ran": ran, "total_ingested": total}
 
 
 @router.get("/connectors")
@@ -2265,6 +2302,14 @@ def rds_shape_b(
 def api_gw_summary_endpoint() -> dict[str, Any]:
     """Aggregate counters + last-activity for the /api-gw page header."""
     return storage.api_gw_summary()
+
+
+@router.get("/api-gw/apis")
+def api_gw_apis() -> dict[str, Any]:
+    """One row per distinct API name seen in the ingest pipeline —
+    powers the 'active APIs' summary at the top of /api-gw."""
+    rows = storage.list_api_gw_apis()
+    return {"count": len(rows), "apis": rows}
 
 
 @router.get("/api-gw/sources")

@@ -22,6 +22,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
+import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 import { FlashToast } from "@/components/ui/FlashToast";
@@ -78,6 +79,7 @@ export default async function RdsPage({
               </>
             )
         }
+        actions={<RefreshButton connectorTypes={["aws_rds_sqs"]} />}
       />
 
       {/* -------- Shape-B alerts (top, because they're the real signal) --- */}

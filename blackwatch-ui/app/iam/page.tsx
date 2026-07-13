@@ -8,6 +8,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
+import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import {
   SeverityBadge,
@@ -25,6 +26,7 @@ export default async function IamPage() {
       <PageHeader
         title="IAM · AWS control plane"
         subtitle="Everything CloudTrail records — logins, IAM, network, storage, KMS, audit integrity. Host SSH/sudo and VPN auth live on /hosts and /vpn."
+        actions={<RefreshButton connectorTypes={["aws_cloudtrail_sqs"]} />}
       />
 
       <CountersStrip counts={data.counts} />
