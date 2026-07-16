@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ArrowRight, Bell, GaugeCircle } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DataPanel } from "@/components/layout/DataPanel";
 import { BackLink } from "@/components/ui/BackLink";
 
 // Landing chooser for the two mechanically-different notification types.
@@ -20,7 +19,7 @@ export default function CreateAlertChooser() {
         subtitle="Pick the shape that fits — event-based for anything BW already emits, performance-based for host metric thresholds."
       />
 
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2">
         <ChoiceCard
           href="/notifications/create/event"
           icon={<Bell size={18} strokeWidth={1.5} />}
@@ -63,24 +62,43 @@ function ChoiceCard({
 }) {
   return (
     <Link href={href} className="group block focus:outline-none">
-      <DataPanel className="flex h-full flex-col p-5 transition-colors group-hover:border-sig-teal group-focus-visible:border-sig-teal">
-        <div className="flex items-center gap-2 text-fg">
-          <span className="text-sig-teal">{icon}</span>
-          <h2 className="text-base">{title}</h2>
-          <ArrowRight
-            size={14}
-            className="ml-auto text-fg-subtle transition-colors group-hover:text-sig-teal"
-          />
+      <div className="relative flex h-full flex-col border border-line-soft bg-surface-1 transition-colors group-hover:border-signal group-focus-visible:border-signal">
+        <div className="h-px bg-gradient-to-r from-transparent via-signal/30 to-transparent transition-opacity group-hover:via-signal/70" />
+
+        <div className="flex flex-1 flex-col p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex h-9 w-9 items-center justify-center border border-signal/20 bg-signal/5">
+              <span className="text-signal">{icon}</span>
+            </div>
+            <ArrowRight
+              size={14}
+              className="text-fg-subtle transition-all group-hover:translate-x-0.5 group-hover:text-signal"
+            />
+          </div>
+
+          <h2 className="mt-4 text-base text-fg">{title}</h2>
+          <p className="mt-2 text-sm leading-relaxed text-fg-muted">{blurb}</p>
+
+          <div className="mt-auto pt-5">
+            <div className="border-t border-line-soft pt-4">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
+                Examples
+              </span>
+              <ul className="mt-2 space-y-1.5">
+                {examples.map((e) => (
+                  <li
+                    key={e}
+                    className="flex items-start gap-2 font-mono text-[11px] text-fg-subtle"
+                  >
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-signal/40" />
+                    <span>{e}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
-        <p className="mt-2 text-sm leading-snug text-fg-muted">{blurb}</p>
-        <ul className="mt-4 space-y-1 text-[11px] text-fg-subtle">
-          {examples.map((e) => (
-            <li key={e} className="font-mono">
-              · {e}
-            </li>
-          ))}
-        </ul>
-      </DataPanel>
+      </div>
     </Link>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 
 import type {
   ModuleCatalogEntry,
@@ -12,9 +12,11 @@ import type {
 } from "@/lib/types";
 
 import { Button } from "@/components/ui/Button";
-import { NativeSelect } from "@/components/ui/NativeSelect";
-import { SeverityChip, severityChipClass } from "@/components/ui/SeverityChip";
+import { SelectableCard } from "@/components/ui/SelectableCard";
+import { SeverityChip } from "@/components/ui/SeverityChip";
 import { ReviewGrid, ReviewLabel, ReviewValue } from "@/components/ui/ReviewGrid";
+import { BackLink } from "@/components/ui/BackLink";
+import { DataPanel } from "@/components/layout/DataPanel";
 import { TemplateEditor } from "@/components/domain/notifications/TemplateEditor";
 
 import { saveAlertRouteAction } from "./wizard-actions";
@@ -45,8 +47,6 @@ export function AlertWizard({
 }) {
   const isEdit = !!existing;
 
-  // React state governs stepper + review + hidden-input mirrors; the actual
-  // form fields (radios, checkboxes, template textarea) live in the DOM.
   const [step, setStep] = useState<Step>(existing ? 5 : 1);
   const [module, setModule] = useState<string>(existing?.module ?? "");
   const [severities, setSeverities] = useState<Set<SeverityKey>>(
@@ -82,37 +82,24 @@ export function AlertWizard({
   };
   const canAdvance = complete[step];
 
-  const chipsBySev = (keys: Iterable<SeverityKey>) =>
-    Array.from(keys)
-      .map((k) => SEVERITIES.find((s) => s.key === k)?.short ?? k)
-      .join(" + ");
-
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
-      <div className="mb-6">
+      <div className="mb-8">
         <h1 className="text-xl text-fg">
           {isEdit ? "Edit alert route" : "Create alert route"}
         </h1>
         <p className="mt-1 text-xs text-fg-muted">
           {isEdit
             ? "Change the trigger, channel, or message for this alert."
-            : "Four steps: pick source, pick severity, pick channel, customize message (optional)."}
+            : "Four steps: pick source, severity, channel, and an optional custom message."}
         </p>
       </div>
 
       <Stepper step={step} onJump={(n) => canGoTo(n) && setStep(n)} completed={complete} />
 
-      <form action={saveAlertRouteAction} className="mt-6">
-        {/* Hidden mirrors of React state so FormData sees them on submit. */}
+      <form action={saveAlertRouteAction}>
         {existing && <input type="hidden" name="id" value={existing.id} />}
         <input type="hidden" name="module" value={module} />
         <input type="hidden" name="channel" value={channel} />
@@ -124,61 +111,60 @@ export function AlertWizard({
         {Array.from(severities).map((s) => (
           <input key={s} type="hidden" name="severity" value={s} />
         ))}
-        {/* When the "use custom message" toggle is OFF, we clear the field
-            so save persists null (channel default). When ON, the value
-            comes from the TemplateEditor's textarea below. */}
         {!useCustomTemplate && (
           <input type="hidden" name="message_template" value="" />
         )}
 
-        <div className="border border-line-soft bg-surface-1 p-6">
-          <div hidden={step !== 1}>
-            <SourceStep
-              catalog={catalog}
-              selected={module}
-              onSelect={setModule}
-            />
+        <DataPanel scrollX={false}>
+          <div className="p-8">
+            <div hidden={step !== 1}>
+              <SourceStep
+                catalog={catalog}
+                selected={module}
+                onSelect={setModule}
+              />
+            </div>
+            <div hidden={step !== 2}>
+              <TriggerStep
+                selected={severities}
+                onToggle={(k) => {
+                  const next = new Set(severities);
+                  next.has(k) ? next.delete(k) : next.add(k);
+                  setSeverities(next);
+                }}
+              />
+            </div>
+            <div hidden={step !== 3}>
+              <ChannelStep
+                channels={channels}
+                selected={channel}
+                onSelect={setChannel}
+              />
+            </div>
+            <div hidden={step !== 4}>
+              <MessageStep
+                channelType={selectedChannel?.type ?? "slack"}
+                enabled={useCustomTemplate}
+                onToggle={setUseCustomTemplate}
+                defaultValue={existing?.message_template ?? ""}
+              />
+            </div>
+            <div hidden={step !== 5}>
+              <ReviewStep
+                moduleLabel={selectedModule?.label ?? module}
+                severities={Array.from(severities)}
+                channelName={channel}
+                customTemplate={useCustomTemplate}
+              />
+            </div>
           </div>
-          <div hidden={step !== 2}>
-            <TriggerStep
-              selected={severities}
-              onToggle={(k) => {
-                const next = new Set(severities);
-                next.has(k) ? next.delete(k) : next.add(k);
-                setSeverities(next);
-              }}
-            />
-          </div>
-          <div hidden={step !== 3}>
-            <ChannelStep
-              channels={channels}
-              selected={channel}
-              onSelect={setChannel}
-            />
-          </div>
-          <div hidden={step !== 4}>
-            <MessageStep
-              channelType={selectedChannel?.type ?? "slack"}
-              enabled={useCustomTemplate}
-              onToggle={setUseCustomTemplate}
-              defaultValue={existing?.message_template ?? ""}
-            />
-          </div>
-          <div hidden={step !== 5}>
-            <ReviewStep
-              moduleLabel={selectedModule?.label ?? module}
-              severities={Array.from(severities)}
-              channelName={channel}
-              customTemplate={useCustomTemplate}
-            />
-          </div>
-        </div>
+        </DataPanel>
 
         <div className="mt-4 flex items-center justify-between">
           <Button
             type="button"
             size="sm"
-            variant="secondary"
+            variant="ghost"
             disabled={step === 1}
             onClick={() => setStep((s) => (s > 1 ? ((s - 1) as Step) : s))}
           >
@@ -202,35 +188,12 @@ export function AlertWizard({
           )}
         </div>
       </form>
-
-      {step < 5 && (module || severities.size > 0 || channel) && (
-        <div className="mt-4 border border-line-soft bg-canvas px-3 py-2 text-[11px] text-fg-muted">
-          <span className="text-fg-subtle">so far:</span>{" "}
-          {module ? (
-            <span className="text-fg">{selectedModule?.label ?? module}</span>
-          ) : (
-            <span className="text-fg-subtle">no source</span>
-          )}
-          <span className="mx-2 text-fg-subtle">·</span>
-          {severities.size > 0 ? (
-            <span className="text-fg">{chipsBySev(severities)}</span>
-          ) : (
-            <span className="text-fg-subtle">no severity</span>
-          )}
-          <span className="mx-2 text-fg-subtle">·</span>
-          {channel ? (
-            <span className="font-mono text-fg">→ {channel}</span>
-          ) : (
-            <span className="text-fg-subtle">no channel</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 // =========================================================================
-// Stepper
+// Stepper — circles connected by lines, labels below
 // =========================================================================
 
 const STEPS = [
@@ -251,46 +214,62 @@ function Stepper({
   completed: Record<number, boolean>;
 }) {
   return (
-    <ol className="flex flex-wrap items-center gap-1 text-[11px]">
-      {STEPS.map((s, i) => {
-        const active = step === s.n;
-        const done = completed[s.n];
-        return (
-          <li key={s.n} className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onJump(s.n as 1 | 2 | 3 | 4 | 5)}
-              className={clsx(
-                "inline-flex items-center gap-1.5 border px-2 py-1 transition-colors",
-                active
-                  ? "border-signal bg-signal/10 text-fg"
-                  : done
-                  ? "border-line bg-canvas text-fg-muted hover:bg-surface-2"
-                  : "border-line-soft bg-canvas text-fg-subtle",
-              )}
-              aria-current={active ? "step" : undefined}
+    <nav aria-label="Progress" className="mb-8">
+      <ol className="flex items-start">
+        {STEPS.map((s, i) => {
+          const active = step === s.n;
+          const done = completed[s.n] && !active;
+          const isLast = i === STEPS.length - 1;
+
+          return (
+            <li
+              key={s.n}
+              className={clsx("flex items-start", !isLast && "flex-1")}
             >
-              <span
-                className={clsx(
-                  "flex h-4 w-4 items-center justify-center border font-mono text-[10px]",
-                  active
-                    ? "border-signal bg-signal text-canvas"
-                    : done
-                    ? "border-line bg-canvas text-fg-muted"
-                    : "border-line-soft text-fg-subtle",
-                )}
+              <button
+                type="button"
+                onClick={() => onJump(s.n as 1 | 2 | 3 | 4 | 5)}
+                className="group flex flex-col items-center gap-1.5"
+                aria-current={active ? "step" : undefined}
               >
-                {done && !active ? <Check size={9} /> : s.n}
-              </span>
-              <span>{s.label}</span>
-            </button>
-            {i < STEPS.length - 1 && (
-              <ChevronRight size={11} className="text-fg-subtle" />
-            )}
-          </li>
-        );
-      })}
-    </ol>
+                <span
+                  className={clsx(
+                    "flex h-7 w-7 items-center justify-center rounded-full border-2 font-mono text-[11px] transition-colors",
+                    active
+                      ? "border-signal bg-signal text-canvas"
+                      : done
+                        ? "border-signal/50 bg-signal/10 text-signal"
+                        : "border-line-soft text-fg-subtle group-hover:border-line",
+                  )}
+                >
+                  {done ? <Check size={11} strokeWidth={2.5} /> : s.n}
+                </span>
+                <span
+                  className={clsx(
+                    "text-[10px] uppercase tracking-[0.08em]",
+                    active
+                      ? "text-fg"
+                      : done
+                        ? "text-fg-muted"
+                        : "text-fg-subtle",
+                  )}
+                >
+                  {s.label}
+                </span>
+              </button>
+              {!isLast && (
+                <div
+                  className={clsx(
+                    "mx-1.5 mt-3.5 h-px flex-1 transition-colors",
+                    done ? "bg-signal/30" : "bg-line-soft",
+                  )}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
@@ -308,45 +287,34 @@ function SourceStep({
   onSelect: (k: string) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="text-sm text-fg">Which source triggers this alert?</h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        <p className="mt-1 text-xs text-fg-muted">
           Pick a module. The alert will fire for events coming from that source.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {catalog.map((m) => {
-          const isSelected = m.key === selected;
-          return (
-            <label
-              key={m.key}
-              className={clsx(
-                "flex cursor-pointer flex-col gap-1 border px-3 py-2.5 transition-colors",
-                isSelected
-                  ? "border-signal bg-signal/5"
-                  : "border-line-soft bg-canvas hover:bg-surface-2",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="source-radio"
-                  value={m.key}
-                  checked={isSelected}
-                  onChange={() => onSelect(m.key)}
-                  className="accent-signal"
-                />
-                <span className="text-sm text-fg">{m.label}</span>
-                <span className="ml-auto font-mono text-[10px] text-fg-subtle">
+        {catalog.map((m) => (
+          <SelectableCard
+            key={m.key}
+            type="radio"
+            name="source-radio"
+            value={m.key}
+            checked={m.key === selected}
+            onChange={() => onSelect(m.key)}
+            title={
+              <span className="flex items-center gap-2">
+                <span>{m.label}</span>
+                <code className="font-mono text-[10px] text-fg-subtle">
                   {m.key}
-                </span>
-              </div>
-              <p className="pl-5 text-[11px] text-fg-subtle">{m.blurb}</p>
-            </label>
-          );
-        })}
+                </code>
+              </span>
+            }
+            description={m.blurb}
+          />
+        ))}
       </div>
 
       <div className="border-t border-line-soft pt-3 text-xs text-fg-subtle">
@@ -363,7 +331,7 @@ function SourceStep({
 }
 
 // =========================================================================
-// Step 2 — Trigger
+// Step 2 — Trigger (severity selection)
 // =========================================================================
 
 function TriggerStep({
@@ -374,39 +342,28 @@ function TriggerStep({
   onToggle: (k: SeverityKey) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="text-sm text-fg">Which severities should trigger it?</h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        <p className="mt-1 text-xs text-fg-muted">
           Usually one. Creating a separate route per severity lets you customize
           the channel and message for each. Multi-select routes them to the same
           channel with the same message.
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {SEVERITIES.map((s) => {
-          const isOn = selected.has(s.key);
-          return (
-            <label
-              key={s.key}
-              className={clsx(
-                "flex cursor-pointer items-center gap-2 border px-3 py-2 text-sm transition-colors",
-                isOn
-                  ? clsx(severityChipClass(s.key), "border")
-                  : "border-line-soft bg-canvas text-fg-muted hover:bg-surface-2",
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={isOn}
-                onChange={() => onToggle(s.key)}
-                className="accent-signal"
-              />
-              <span>{s.label}</span>
-            </label>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {SEVERITIES.map((s) => (
+          <SelectableCard
+            key={s.key}
+            type="checkbox"
+            name="severity-toggle"
+            value={s.key}
+            checked={selected.has(s.key)}
+            onChange={() => onToggle(s.key)}
+            title={s.label}
+          />
+        ))}
       </div>
     </div>
   );
@@ -426,16 +383,16 @@ function ChannelStep({
   onSelect: (name: string) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="text-sm text-fg">Which channel should receive it?</h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        <p className="mt-1 text-xs text-fg-muted">
           Pick a delivery channel — Slack, email, webhook, etc.
         </p>
       </div>
 
       {channels.length === 0 ? (
-        <div className="border border-sev-medium/30 bg-sev-medium/5 px-3 py-3 text-xs text-fg-muted">
+        <div className="border border-sev-medium/30 bg-sev-medium/5 px-4 py-3 text-xs text-fg-muted">
           No channels yet.{" "}
           <Link
             href="/notifications/channels/new"
@@ -445,20 +402,30 @@ function ChannelStep({
           </Link>
         </div>
       ) : (
-        <NativeSelect
-          name="channel-select"
-          value={selected}
-          onChange={(e) => onSelect(e.currentTarget.value)}
-          className="w-full max-w-md"
-        >
-          <option value="">— pick a channel —</option>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {channels.map((c) => (
-            <option key={c.name} value={c.name} disabled={!c.enabled}>
-              {c.name} · {c.type}
-              {!c.enabled ? " (disabled)" : ""}
-            </option>
+            <SelectableCard
+              key={c.name}
+              type="radio"
+              name="channel-select"
+              value={c.name}
+              checked={c.name === selected}
+              onChange={() => onSelect(c.name)}
+              disabled={!c.enabled}
+              title={
+                <span className="flex items-center gap-2">
+                  <span>{c.name}</span>
+                  <code className="border border-line-soft px-1 py-px font-mono text-[9px] uppercase tracking-wider text-fg-subtle">
+                    {c.type}
+                  </code>
+                </span>
+              }
+              description={
+                !c.enabled ? "This channel is currently disabled" : undefined
+              }
+            />
           ))}
-        </NativeSelect>
+        </div>
       )}
     </div>
   );
@@ -480,22 +447,38 @@ function MessageStep({
   defaultValue: string;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="text-sm text-fg">Customize the message (optional)</h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
-          By default the channel's own template is used. Toggle on to write a
+        <p className="mt-1 text-xs text-fg-muted">
+          By default the channel&apos;s own template is used. Toggle on to write a
           per-rule template with variables and a live preview against sample
           events (or a real recent event).
         </p>
       </div>
 
-      <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+      <label
+        className={clsx(
+          "flex cursor-pointer items-center gap-3 border px-4 py-3 text-sm transition-colors",
+          enabled
+            ? "border-signal bg-signal/5 text-fg"
+            : "border-line-soft bg-canvas text-fg-muted hover:bg-surface-2",
+        )}
+      >
         <input
           type="checkbox"
           checked={enabled}
           onChange={(e) => onToggle(e.currentTarget.checked)}
-          className="accent-signal"
+          className="sr-only"
+        />
+        <span
+          aria-hidden
+          className={clsx(
+            "h-2 w-2 shrink-0 rounded-full border transition-colors",
+            enabled
+              ? "border-signal bg-signal"
+              : "border-fg-subtle bg-transparent",
+          )}
         />
         <span>Use a custom message for this route</span>
       </label>
@@ -527,10 +510,10 @@ function ReviewStep({
   customTemplate: boolean;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="text-sm text-fg">Review your alert</h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        <p className="mt-1 text-xs text-fg-muted">
           Make sure everything looks right, then save.
         </p>
       </div>
@@ -560,7 +543,9 @@ function ReviewStep({
           {customTemplate ? (
             <span className="text-fg">Custom template for this route</span>
           ) : (
-            <span className="text-fg-muted">Uses channel&apos;s default template</span>
+            <span className="text-fg-muted">
+              Uses channel&apos;s default template
+            </span>
           )}
         </ReviewValue>
       </ReviewGrid>
