@@ -301,7 +301,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
       <div className="min-w-0 overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-left">
           <thead>
-            <tr className="border-b border-line-soft text-[10px] uppercase tracking-[0.09em] text-fg-subtle">
+            <tr className="border-b border-line-soft text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
               <th className="w-1 p-0" aria-hidden />
               <th className="w-[38%] px-4 py-2 font-normal">Rule</th>
               <th className="w-[28%] px-4 py-2 font-normal">Event action(s)</th>
@@ -446,7 +446,7 @@ function FacetRow({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 w-14 shrink-0 uppercase tracking-[0.09em] text-fg-subtle">
+      <span className="mr-1 w-14 shrink-0 uppercase tracking-[0.08em] text-fg-subtle">
         {label}
       </span>
       {children}

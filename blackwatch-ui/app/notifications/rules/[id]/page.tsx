@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import {
   fetchNotificationRule,
@@ -8,6 +6,7 @@ import {
 } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { BackLink } from "@/components/ui/BackLink";
 import { RuleForm } from "@/components/domain/notifications/RuleForm";
 
 export default async function EditRulePage({
@@ -24,14 +23,7 @@ export default async function EditRulePage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
       <PageHeader title={`Edit · ${rule.name}`} subtitle={rule.id} />
       <DataPanel className="overflow-hidden">
         <RuleForm existing={rule} channels={channels} />

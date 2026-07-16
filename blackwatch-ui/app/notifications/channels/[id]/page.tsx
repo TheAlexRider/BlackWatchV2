@@ -1,12 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchNotificationChannel } from "@/lib/api";
 import type { ChannelType } from "@/lib/types";
 import { CHANNEL_TYPES } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { BackLink } from "@/components/ui/BackLink";
 import { ChannelForm } from "@/components/domain/notifications/ChannelForm";
 
 export default async function EditChannelPage({
@@ -23,14 +22,7 @@ export default async function EditChannelPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader title={`Edit · ${channel.name}`} subtitle={channel.id} />
 

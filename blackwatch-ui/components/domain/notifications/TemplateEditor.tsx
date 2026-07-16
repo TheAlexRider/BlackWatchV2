@@ -209,7 +209,7 @@ export function TemplateEditor({
       {/* Presets */}
       {!hidePresets && presets.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
+          <p className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
             Start from a template
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -263,7 +263,7 @@ export function TemplateEditor({
 
       {/* Insert-variable chips — click OR drag onto the textarea */}
       <div className="space-y-1.5">
-        <p className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
+        <p className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           Drag or click a variable to insert
         </p>
         <div className="flex flex-wrap gap-1.5">
@@ -296,7 +296,7 @@ export function TemplateEditor({
       <div className="border border-line-soft bg-surface-0">
         <div className="space-y-1.5 border-b border-line-soft px-3 py-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               Preview
             </span>
             {/* Source toggle: canned sample vs a real recent event.

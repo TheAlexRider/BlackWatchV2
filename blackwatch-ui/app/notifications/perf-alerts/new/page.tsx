@@ -1,8 +1,6 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
 import { fetchPerfAlerts } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/ui/BackLink";
 import { PerfAlertForm } from "@/components/domain/notifications/PerfAlertForm";
 
 import { createPerfAlertAction } from "../actions";
@@ -12,14 +10,7 @@ export default async function NewPerfAlertPage() {
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader
         title="New performance alert"

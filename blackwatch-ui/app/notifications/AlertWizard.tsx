@@ -13,26 +13,22 @@ import type {
 
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
+import { SeverityChip, severityChipClass } from "@/components/ui/SeverityChip";
+import { ReviewGrid, ReviewLabel, ReviewValue } from "@/components/ui/ReviewGrid";
 import { TemplateEditor } from "@/components/domain/notifications/TemplateEditor";
 
 import { saveAlertRouteAction } from "./wizard-actions";
 
-// Four-step wizard: Source → Trigger → Channel → Message (opt) → Review.
-// One <form> wraps every step so field state (including the uncontrolled
-// TemplateEditor textarea) is preserved when the operator jumps between
-// steps. Only one step is visible at a time; the rest live in the DOM.
-
 const SEVERITIES: Array<{
   key: SeverityKey;
   label: string;
-  chipClass: string;
   short: string;
 }> = [
-  { key: "critical",      label: "Critical",      chipClass: "bg-sev-critical/15 text-sev-critical border-sev-critical/40", short: "critical" },
-  { key: "high",          label: "High",          chipClass: "bg-sev-high/15 text-sev-high border-sev-high/40",             short: "high" },
-  { key: "medium",        label: "Medium",        chipClass: "bg-sev-medium/15 text-sev-medium border-sev-medium/40",       short: "medium" },
-  { key: "low",           label: "Low",           chipClass: "bg-sev-low/15 text-sev-low border-sev-low/40",                 short: "low" },
-  { key: "informational", label: "Informational", chipClass: "bg-fg-subtle/15 text-fg-muted border-fg-subtle/40",            short: "info" },
+  { key: "critical",      label: "Critical",      short: "critical" },
+  { key: "high",          label: "High",          short: "high" },
+  { key: "medium",        label: "Medium",        short: "medium" },
+  { key: "low",           label: "Low",           short: "low" },
+  { key: "informational", label: "Informational", short: "info" },
 ];
 
 type Channel = { id: string; name: string; type: string; enabled: boolean };
@@ -397,7 +393,7 @@ function TriggerStep({
               className={clsx(
                 "flex cursor-pointer items-center gap-2 border px-3 py-2 text-sm transition-colors",
                 isOn
-                  ? clsx(s.chipClass, "border")
+                  ? clsx(severityChipClass(s.key), "border")
                   : "border-line-soft bg-canvas text-fg-muted hover:bg-surface-2",
               )}
             >
@@ -539,54 +535,35 @@ function ReviewStep({
         </p>
       </div>
 
-      <dl className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
-        <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          Source
-        </dt>
-        <dd className="text-fg">{moduleLabel || "—"}</dd>
+      <ReviewGrid>
+        <ReviewLabel>Source</ReviewLabel>
+        <ReviewValue className="text-fg">{moduleLabel || "—"}</ReviewValue>
 
-        <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          Trigger
-        </dt>
-        <dd className="flex flex-wrap gap-1.5">
+        <ReviewLabel>Trigger</ReviewLabel>
+        <ReviewValue className="flex flex-wrap gap-1.5">
           {severities.length === 0 ? (
             <span className="text-fg-muted">—</span>
           ) : (
-            severities.map((s) => {
-              const meta = SEVERITIES.find((x) => x.key === s);
-              return (
-                <span
-                  key={s}
-                  className={clsx(
-                    "border px-1.5 py-0.5 font-mono text-[10px]",
-                    meta?.chipClass ?? "",
-                  )}
-                >
-                  {meta?.short ?? s}
-                </span>
-              );
-            })
+            severities.map((s) => (
+              <SeverityChip key={s} severity={s} />
+            ))
           )}
-        </dd>
+        </ReviewValue>
 
-        <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          Channel
-        </dt>
-        <dd className="font-mono text-xs text-fg-muted">
+        <ReviewLabel>Channel</ReviewLabel>
+        <ReviewValue className="font-mono text-xs text-fg-muted">
           {channelName ? `→ ${channelName}` : "—"}
-        </dd>
+        </ReviewValue>
 
-        <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          Message
-        </dt>
-        <dd className="text-xs text-fg-muted">
+        <ReviewLabel>Message</ReviewLabel>
+        <ReviewValue className="text-xs text-fg-muted">
           {customTemplate ? (
             <span className="text-fg">Custom template for this route</span>
           ) : (
-            <span className="text-fg-muted">Uses channel's default template</span>
+            <span className="text-fg-muted">Uses channel&apos;s default template</span>
           )}
-        </dd>
-      </dl>
+        </ReviewValue>
+      </ReviewGrid>
     </div>
   );
 }

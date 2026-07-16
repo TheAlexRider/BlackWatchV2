@@ -26,6 +26,8 @@ import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { Table } from "@/components/ui/Table";
+import { SeverityChip } from "@/components/ui/SeverityChip";
+import { StatusDot, type Severity } from "@/components/ui/StatusDot";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 
@@ -322,13 +324,6 @@ function RoutesTable({
   );
 }
 
-const SEV_STYLE: Record<SeverityKey, string> = {
-  critical: "bg-sev-critical/15 text-sev-critical border border-sev-critical/40",
-  high: "bg-sev-high/15 text-sev-high border border-sev-high/40",
-  medium: "bg-sev-medium/15 text-sev-medium border border-sev-medium/40",
-  low: "bg-sev-low/15 text-sev-low border border-sev-low/40",
-  informational: "bg-fg-subtle/15 text-fg-muted border border-fg-subtle/40",
-};
 
 function RouteRow({ route: r }: { route: Route }) {
   const state = computeRouteState(r);
@@ -346,12 +341,7 @@ function RouteRow({ route: r }: { route: Route }) {
         ) : (
           <div className="flex flex-wrap gap-1">
             {r.severities.map((s) => (
-              <span
-                key={s}
-                className={clsx("px-1.5 py-0.5 font-mono text-[10px]", SEV_STYLE[s])}
-              >
-                {s === "informational" ? "info" : s}
-              </span>
+              <SeverityChip key={s} severity={s} />
             ))}
           </div>
         )}
@@ -597,18 +587,17 @@ function ActivityRow({ entry: e }: { entry: NotificationLogEntry }) {
 }
 
 function ActivityStatusPill({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    sent: "bg-sev-resolved",
-    failed: "bg-sev-critical",
-    rate_limited: "bg-sev-medium",
-    throttled: "bg-sev-medium",
-    digested: "bg-sev-low",
-    acked: "bg-fg-subtle",
+  const sevMap: Record<string, Severity> = {
+    sent: "resolved",
+    failed: "critical",
+    rate_limited: "medium",
+    throttled: "medium",
+    digested: "low",
+    acked: "neutral",
   };
-  const color = map[status] ?? "bg-fg-subtle";
   return (
     <span className="inline-flex items-center gap-1.5 text-xs">
-      <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", color)} />
+      <StatusDot severity={sevMap[status] ?? "neutral"} />
       <span className="text-fg-muted">{status}</span>
     </span>
   );
@@ -674,13 +663,7 @@ function ChannelsFirstHint() {
 function EnabledPill({ enabled }: { enabled: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs">
-      <span
-        aria-hidden
-        className={clsx(
-          "h-1.5 w-1.5 rounded-full",
-          enabled ? "bg-sev-resolved" : "bg-fg-subtle",
-        )}
-      />
+      <StatusDot severity={enabled ? "resolved" : "neutral"} />
       <span className="text-fg-muted">{enabled ? "enabled" : "disabled"}</span>
     </span>
   );
@@ -693,26 +676,12 @@ function ChannelStatusPill({
   status: string | null;
   error: string | null;
 }) {
-  if (status === "ok") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs">
-        <span className="h-1.5 w-1.5 rounded-full bg-sev-resolved" aria-hidden />
-        <span className="text-fg-muted">ok</span>
-      </span>
-    );
-  }
-  if (status && status !== "ok") {
-    return (
-      <span title={error ?? ""} className="inline-flex items-center gap-1.5 text-xs">
-        <span className="h-1.5 w-1.5 rounded-full bg-sev-critical" aria-hidden />
-        <span className="text-fg-muted">{status}</span>
-      </span>
-    );
-  }
+  const sev: Severity = status === "ok" ? "resolved" : status ? "critical" : "neutral";
+  const label = status ?? "never";
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" aria-hidden />
-      <span className="text-fg-subtle">never</span>
+    <span title={error ?? undefined} className="inline-flex items-center gap-1.5 text-xs">
+      <StatusDot severity={sev} />
+      <span className={status ? "text-fg-muted" : "text-fg-subtle"}>{label}</span>
     </span>
   );
 }

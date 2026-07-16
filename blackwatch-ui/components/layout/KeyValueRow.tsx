@@ -17,7 +17,7 @@ export function KeyValueRow({
         className,
       )}
     >
-      <dt className="text-xs uppercase tracking-[0.06em] text-fg-subtle">
+      <dt className="text-xs uppercase tracking-[0.08em] text-fg-subtle">
         {label}
       </dt>
       <dd className="text-sm text-fg">{children}</dd>

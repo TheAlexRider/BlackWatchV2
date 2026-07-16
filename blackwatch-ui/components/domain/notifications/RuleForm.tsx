@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { NativeSelect } from "@/components/ui/NativeSelect";
+import { FormRow } from "@/components/ui/FormRow";
+import { Checkbox } from "@/components/ui/Checkbox";
 import type { NotificationChannel, NotificationRule } from "@/lib/types";
 import { saveRuleAction } from "@/app/notifications/actions";
 
@@ -168,15 +170,11 @@ export function RuleForm({
       </FormRow>
 
       <FormRow label="Enabled">
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-          <input
-            type="checkbox"
-            name="enabled"
-            defaultChecked={isEdit ? existing?.enabled : true}
-            className="h-3.5 w-3.5 cursor-pointer appearance-none border border-line bg-surface-1 checked:border-signal checked:bg-signal/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
-          />
-          <span>send when matched</span>
-        </label>
+        <Checkbox
+          name="enabled"
+          defaultChecked={isEdit ? existing?.enabled : true}
+          label="send when matched"
+        />
       </FormRow>
 
       {/* The conversational simple section */}
@@ -253,7 +251,7 @@ export function RuleForm({
         className="border-t border-line-soft px-4 py-3"
         open={init.uses_advanced}
       >
-        <summary className="cursor-pointer text-xs uppercase tracking-[0.06em] text-fg-subtle hover:text-fg">
+        <summary className="cursor-pointer text-xs uppercase tracking-[0.08em] text-fg-subtle hover:text-fg">
           advanced · custom JSON criteria (overrides the simple form above)
         </summary>
         <div className="mt-3 space-y-2">
@@ -367,30 +365,3 @@ function Chip({
   );
 }
 
-// =========================================================================
-// shared row scaffolding
-// =========================================================================
-
-function FormRow({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[200px_1fr] items-start gap-4 border-b border-line-soft px-4 py-3 last:border-0">
-      <label className="pt-1 text-xs uppercase tracking-[0.06em] text-fg-subtle">
-        {label}
-        {hint && (
-          <span className="ml-2 normal-case tracking-normal text-fg-disabled">
-            {hint}
-          </span>
-        )}
-      </label>
-      <div>{children}</div>
-    </div>
-  );
-}

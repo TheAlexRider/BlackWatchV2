@@ -36,7 +36,7 @@ export function Disclosure({
         aria-controls={panelId}
         disabled={disabled}
         className={clsx(
-          "group inline-flex items-center gap-1.5 rounded text-[11px] uppercase tracking-[0.09em] transition-colors",
+          "group inline-flex items-center gap-1.5 rounded text-[11px] uppercase tracking-[0.08em] transition-colors",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sig-teal focus-visible:ring-offset-2 focus-visible:ring-offset-canvas",
           disabled
             ? "cursor-not-allowed text-fg-disabled"

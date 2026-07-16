@@ -1,9 +1,7 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
 import { fetchNotificationChannels } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { BackLink } from "@/components/ui/BackLink";
 import { RuleForm, type RulePrefill } from "@/components/domain/notifications/RuleForm";
 import { RulePresets } from "@/components/domain/notifications/RulePresets";
 
@@ -43,7 +41,7 @@ export default async function NewRulePage({
   if (!hasAnyParam) {
     return (
       <>
-        <BackLink />
+        <BackLink href="/notifications" label="back to notifications" />
         <PageHeader
           title="Add a rule"
           subtitle="Pick a recipe — or build a custom one. You can edit it after."
@@ -63,7 +61,7 @@ export default async function NewRulePage({
 
   return (
     <>
-      <BackLink />
+      <BackLink href="/notifications" label="back to notifications" />
       <PageHeader
         title="New rule"
         subtitle="Tweak the recipe and pick which channels should receive it."
@@ -78,17 +76,4 @@ export default async function NewRulePage({
 function toArray(v: string | string[] | undefined): string[] {
   if (!v) return [];
   return Array.isArray(v) ? v : [v];
-}
-
-function BackLink() {
-  return (
-    <div className="mb-4">
-      <Link
-        href="/notifications"
-        className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-      >
-        <ArrowLeft size={12} /> back to notifications
-      </Link>
-    </div>
-  );
 }

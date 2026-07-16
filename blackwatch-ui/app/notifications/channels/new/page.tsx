@@ -1,7 +1,5 @@
 import Link from "next/link";
-import clsx from "clsx";
 import {
-  ArrowLeft,
   Slack,
   Mail,
   Webhook,
@@ -12,6 +10,8 @@ import {
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { BackLink } from "@/components/ui/BackLink";
+import { PickerCard } from "@/components/ui/PickerCard";
 import { ChannelForm } from "@/components/domain/notifications/ChannelForm";
 import { CHANNEL_TYPES, type ChannelType } from "@/lib/types";
 
@@ -73,14 +73,7 @@ export default async function NewChannelPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader
         title={chosen ? `Add ${labelFor(chosen)} channel` : "Add channel"}
@@ -102,27 +95,14 @@ function TypePicker() {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
       {TYPE_CARDS.map((opt) => (
-        <Link
+        <PickerCard
           key={opt.type}
           href={`/notifications/channels/new?type=${opt.type}`}
-          className={clsx(
-            "group flex flex-col gap-2 border border-line-soft bg-surface-1 px-4 py-4",
-            "transition-colors hover:border-line hover:bg-surface-2",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <opt.icon
-              size={14}
-              strokeWidth={1.5}
-              className="text-fg-subtle group-hover:text-signal"
-            />
-            <span className="text-sm text-fg">{opt.title}</span>
-            <code className="ml-auto font-mono text-[10px] text-fg-subtle">
-              {opt.type}
-            </code>
-          </div>
-          <p className="text-xs text-fg-muted">{opt.blurb}</p>
-        </Link>
+          icon={<opt.icon size={14} strokeWidth={1.5} />}
+          title={opt.title}
+          blurb={opt.blurb}
+          badge={opt.type}
+        />
       ))}
     </div>
   );

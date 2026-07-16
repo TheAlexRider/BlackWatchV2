@@ -1,6 +1,4 @@
 import Link from "next/link";
-import clsx from "clsx";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchNotificationLog } from "@/lib/api";
 import type { NotificationLogEntry } from "@/lib/types";
@@ -10,6 +8,8 @@ import { Table } from "@/components/ui/Table";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
+import { BackLink } from "@/components/ui/BackLink";
+import { StatusDot, type Severity } from "@/components/ui/StatusDot";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
@@ -39,14 +39,7 @@ export default async function NotificationLogPage({
     <>
       <AutoRefresh intervalMs={5000} />
 
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader
         title="Notification log"
@@ -103,14 +96,14 @@ function LogTable({ entries }: { entries: NotificationLogEntry[] }) {
   return (
     <Table>
       <thead>
-        <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          <th className="w-36 px-4 py-2 text-left font-normal">Time</th>
-          <th className="w-28 px-4 py-2 text-left font-normal">Status</th>
-          <th className="w-32 px-4 py-2 text-left font-normal">Channel</th>
-          <th className="w-40 px-4 py-2 text-left font-normal">Rule</th>
-          <th className="w-56 px-4 py-2 text-left font-normal">Event</th>
-          <th className="w-16 px-4 py-2 text-right font-normal">Retries</th>
-          <th className="px-4 py-2 text-left font-normal">Preview / error</th>
+        <tr>
+          <th style={{ width: 144 }}>Time</th>
+          <th style={{ width: 112 }}>Status</th>
+          <th style={{ width: 128 }}>Channel</th>
+          <th style={{ width: 160 }}>Rule</th>
+          <th style={{ width: 224 }}>Event</th>
+          <th data-align="right" style={{ width: 64 }}>Retries</th>
+          <th>Preview / error</th>
         </tr>
       </thead>
       <tbody>
@@ -164,18 +157,17 @@ function LogTable({ entries }: { entries: NotificationLogEntry[] }) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    sent: "bg-sev-resolved",
-    failed: "bg-sev-critical",
-    rate_limited: "bg-sev-medium",
-    throttled: "bg-sev-medium",
-    digested: "bg-sev-low",
-    acked: "bg-fg-subtle",
+  const sevMap: Record<string, Severity> = {
+    sent: "resolved",
+    failed: "critical",
+    rate_limited: "medium",
+    throttled: "medium",
+    digested: "low",
+    acked: "neutral",
   };
-  const color = map[status] ?? "bg-fg-subtle";
   return (
     <span className="inline-flex items-center gap-1.5 text-xs">
-      <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", color)} />
+      <StatusDot severity={sevMap[status] ?? "neutral"} />
       <span className="text-fg-muted">{status}</span>
     </span>
   );

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import clsx from "clsx";
 
 import type {
   PerfAlertRule,
@@ -13,12 +12,14 @@ import type {
   PerfSeverity,
 } from "@/lib/types";
 import { DataPanel } from "@/components/layout/DataPanel";
-import { SectionLabel } from "@/components/layout/SectionLabel";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { SelectableCard } from "@/components/ui/SelectableCard";
 import { Disclosure } from "@/components/ui/Disclosure";
+import { SeverityChip } from "@/components/ui/SeverityChip";
+import { ReviewGrid, ReviewLabel, ReviewValue } from "@/components/ui/ReviewGrid";
+import { FormSection, FieldStack } from "@/components/ui/FormSection";
 import { TemplateEditor } from "@/components/domain/notifications/TemplateEditor";
 
 // Flat variables the perf-alert Jinja render (blackwatch/perf_alerts.py
@@ -472,84 +473,63 @@ export function PerfAlertForm({
           </p>
         </div>
 
-        <dl className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Metric
-          </dt>
-          <dd className="text-fg">{metricLabel}</dd>
+        <ReviewGrid>
+          <ReviewLabel>Metric</ReviewLabel>
+          <ReviewValue className="text-fg">{metricLabel}</ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Trigger
-          </dt>
-          <dd className="font-mono text-xs text-fg-muted">
+          <ReviewLabel>Trigger</ReviewLabel>
+          <ReviewValue className="font-mono text-xs text-fg-muted">
             {opText} <span className="text-fg">{threshold}%</span>{" "}
             for <span className="text-fg">{windowMinutes} min</span>
             <span className="text-fg-subtle"> · {breachPct}% of samples must breach</span>
-          </dd>
+          </ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Where
-          </dt>
-          <dd className="font-mono text-xs text-fg-muted">{previewScope}</dd>
+          <ReviewLabel>Where</ReviewLabel>
+          <ReviewValue className="font-mono text-xs text-fg-muted">{previewScope}</ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Severity
-          </dt>
-          <dd>
-            <span
-              className={clsx(
-                "border px-1.5 py-0.5 font-mono text-[10px]",
-                severityChipClass(rule?.severity ?? "high"),
-              )}
-            >
-              {rule?.severity ?? "high"}
-            </span>
-          </dd>
+          <ReviewLabel>Severity</ReviewLabel>
+          <ReviewValue>
+            <SeverityChip severity={rule?.severity ?? "high"} />
+          </ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Channels
-          </dt>
-          <dd className="font-mono text-xs text-fg-muted">
+          <ReviewLabel>Channels</ReviewLabel>
+          <ReviewValue className="font-mono text-xs text-fg-muted">
             {selectedChannels.length > 0
               ? selectedChannels.map((c, i) => (
                   <span key={c}>
                     {i > 0 && ", "}
-                    <span className="text-fg-subtle">→ </span>
+                    <span className="text-fg-subtle">&rarr; </span>
                     {c}
                   </span>
                 ))
               : "—"}
-          </dd>
+          </ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Cooldown
-          </dt>
-          <dd className="font-mono text-xs text-fg-muted">
+          <ReviewLabel>Cooldown</ReviewLabel>
+          <ReviewValue className="font-mono text-xs text-fg-muted">
             {throttleMinutes} min after firing
-          </dd>
+          </ReviewValue>
 
-          <dt className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-            Message
-          </dt>
-          <dd className="text-xs text-fg-muted">
+          <ReviewLabel>Message</ReviewLabel>
+          <ReviewValue className="text-xs text-fg-muted">
             {rule?.message_template ? (
               <span className="text-fg">Custom template for this rule</span>
             ) : (
               <span className="text-fg-muted">Uses the default line</span>
             )}
-          </dd>
+          </ReviewValue>
 
           {!formValid && (
             <>
-              <dt className="text-[11px] uppercase tracking-[0.08em] text-sev-medium">
-                Missing
-              </dt>
-              <dd className="text-xs text-sev-medium">
+              <ReviewLabel>
+                <span className="text-sev-medium">Missing</span>
+              </ReviewLabel>
+              <ReviewValue className="text-xs text-sev-medium">
                 Pick a scope and at least one channel before saving.
-              </dd>
+              </ReviewValue>
             </>
           )}
-        </dl>
+        </ReviewGrid>
       </DataPanel>
 
       <div className="flex items-center justify-end gap-2">
@@ -570,73 +550,6 @@ export function PerfAlertForm({
 }
 
 // ---------- subcomponents ---------------------------------------------------
-
-// Section = SectionLabel + optional hint + content. Uses SectionLabel for
-// the header so the whole form matches the existing app's section rhythm
-// (/rules, /notifications, /api-gw all use this component).
-function FormSection({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <SectionLabel>{label}</SectionLabel>
-        {hint && (
-          <p className="mt-0.5 text-[11px] leading-snug text-fg-subtle">
-            {hint}
-          </p>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-// FieldStack = label above a compact input, optional hint below. Used
-// inside Advanced disclosure for severity/cooldown/breach-ratio triplet.
-function FieldStack({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-[11px] uppercase tracking-[0.09em] text-fg-subtle">
-        {label}
-      </span>
-      {children}
-      {hint && (
-        <span className="block text-[10px] leading-tight text-fg-subtle">
-          {hint}
-        </span>
-      )}
-    </label>
-  );
-}
-
-// Severity chip color mirrors AlertWizard's SEVERITIES map so both
-// preview panels look identical for the same severity value.
-function severityChipClass(sev: string): string {
-  return (
-    {
-      critical: "bg-sev-critical/15 text-sev-critical border-sev-critical/40",
-      high: "bg-sev-high/15 text-sev-high border-sev-high/40",
-      medium: "bg-sev-medium/15 text-sev-medium border-sev-medium/40",
-      low: "bg-sev-low/15 text-sev-low border-sev-low/40",
-      informational: "bg-fg-subtle/15 text-fg-muted border-fg-subtle/40",
-    }[sev] ?? "bg-fg-subtle/15 text-fg-muted border-fg-subtle/40"
-  );
-}
 
 function labelFor(i: PerfAlertInstance): string {
   const tag = i.tags?.role ?? i.tags?.env;

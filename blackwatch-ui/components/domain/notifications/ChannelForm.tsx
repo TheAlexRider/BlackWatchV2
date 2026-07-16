@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
+import { Checkbox } from "@/components/ui/Checkbox";
 import type { ChannelType, NotificationChannel } from "@/lib/types";
 import { saveChannelAction } from "@/app/notifications/actions";
 import { TemplateEditor } from "./TemplateEditor";
@@ -34,15 +36,11 @@ export function ChannelForm({
       </FormRow>
 
       <FormRow label="Enabled">
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-          <input
-            type="checkbox"
-            name="enabled"
-            defaultChecked={isEdit ? existing?.enabled : true}
-            className="h-3.5 w-3.5 cursor-pointer appearance-none border border-line bg-surface-1 checked:border-signal checked:bg-signal/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
-          />
-          <span>send when matched</span>
-        </label>
+        <Checkbox
+          name="enabled"
+          defaultChecked={isEdit ? existing?.enabled : true}
+          label="send when matched"
+        />
       </FormRow>
 
       {/* per-type fields */}
@@ -108,15 +106,11 @@ export function ChannelForm({
             />
           </FormRow>
           <FormRow label="Use TLS">
-            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-              <input
-                type="checkbox"
-                name="use_tls"
-                defaultChecked={cfg.use_tls !== false}
-                className="h-3.5 w-3.5 cursor-pointer appearance-none border border-line bg-surface-1 checked:border-signal checked:bg-signal/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
-              />
-              <span>STARTTLS</span>
-            </label>
+            <Checkbox
+              name="use_tls"
+              defaultChecked={cfg.use_tls !== false}
+              label="STARTTLS"
+            />
           </FormRow>
           <FormRow label="SMTP user">
             <Input
@@ -189,7 +183,7 @@ export function ChannelForm({
       {/* Sending behaviour — friendly labels instead of "dedup window s" etc.
           Every knob is one plain-English sentence and a number input. */}
       <details className="border-t border-line-soft px-4 py-3">
-        <summary className="cursor-pointer text-xs uppercase tracking-[0.06em] text-fg-subtle hover:text-fg">
+        <summary className="cursor-pointer text-xs uppercase tracking-[0.08em] text-fg-subtle hover:text-fg">
           More options · how often to send & retry
         </summary>
         <div className="mt-4 space-y-3">
@@ -243,34 +237,6 @@ export function ChannelForm({
         </Link>
       </div>
     </form>
-  );
-}
-
-// =========================================================================
-// shared scaffolding
-// =========================================================================
-
-function FormRow({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[200px_1fr] items-start gap-4 border-b border-line-soft px-4 py-3 last:border-0">
-      <label className="pt-1 text-xs uppercase tracking-[0.06em] text-fg-subtle">
-        {label}
-        {hint && (
-          <span className="ml-2 normal-case tracking-normal text-fg-disabled">
-            {hint}
-          </span>
-        )}
-      </label>
-      <div>{children}</div>
-    </div>
   );
 }
 

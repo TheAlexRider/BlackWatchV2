@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, Bell, Shield, KeyRound, FileWarning, Network, Plus } from "lucide-react";
+import { PickerCard } from "@/components/ui/PickerCard";
 
 // Preset rule recipes — common configurations expressed as one-click templates.
 // Each preset encodes the wizard inputs as query params so the form on the next
@@ -115,38 +116,21 @@ export function RulePresets() {
       </p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {PRESETS.map((p) => (
-          <Link
+          <PickerCard
             key={p.id}
             href={`/notifications/rules/new?${encodeParams({ ...p.params, preset: p.id })}`}
-            className="group flex flex-col gap-2 border border-line-soft bg-surface-1 px-4 py-4 transition-colors hover:border-line hover:bg-surface-2"
-          >
-            <div className="flex items-center gap-2">
-              <p.icon
-                size={14}
-                strokeWidth={1.5}
-                className="text-fg-subtle group-hover:text-signal"
-              />
-              <span className="text-sm text-fg">{p.title}</span>
-            </div>
-            <p className="text-xs text-fg-muted">{p.blurb}</p>
-          </Link>
+            icon={<p.icon size={14} strokeWidth={1.5} />}
+            title={p.title}
+            blurb={p.blurb}
+          />
         ))}
-        <Link
+        <PickerCard
           href="/notifications/rules/new?blank=1"
-          className="group flex flex-col gap-2 border border-dashed border-line-soft px-4 py-4 transition-colors hover:border-line hover:bg-surface-2"
-        >
-          <div className="flex items-center gap-2">
-            <Plus
-              size={14}
-              strokeWidth={1.5}
-              className="text-fg-subtle group-hover:text-signal"
-            />
-            <span className="text-sm text-fg">Blank rule</span>
-          </div>
-          <p className="text-xs text-fg-muted">
-            Build a custom rule from scratch. Same form, no presets applied.
-          </p>
-        </Link>
+          icon={<Plus size={14} strokeWidth={1.5} />}
+          title="Blank rule"
+          blurb="Build a custom rule from scratch. Same form, no presets applied."
+          dashed
+        />
       </div>
     </section>
   );

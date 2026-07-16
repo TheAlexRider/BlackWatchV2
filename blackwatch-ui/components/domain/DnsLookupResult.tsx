@@ -87,7 +87,7 @@ function RecordBlock({
                 >
                   <code className="break-all font-mono text-xs text-fg">{v}</code>
                   {record.type === "TXT" && txtAnnotation(v) && (
-                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-signal">
+                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-signal">
                       {txtAnnotation(v)}
                     </span>
                   )}

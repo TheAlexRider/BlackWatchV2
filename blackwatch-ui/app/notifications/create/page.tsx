@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Bell, GaugeCircle } from "lucide-react";
+import { ArrowRight, Bell, GaugeCircle } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
+import { BackLink } from "@/components/ui/BackLink";
 
 // Landing chooser for the two mechanically-different notification types.
 // Event-based routes match on existing event fields (module/severity);
@@ -12,14 +13,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 export default function CreateAlertChooser() {
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader
         title="Create alert"

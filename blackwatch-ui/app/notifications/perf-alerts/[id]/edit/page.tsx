@@ -1,9 +1,8 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { fetchPerfAlerts, fetchPerfAlert } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/ui/BackLink";
 import { PerfAlertForm } from "@/components/domain/notifications/PerfAlertForm";
 
 import { updatePerfAlertAction } from "../../actions";
@@ -29,14 +28,7 @@ export default async function EditPerfAlertPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/notifications"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to notifications
-        </Link>
-      </div>
+      <BackLink href="/notifications" label="back to notifications" />
 
       <PageHeader
         title="Edit performance alert"
