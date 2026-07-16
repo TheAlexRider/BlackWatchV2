@@ -87,6 +87,10 @@ export function PerfAlertForm({
   const [throttleMinutes, setThrottleMinutes] = useState<number>(
     Math.max(0, Math.round((rule?.throttle_seconds ?? 1800) / 60)),
   );
+  const [breachRatio, setBreachRatio] = useState<number>(
+    rule?.min_breach_ratio ?? 0.6,
+  );
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
   const [instanceId, setInstanceId] = useState<string>(rule?.instance_id ?? "");
   const [tagSpec, setTagSpec] = useState<string>(
     rule?.tag_key && rule?.tag_value != null
@@ -100,17 +104,23 @@ export function PerfAlertForm({
 
   const tagPairs = useMemo(() => uniqueTagPairs(instances), [instances]);
 
-  // Auto-suggest name when user hasn't typed one.
+  // Auto-suggest name when user hasn't typed one. Omit scope entirely if
+  // not yet picked instead of splicing a "(pick …)" placeholder mid-string.
   const suggestedName = useMemo(() => {
     const metricLabel = METRIC_OPTIONS.find((m) => m.value === metric)?.label ?? metric;
+    const opText =
+      { gte: "≥", gt: ">", lte: "≤", lt: "<" }[rule?.comparison ?? "gte"] ?? "≥";
     const scopeLabel =
       scope === "instance"
         ? instanceId
           ? instances.find((i) => i.instance_id === instanceId)?.hostname ?? instanceId
-          : "(pick an instance)"
-        : tagSpec || "(pick a tag)";
-    return `${metricLabel} ≥ ${threshold}% on ${scopeLabel} for ${windowMinutes}m`;
-  }, [metric, scope, instanceId, tagSpec, threshold, windowMinutes, instances]);
+          : null
+        : tagSpec.includes("=")
+          ? tagSpec
+          : null;
+    const base = `${metricLabel} ${opText} ${threshold}% for ${windowMinutes}m`;
+    return scopeLabel ? `${base} on ${scopeLabel}` : base;
+  }, [metric, scope, instanceId, tagSpec, threshold, windowMinutes, instances, rule?.comparison]);
 
   const effectiveName = name.trim() || suggestedName;
 
@@ -123,138 +133,80 @@ export function PerfAlertForm({
   const enabledChannels = channels.filter((c) => c.enabled);
   const disabledChannelsCount = channels.length - enabledChannels.length;
 
+  const breachPct = Math.round(breachRatio * 100);
+  const opText =
+    { gte: "≥", gt: ">", lte: "≤", lt: "<" }[rule?.comparison ?? "gte"] ??
+    "≥";
+  const previewScope =
+    scope === "instance"
+      ? instanceId
+        ? instances.find((i) => i.instance_id === instanceId)?.hostname ??
+          instanceId
+        : "(no instance)"
+      : tagSpec.includes("=")
+        ? tagSpec
+        : "(no tag)";
+  const metricLabel =
+    METRIC_OPTIONS.find((m) => m.value === metric)?.label ?? metric;
+
   return (
-    <form action={action} className="space-y-6">
-      {/* hidden defaults the action expects */}
+    <form action={action} className="space-y-5">
+      {/* fixed values the action still expects */}
       <input type="hidden" name="module" value="ec2.host" />
       <input type="hidden" name="scope" value={scope} />
-      <input type="hidden" name="min_breach_ratio" value="0.6" />
+      <input type="hidden" name="enabled" value="on" />
+      <input type="hidden" name="name" value={effectiveName} />
+      <input type="hidden" name="min_breach_ratio" value={String(breachRatio)} />
 
-      {/* Module — read-only for now (only EC2 supported) */}
-      <Section label="Module">
-        <DataPanel className="px-4 py-3">
-          <div className="flex items-center gap-3">
-            <input
-              type="radio"
-              name="module_display"
-              defaultChecked
-              disabled
-              className="accent-signal"
-            />
-            <div>
-              <div className="text-sm text-fg">EC2 host</div>
-              <div className="text-[11px] text-fg-subtle">
-                Reads metrics from the EC2 agent's heartbeat
-              </div>
-            </div>
+      <DataPanel className="space-y-5 p-5">
+        {/* ============ Metric (compact cards) ============================ */}
+        <div className="space-y-2">
+          <SectionLabel>Metric</SectionLabel>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {METRIC_OPTIONS.map((m) => {
+              const active = metric === m.value;
+              return (
+                <label
+                  key={m.value}
+                  className={clsx(
+                    "cursor-pointer rounded border p-3 transition-colors",
+                    active
+                      ? "border-sig-teal bg-surface-2"
+                      : "border-line-soft hover:border-fg-subtle",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="metric"
+                    value={m.value}
+                    checked={active}
+                    onChange={() => setMetric(m.value)}
+                    className="sr-only"
+                  />
+                  <div className="text-sm text-fg">{m.label}</div>
+                  <div className="mt-1 text-[11px] leading-snug text-fg-subtle">
+                    {m.blurb}
+                  </div>
+                </label>
+              );
+            })}
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-fg-disabled">
-            <DisabledRadio label="RDS (AWS CloudWatch)" />
-            <DisabledRadio label="ECS (AWS CloudWatch)" />
-          </div>
-        </DataPanel>
-      </Section>
+        </div>
 
-      {/* Scope */}
-      <Section label="What to monitor">
-        <DataPanel className="space-y-3 px-4 py-3">
-          <div className="flex gap-4 text-sm">
-            <RadioOption
-              checked={scope === "instance"}
-              onChange={() => setScope("instance")}
-              label="A specific instance"
-            />
-            <RadioOption
-              checked={scope === "tag"}
-              onChange={() => setScope("tag")}
-              label="All instances with a tag"
-            />
-          </div>
-
-          {scope === "instance" ? (
-            <div>
-              <NativeSelect
-                name="instance_id"
-                value={instanceId}
-                onChange={(e) => setInstanceId(e.target.value)}
-              >
-                <option value="">— choose instance —</option>
-                {instances.map((i) => (
-                  <option key={i.instance_id} value={i.instance_id}>
-                    {labelFor(i)}
-                  </option>
-                ))}
-              </NativeSelect>
-              {instances.length === 0 && (
-                <p className="mt-1 text-[11px] text-fg-subtle">
-                  No instances are reporting. Install the EC2 agent first.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <NativeSelect
-                name="tag_spec"
-                value={tagSpec}
-                onChange={(e) => setTagSpec(e.target.value)}
-              >
-                <option value="">— choose tag —</option>
-                {tagPairs.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </NativeSelect>
-              {tagPairs.length === 0 && (
-                <p className="text-[11px] text-fg-subtle">
-                  No tags discovered. Set <code>BLACKWATCH_TAGS=env=prod,role=api</code>
-                  {" "}on the agent (systemd env var) and reinstall.
-                </p>
-              )}
-            </div>
-          )}
-        </DataPanel>
-      </Section>
-
-      {/* Metric */}
-      <Section label="Metric">
-        <DataPanel className="space-y-2 px-4 py-3">
-          {METRIC_OPTIONS.map((m) => (
-            <label
-              key={m.value}
-              className="flex cursor-pointer items-start gap-3 rounded border border-transparent p-2 transition-colors hover:bg-surface-2"
-            >
-              <input
-                type="radio"
-                name="metric"
-                value={m.value}
-                checked={metric === m.value}
-                onChange={() => setMetric(m.value)}
-                className="mt-1 accent-signal"
-              />
-              <div>
-                <div className="text-sm text-fg">{m.label}</div>
-                <div className="text-[11px] text-fg-subtle">{m.blurb}</div>
-              </div>
-            </label>
-          ))}
-        </DataPanel>
-      </Section>
-
-      {/* Trigger */}
-      <Section label="Trigger condition">
-        <DataPanel className="space-y-3 px-4 py-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-fg-muted">Fire when value is</span>
+        {/* ============ Trigger (single row, sentence-shape) ============== */}
+        <div className="space-y-2">
+          <SectionLabel>Trigger</SectionLabel>
+          <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-canvas px-3 py-2.5 text-sm">
+            <span className="text-fg-muted">Fire when value</span>
             <NativeSelect
               name="comparison"
               defaultValue={rule?.comparison ?? "gte"}
-              className="w-32"
+              className="w-28"
             >
-              <option value="gte">≥ (at or above)</option>
-              <option value="gt">&gt; (strictly above)</option>
-              <option value="lte">≤ (at or below)</option>
-              <option value="lt">&lt; (strictly below)</option>
+              <option value="gte">≥</option>
+              <option value="gt">&gt;</option>
+              <option value="lte">≤</option>
+              <option value="lt">&lt;</option>
             </NativeSelect>
             <Input
               type="number"
@@ -264,14 +216,10 @@ export function PerfAlertForm({
               step="0.1"
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-20"
+              className="w-20 text-right"
               required
             />
-            <span className="text-fg-muted">%</span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-fg-muted">for at least</span>
+            <span className="text-fg-muted">% for at least</span>
             <Input
               type="number"
               name="window_minutes"
@@ -280,127 +228,268 @@ export function PerfAlertForm({
               step="1"
               value={windowMinutes}
               onChange={(e) => setWindowMinutes(Number(e.target.value))}
-              className="w-20"
+              className="w-20 text-right"
               required
             />
-            <span className="text-fg-muted">minutes</span>
+            <span className="text-fg-muted">min</span>
           </div>
+        </div>
 
-          <p className="rounded border border-line-soft bg-surface-2 p-2 text-[11px] text-fg-subtle">
-            Looser semantics: the rule fires when {">"} 60% of heartbeat
-            samples in the window cross the threshold. One stray sample
-            below threshold mid-window won&apos;t reset the alarm.
-          </p>
-        </DataPanel>
-      </Section>
-
-      {/* Notify */}
-      <Section label="Notify on">
-        <DataPanel className="space-y-2 px-4 py-3">
-          {enabledChannels.length === 0 ? (
-            <p className="text-sm text-fg-muted">
-              No enabled channels.{" "}
-              <Link href="/notifications" className="text-signal hover:underline">
-                Create one first.
-              </Link>
-            </p>
-          ) : (
-            enabledChannels.map((c) => {
-              const checked = selectedChannels.includes(c.name);
-              return (
-                <label
-                  key={c.name}
-                  className="flex cursor-pointer items-center gap-3 rounded border border-transparent p-2 transition-colors hover:bg-surface-2"
+        {/* ============ Scope (radio + one selector) ====================== */}
+        <div className="space-y-2">
+          <SectionLabel>Where</SectionLabel>
+          <div className="rounded border border-line-soft bg-canvas p-3">
+            <div className="mb-2 flex gap-4 text-sm">
+              <RadioOption
+                checked={scope === "instance"}
+                onChange={() => setScope("instance")}
+                label="A specific instance"
+              />
+              <RadioOption
+                checked={scope === "tag"}
+                onChange={() => setScope("tag")}
+                label="All instances matching a tag"
+              />
+            </div>
+            {scope === "instance" ? (
+              <>
+                <NativeSelect
+                  name="instance_id"
+                  value={instanceId}
+                  onChange={(e) => setInstanceId(e.target.value)}
+                  className="w-full"
                 >
-                  <input
-                    type="checkbox"
-                    name="channels"
-                    value={c.name}
-                    checked={checked}
-                    onChange={(e) => {
-                      setSelectedChannels((prev) =>
-                        e.target.checked
-                          ? [...prev, c.name]
-                          : prev.filter((x) => x !== c.name),
-                      );
-                    }}
-                    className="accent-signal"
-                  />
-                  <div className="flex-1 text-sm text-fg">{c.name}</div>
-                  <code className="text-[11px] text-fg-subtle">{c.type}</code>
-                </label>
-              );
-            })
-          )}
+                  <option value="">— choose instance —</option>
+                  {instances.map((i) => (
+                    <option key={i.instance_id} value={i.instance_id}>
+                      {labelFor(i)}
+                    </option>
+                  ))}
+                </NativeSelect>
+                {instances.length === 0 && (
+                  <p className="mt-1 text-[11px] text-fg-subtle">
+                    No instances reporting. Install the EC2 agent first.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <NativeSelect
+                  name="tag_spec"
+                  value={tagSpec}
+                  onChange={(e) => setTagSpec(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">— choose tag —</option>
+                  {tagPairs.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </NativeSelect>
+                {tagPairs.length === 0 && (
+                  <p className="mt-1 text-[11px] text-fg-subtle">
+                    No tags discovered. Set{" "}
+                    <code>BLACKWATCH_TAGS=env=prod,role=api</code> on the
+                    agent (systemd env var) and reinstall.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ============ Channels (checkboxes with type badges) ============ */}
+        <div className="space-y-2">
+          <SectionLabel>Deliver to</SectionLabel>
+          <div className="rounded border border-line-soft bg-canvas p-1">
+            {enabledChannels.length === 0 ? (
+              <p className="p-3 text-sm text-fg-muted">
+                No enabled channels.{" "}
+                <Link
+                  href="/notifications/channels/new"
+                  className="text-signal hover:underline"
+                >
+                  Create one first.
+                </Link>
+              </p>
+            ) : (
+              enabledChannels.map((c) => {
+                const checked = selectedChannels.includes(c.name);
+                return (
+                  <label
+                    key={c.name}
+                    className={clsx(
+                      "flex cursor-pointer items-center gap-3 rounded px-3 py-2 text-sm transition-colors",
+                      checked ? "bg-surface-2 text-fg" : "text-fg-muted hover:bg-surface-2",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      name="channels"
+                      value={c.name}
+                      checked={checked}
+                      onChange={(e) => {
+                        setSelectedChannels((prev) =>
+                          e.target.checked
+                            ? [...prev, c.name]
+                            : prev.filter((x) => x !== c.name),
+                        );
+                      }}
+                      className="accent-signal"
+                    />
+                    <span className="flex-1">{c.name}</span>
+                    <code className="rounded border border-line-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+                      {c.type}
+                    </code>
+                  </label>
+                );
+              })
+            )}
+          </div>
           {disabledChannelsCount > 0 && (
             <p className="text-[11px] text-fg-subtle">
-              {disabledChannelsCount} channel{disabledChannelsCount === 1 ? " is" : "s are"}{" "}
-              disabled and hidden.
+              {disabledChannelsCount} disabled channel
+              {disabledChannelsCount === 1 ? "" : "s"} hidden.
             </p>
           )}
-        </DataPanel>
-      </Section>
+        </div>
 
-      {/* Severity + throttle (grouped, less central) */}
-      <Section label="Output options">
-        <DataPanel className="space-y-3 px-4 py-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-fg-muted">Event severity:</span>
-            <NativeSelect
-              name="severity"
-              defaultValue={rule?.severity ?? "high"}
-              className="w-40"
+        {/* ============ Advanced (collapsed by default) =================== */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((s) => !s)}
+            className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.09em] text-fg-subtle transition-colors hover:text-fg"
+          >
+            <span
+              className={clsx(
+                "inline-block transition-transform",
+                advancedOpen && "rotate-90",
+              )}
             >
-              {SEVERITIES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-fg-muted">Don&apos;t re-alert for</span>
-            <Input
-              type="number"
-              name="throttle_minutes"
-              min={0}
-              max={1440}
-              step="1"
-              value={throttleMinutes}
-              onChange={(e) => setThrottleMinutes(Number(e.target.value))}
-              className="w-20"
-            />
-            <span className="text-fg-muted">minutes after firing</span>
-          </div>
-        </DataPanel>
-      </Section>
+              ▸
+            </span>
+            Advanced (severity, cooldown, breach sensitivity)
+          </button>
+          {advancedOpen && (
+            <div className="grid grid-cols-1 gap-3 rounded border border-line-soft bg-canvas p-3 sm:grid-cols-3">
+              <label className="space-y-1">
+                <span className="text-[11px] uppercase tracking-wider text-fg-subtle">
+                  Severity
+                </span>
+                <NativeSelect
+                  name="severity"
+                  defaultValue={rule?.severity ?? "high"}
+                  className="w-full"
+                >
+                  {SEVERITIES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] uppercase tracking-wider text-fg-subtle">
+                  Cooldown (min)
+                </span>
+                <Input
+                  type="number"
+                  name="throttle_minutes"
+                  min={0}
+                  max={1440}
+                  step="1"
+                  value={throttleMinutes}
+                  onChange={(e) =>
+                    setThrottleMinutes(Number(e.target.value))
+                  }
+                  className="w-full"
+                />
+                <span className="block text-[10px] leading-tight text-fg-subtle">
+                  Silence duplicate fires after the first alert.
+                </span>
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] uppercase tracking-wider text-fg-subtle">
+                  Breach sensitivity ({breachPct}%)
+                </span>
+                <input
+                  type="range"
+                  min={30}
+                  max={100}
+                  step={5}
+                  value={breachPct}
+                  onChange={(e) =>
+                    setBreachRatio(Number(e.target.value) / 100)
+                  }
+                  className="w-full accent-sig-teal"
+                />
+                <span className="block text-[10px] leading-tight text-fg-subtle">
+                  Fire when {breachPct}%+ of samples in the window breach.
+                  Lower = looser, higher = strict.
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
 
-      {/* Name — visible input is display-only; the hidden field below
-          carries the effective name (typed or auto-suggested) to the action.
-          One submitted "name" field — no FormData collision. */}
-      <Section label="Name">
-        <DataPanel className="px-4 py-3">
+        {/* ============ Name + preview ==================================== */}
+        <div className="space-y-2 border-t border-line-soft pt-4">
+          <SectionLabel>Name</SectionLabel>
           <Input
             type="text"
-            placeholder={suggestedName}
+            placeholder={suggestedName || "auto-generated from rule"}
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full"
           />
-          <p className="mt-2 text-[11px] text-fg-subtle">
-            Will be saved as: <span className="text-fg">{effectiveName}</span>
+          <p className="text-[11px] text-fg-subtle">
+            Saved as: <span className="font-mono text-fg">{effectiveName}</span>
           </p>
-        </DataPanel>
-      </Section>
+        </div>
 
-      <input type="hidden" name="enabled" value="on" />
-      <input type="hidden" name="name" value={effectiveName} />
+        {/* ============ Live rule preview ================================= */}
+        <div className="rounded border border-sig-teal/40 bg-surface-2 px-3 py-2.5 text-[12px] leading-snug text-fg-muted">
+          <div className="mb-1 text-[10px] uppercase tracking-[0.09em] text-sig-teal">
+            Preview
+          </div>
+          {formValid ? (
+            <>
+              Fire a{" "}
+              <span className="text-fg">
+                {(rule?.severity ?? "high")}
+              </span>{" "}
+              alert on{" "}
+              <span className="font-mono text-fg">
+                {selectedChannels.join(", ")}
+              </span>{" "}
+              when{" "}
+              <span className="text-fg">{metricLabel}</span> {opText}{" "}
+              <span className="text-fg">{threshold}%</span> on{" "}
+              <span className="font-mono text-fg">{previewScope}</span> for at
+              least <span className="text-fg">{windowMinutes} min</span>{" "}
+              ({breachPct}% of samples must breach). Silence duplicates for{" "}
+              <span className="text-fg">{throttleMinutes} min</span>.
+            </>
+          ) : (
+            <span className="text-fg-subtle">
+              Pick a scope and at least one channel to see the summary.
+            </span>
+          )}
+        </div>
+      </DataPanel>
 
       <div className="flex items-center justify-end gap-2">
         <Button asChild variant="ghost" size="sm">
           <Link href="/notifications">Cancel</Link>
         </Button>
-        <Button type="submit" variant="primary" size="sm" disabled={!formValid}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          disabled={!formValid}
+        >
           {mode === "create" ? "Create alert" : "Save changes"}
         </Button>
       </div>
@@ -409,15 +498,6 @@ export function PerfAlertForm({
 }
 
 // ---------- subcomponents ---------------------------------------------------
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <SectionLabel>{label}</SectionLabel>
-      {children}
-    </section>
-  );
-}
 
 function RadioOption({
   checked,
@@ -439,15 +519,6 @@ function RadioOption({
       <span className={clsx("text-sm", checked ? "text-fg" : "text-fg-muted")}>
         {label}
       </span>
-    </label>
-  );
-}
-
-function DisabledRadio({ label }: { label: string }) {
-  return (
-    <label className="flex cursor-not-allowed items-center gap-2">
-      <input type="radio" disabled />
-      <span>{label} (coming soon)</span>
     </label>
   );
 }
