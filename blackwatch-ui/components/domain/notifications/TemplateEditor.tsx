@@ -34,11 +34,13 @@ function formatRecentEventLabel(ev: RecentEventSample): string {
   return label.length > 80 ? `${label.slice(0, 79)}…` : label;
 }
 
-// The fields the operator can stick into a template, with one-line descriptions.
-// Insert-on-click puts `{{ event.X }}` at the textarea's cursor so the user
-// doesn't have to remember the dotted-path syntax. Same names the Jinja
-// templates use server-side.
-const VARIABLES: { name: string; path: string; example: string }[] = [
+// The default field list — event-based, matches the Jinja context that
+// notification rules run in. Perf-alert routes pass their own variable
+// list (hostname / metric_label / threshold / …) because their template
+// context is flat, not event-shaped.
+type TemplateVariable = { name: string; path: string; example: string };
+
+const DEFAULT_VARIABLES: TemplateVariable[] = [
   { name: "Action", path: "event.action", example: "vpn.auth.failure" },
   { name: "Severity", path: "event.severity", example: "high" },
   { name: "Who (principal)", path: "event.actor.principal", example: "apoorvasharma" },
@@ -54,10 +56,20 @@ export function TemplateEditor({
   name,
   channelType,
   defaultValue,
+  variables = DEFAULT_VARIABLES,
+  hidePresets = false,
+  hideLivePreview = false,
 }: {
   name: string;
   channelType: string;
   defaultValue: string;
+  /** Field vocab available in the template. Perf-alert routes pass a
+   *  flat list; event routes fall back to DEFAULT_VARIABLES. */
+  variables?: TemplateVariable[];
+  /** Hide the preset picker (perf-alert has no preset library). */
+  hidePresets?: boolean;
+  /** Hide the live-preview panel (perf-alert renders server-side only). */
+  hideLivePreview?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [presets, setPresets] = useState<TemplatePreset[]>([]);
@@ -151,10 +163,51 @@ export function TemplateEditor({
     });
   }
 
+  // Native drag-and-drop: drag a chip anywhere into the textarea, drop
+  // inserts at the caret closest to the pointer. Falls back to append
+  // when the browser can't locate a drop position (rare — older Firefox).
+  function handleTextareaDrop(e: React.DragEvent<HTMLTextAreaElement>) {
+    const payload = e.dataTransfer.getData("text/plain");
+    if (!payload || !payload.startsWith("{{ ")) return; // not our drag
+    e.preventDefault();
+    const ta = e.currentTarget;
+    // Position the caret under the drop point BEFORE inserting so the
+    // insertion lands where the user let go, not where the caret used to be.
+    let insertAt = value.length;
+    try {
+      // Standard API when supported. Some browsers return no range for
+      // <textarea>; caretPositionFromPoint returns { offsetNode, offset }.
+      const doc = document as unknown as {
+        caretPositionFromPoint?: (x: number, y: number) => { offset: number } | null;
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      };
+      const posAPI = doc.caretPositionFromPoint?.(e.clientX, e.clientY);
+      if (posAPI && typeof posAPI.offset === "number") {
+        insertAt = posAPI.offset;
+      } else {
+        const range = doc.caretRangeFromPoint?.(e.clientX, e.clientY);
+        if (range && typeof range.startOffset === "number") {
+          insertAt = range.startOffset;
+        } else {
+          insertAt = ta.selectionStart ?? value.length;
+        }
+      }
+    } catch {
+      insertAt = ta.selectionStart ?? value.length;
+    }
+    const next = value.slice(0, insertAt) + payload + value.slice(insertAt);
+    setValue(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const pos = insertAt + payload.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  }
+
   return (
     <div className="space-y-3">
       {/* Presets */}
-      {presets.length > 0 && (
+      {!hidePresets && presets.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
             Start from a template
@@ -190,24 +243,42 @@ export function TemplateEditor({
           rows={5}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Pick a template above, or write your own"
+          onDragOver={(e) => {
+            // Accept our own drag; allow the native "insertion caret"
+            // affordance the browser draws while hovering.
+            if (e.dataTransfer.types.includes("text/plain")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }
+          }}
+          onDrop={handleTextareaDrop}
+          placeholder={
+            hidePresets
+              ? "Write a Jinja template, or drag a variable in below"
+              : "Pick a template above, or write your own"
+          }
           className="w-full border border-line bg-surface-1 px-2.5 py-2 font-mono text-xs text-fg placeholder:text-fg-disabled focus-visible:border-signal focus-visible:outline-none"
         />
       </div>
 
-      {/* Insert-variable chips */}
+      {/* Insert-variable chips — click OR drag onto the textarea */}
       <div className="space-y-1.5">
         <p className="text-[11px] uppercase tracking-[0.06em] text-fg-subtle">
-          Insert a variable
+          Drag or click a variable to insert
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {VARIABLES.map((v) => (
+          {variables.map((v) => (
             <button
               key={v.path}
               type="button"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", `{{ ${v.path} }}`);
+                e.dataTransfer.effectAllowed = "copy";
+              }}
               onClick={() => insertVariable(v.path)}
               title={`Example value: ${v.example}`}
-              className="inline-flex items-center gap-1.5 border border-line-soft bg-surface-1 px-2 py-1 text-xs text-fg-muted transition-colors hover:border-line hover:text-fg"
+              className="inline-flex cursor-grab items-center gap-1.5 border border-line-soft bg-surface-1 px-2 py-1 text-xs text-fg-muted transition-colors hover:border-line hover:text-fg active:cursor-grabbing"
             >
               <span>{v.name}</span>
               <code className="font-mono text-[10px] text-fg-subtle">
@@ -218,7 +289,10 @@ export function TemplateEditor({
         </div>
       </div>
 
-      {/* Live preview */}
+      {/* Live preview — hidden when the caller renders no preview stack
+          (e.g. perf-alert where the template renders server-side and
+          the parent form shows its own summary preview). */}
+      {!hideLivePreview && (
       <div className="border border-line-soft bg-surface-0">
         <div className="space-y-1.5 border-b border-line-soft px-3 py-2">
           <div className="flex items-center justify-between gap-2">
@@ -304,6 +378,7 @@ export function TemplateEditor({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
