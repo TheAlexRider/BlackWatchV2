@@ -7,6 +7,7 @@ import {
   previewTemplate,
   type PreviewSampleKind,
   type RecentEventSample,
+  type TemplateContextKind,
   type TemplatePreset,
 } from "@/lib/api";
 
@@ -59,6 +60,8 @@ export function TemplateEditor({
   variables = DEFAULT_VARIABLES,
   hidePresets = false,
   hideLivePreview = false,
+  contextKind = "event",
+  onValueChange,
 }: {
   name: string;
   channelType: string;
@@ -66,21 +69,35 @@ export function TemplateEditor({
   /** Field vocab available in the template. Perf-alert routes pass a
    *  flat list; event routes fall back to DEFAULT_VARIABLES. */
   variables?: TemplateVariable[];
-  /** Hide the preset picker (perf-alert has no preset library). */
+  /** Hide the preset picker. */
   hidePresets?: boolean;
-  /** Hide the live-preview panel (perf-alert renders server-side only). */
+  /** Hide the live-preview panel. */
   hideLivePreview?: boolean;
+  /** "event" (default) → templates render with event.* shape.
+   *  "perf" → flat context (hostname / threshold / current_value / …). */
+  contextKind?: TemplateContextKind;
+  /** Bubble the current value up so a parent (wizard) can send a
+   *  test-send with the exact string in the textarea. */
+  onValueChange?: (v: string) => void;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [presets, setPresets] = useState<TemplatePreset[]>([]);
   const [preview, setPreview] = useState<string>("");
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sampleSource, setSampleSource] = useState<SampleSource>("canned");
-  const [sample, setSample] = useState<PreviewSampleKind>("vpn_failure");
+  const [sample, setSample] = useState<PreviewSampleKind>(
+    contextKind === "perf" ? "perf_alert" : "vpn_failure",
+  );
   const [recentEvents, setRecentEvents] = useState<RecentEventSample[]>([]);
   const [recentEventId, setRecentEventId] = useState<string>("");
   const [recentLoading, setRecentLoading] = useState(false);
   const [, startTransition] = useTransition();
+
+  // Bubble the current value up so a parent wizard can send a test message
+  // with the exact string the operator typed.
+  useEffect(() => {
+    onValueChange?.(value);
+  }, [value, onValueChange]);
 
   // Load recent real events the first time the user flips to "recent".
   useEffect(() => {
@@ -104,20 +121,19 @@ export function TemplateEditor({
     };
   }, [sampleSource, recentEvents.length, recentEventId]);
 
-  // Load presets for this channel type once on mount.
+  // Load presets for this channel type + context kind. Perf mode fetches
+  // flat-context presets from the same endpoint.
   useEffect(() => {
     let cancelled = false;
-    fetchTemplatePresets(channelType)
+    fetchTemplatePresets(channelType, contextKind)
       .then((p) => {
         if (!cancelled) setPresets(p);
       })
-      .catch(() => {
-        // Non-fatal — picker just won't render. The textarea still works.
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [channelType]);
+  }, [channelType, contextKind]);
 
   // Debounce-ish: re-render preview when value / sample selection changes.
   useEffect(() => {
@@ -125,8 +141,8 @@ export function TemplateEditor({
       startTransition(() => {
         const opts =
           sampleSource === "recent" && recentEventId
-            ? { channelType, eventId: recentEventId }
-            : { channelType, sampleEvent: sample };
+            ? { channelType, eventId: recentEventId, contextKind }
+            : { channelType, sampleEvent: sample, contextKind };
         previewTemplate(value, opts)
           .then((res) => {
             setPreview(res.rendered);
@@ -139,7 +155,7 @@ export function TemplateEditor({
       });
     }, 300);
     return () => clearTimeout(handle);
-  }, [value, sample, sampleSource, recentEventId, channelType]);
+  }, [value, sample, sampleSource, recentEventId, channelType, contextKind]);
 
   function insertVariable(path: string) {
     // Insert at the textarea's cursor position (or append if no focus).
@@ -300,33 +316,40 @@ export function TemplateEditor({
               Preview
             </span>
             {/* Source toggle: canned sample vs a real recent event.
-                Think: CloudWatch's "test pattern against sample records". */}
-            <div className="flex overflow-hidden border border-line-soft">
-              <button
-                type="button"
-                onClick={() => setSampleSource("canned")}
-                className={
-                  sampleSource === "canned"
-                    ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
-                    : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
-                }
-              >
-                canned sample
-              </button>
-              <button
-                type="button"
-                onClick={() => setSampleSource("recent")}
-                className={
-                  sampleSource === "recent"
-                    ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
-                    : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
-                }
-              >
-                real recent event
-              </button>
-            </div>
+                Think: CloudWatch's "test pattern against sample records".
+                Perf mode has only one canonical sample — hide the toggle. */}
+            {contextKind !== "perf" && (
+              <div className="flex overflow-hidden border border-line-soft">
+                <button
+                  type="button"
+                  onClick={() => setSampleSource("canned")}
+                  className={
+                    sampleSource === "canned"
+                      ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
+                      : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
+                  }
+                >
+                  canned sample
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSampleSource("recent")}
+                  className={
+                    sampleSource === "recent"
+                      ? "bg-signal/10 px-2 py-0.5 text-[10px] text-fg"
+                      : "bg-surface-1 px-2 py-0.5 text-[10px] text-fg-subtle hover:text-fg"
+                  }
+                >
+                  real recent event
+                </button>
+              </div>
+            )}
           </div>
-          {sampleSource === "canned" ? (
+          {contextKind === "perf" ? (
+            <p className="text-[10px] text-fg-disabled">
+              Sample: CPU at 98% on ip-172-16-1-97 (host tag env=Mgmt).
+            </p>
+          ) : sampleSource === "canned" ? (
             <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
               <span>event type:</span>
               <select

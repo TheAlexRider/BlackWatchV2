@@ -1459,14 +1459,119 @@ def notif_recent_events(
 
 
 @router.get("/notifications/templates")
-def notif_templates(channel_type: str | None = None) -> dict[str, Any]:
+def notif_templates(
+    channel_type: str | None = None,
+    context_kind: str | None = None,
+) -> dict[str, Any]:
     """Named message templates per channel type. Powers the UI's template
     picker so users can choose a friendly layout instead of writing Jinja by
-    hand. Pass ?channel_type=slack to fetch just one type's presets."""
-    from .notify.channels import TEMPLATE_PRESETS
+    hand.
+
+    context_kind=perf returns perf-alert flavored presets (flat context:
+    hostname, metric_label, threshold, current_value, …) instead of the
+    default event-shaped presets. Perf rules render their template with
+    flat vars before the channel wraps it."""
+    from .notify.channels import TEMPLATE_PRESETS, PERF_TEMPLATE_PRESETS
+    presets_by_type = (
+        PERF_TEMPLATE_PRESETS if (context_kind or "").lower() == "perf" else TEMPLATE_PRESETS
+    )
     if channel_type:
-        return {"type": channel_type, "presets": TEMPLATE_PRESETS.get(channel_type, [])}
-    return {"presets_by_type": TEMPLATE_PRESETS}
+        return {"type": channel_type, "presets": presets_by_type.get(channel_type, [])}
+    return {"presets_by_type": presets_by_type}
+
+
+# Flat context used to preview perf-alert templates. Mirrors what
+# perf_alerts._render_message passes at delivery time so previews match
+# reality one-to-one.
+_PERF_PREVIEW_CTX = {
+    "instance_id": "i-03499c8ce39a70d21",
+    "hostname": "ip-172-16-1-97",
+    "metric": "cpu_load_norm",
+    "metric_label": "CPU (normalized load)",
+    "threshold": 80,
+    "comparison": "gte",
+    "current_value": 98.0,
+    "window_seconds": 300,
+    "window_minutes": 5,
+    "rule_name": "CPU load ≥ 80% on prod for 5 minutes",
+    "severity": "high",
+    "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
+}
+
+
+def _render_preview(payload: dict[str, Any]) -> tuple[str, str | None]:
+    """Shared render logic for preview + test-preview.
+    Returns (rendered_body, error_string_or_None).
+
+    Handles both event-shape templates (default) and perf flat-context
+    templates (context_kind=perf). Perf mode does a two-pass render:
+      1. user's template with flat perf vars → the message line
+      2. channel type's default template with event.extra.message set to
+         that line → the final body the channel would deliver
+    That way the preview matches what actually arrives in Slack/Discord/etc.
+    """
+    from jinja2 import ChainableUndefined, Environment
+    from .notify import channels as channels_module
+
+    import logging
+    import traceback
+
+    channel_type = str(payload.get("channel_type") or "slack").lower()
+    context_kind = str(payload.get("context_kind") or "event").lower()
+    template = str(payload.get("template") or "").strip()
+
+    if not template:
+        if context_kind == "perf":
+            perf_presets = channels_module.PERF_TEMPLATE_PRESETS.get(channel_type) or []
+            template = perf_presets[0]["template"] if perf_presets else ""
+        else:
+            template = channels_module._DEFAULT_TEMPLATES.get(channel_type) or ""
+    if not template:
+        return "", None
+
+    sample_kind = str(payload.get("sample_event") or ("perf_alert" if context_kind == "perf" else "vpn_failure")).lower()
+
+    try:
+        env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
+
+        if context_kind == "perf":
+            # Pass 1: render the user's perf template with flat context.
+            intermediate = env.from_string(template).render(**_PERF_PREVIEW_CTX)
+            # Pass 2: wrap it in the channel type's default template so the
+            # preview shows the final message the operator actually receives.
+            sample = _build_preview_sample("perf_alert", payload)
+            sample_dict = sample.model_dump(mode="json")
+            sample_dict.setdefault("extra", {})["message"] = intermediate
+            channel_tpl = channels_module._DEFAULT_TEMPLATES.get(channel_type) or "{{ event.extra.message }}"
+            rendered = env.from_string(channel_tpl).render(
+                event=sample_dict,
+                channel_name=str(payload.get("channel_name") or "preview"),
+            )
+            return rendered, None
+
+        # Event mode (existing behavior).
+        event_id = payload.get("event_id")
+        if event_id:
+            envelope = storage.get_event(str(event_id))
+            if envelope is None:
+                return "", f"event {event_id!r} not found"
+            sample_dict = envelope
+        else:
+            sample = _build_preview_sample(sample_kind, payload)
+            sample_dict = sample.model_dump(mode="json")
+
+        rendered = env.from_string(template).render(
+            event=sample_dict,
+            channel_name=str(payload.get("channel_name") or "preview"),
+        )
+        return rendered, None
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "template preview failed: sample_kind=%s context_kind=%s",
+            sample_kind, context_kind,
+        )
+        tb_last = traceback.format_exc().splitlines()[-1] if exc else ""
+        return "", f"{exc.__class__.__name__}: {exc} — {tb_last}"
 
 
 @router.post("/notifications/templates/preview")
@@ -1482,65 +1587,69 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
                        preview the built-in friendly preset without
                        pasting it).
       channel_type   — slack | discord | teams | email | pagerduty | webhook
+      context_kind   — event (default) | perf. Perf renders flat perf vars
+                       through the channel's default template so the preview
+                       matches what a real perf alert would deliver.
       sample_event   — perf_alert | fim_modified | ssh_failure | vpn_failure
-                       (default: vpn_failure for backward compat)
       sample_action  — override the action name on the sample (kept for compat)
     """
-    from jinja2 import ChainableUndefined, Environment
-    from .event import Event, Source, Actor, Target, Severity, Outcome, Category
+    rendered, error = _render_preview(payload)
+    return {"rendered": rendered, "error": error}
+
+
+@router.post("/notifications/templates/test-send")
+def notif_template_test_send(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Render the current template against sample data and deliver it via the
+    named channel. Powers the "Send test" button in the alert wizards so the
+    operator can see the exact message land in Slack/Discord/etc before saving
+    the rule.
+
+    Accepts:
+      channel_name  — the notification channel to deliver through (required)
+      template      — Jinja source. Empty/null falls back to the channel's
+                      default preset (same as preview).
+      channel_type  — override for preview render (defaults to the channel's
+                      configured type).
+      context_kind  — event (default) | perf
+      sample_event  — canned sample to render against
+    """
     from .notify import channels as channels_module
 
-    import logging
-    import traceback
+    channel_name = str(payload.get("channel_name") or "").strip()
+    if not channel_name:
+        raise HTTPException(status_code=400, detail="channel_name required")
 
-    channel_type = str(payload.get("channel_type") or "slack").lower()
-    template = str(payload.get("template") or "").strip()
-    # Empty / null template → preview the channel-type default. Lets the UI
-    # show "what the built-in preset looks like" without sending a copy.
-    if not template:
-        template = channels_module._DEFAULT_TEMPLATES.get(channel_type) or ""
-    if not template:
-        return {"rendered": "", "error": None}
+    notifier = notify_router.get_notifier()
+    channel = notifier.channels.get(channel_name)
+    if channel is None:
+        raise HTTPException(status_code=404, detail=f"unknown channel: {channel_name}")
 
-    sample_kind = str(payload.get("sample_event") or "vpn_failure").lower()
+    payload.setdefault("channel_type", channel.type)
+    rendered, error = _render_preview(payload)
+    if error:
+        return {"channel": channel_name, "status": "render_error", "detail": error}
 
-    # Widened try — the previous version only caught template render errors,
-    # so any exception in sample construction (missing field, bad enum, etc.)
-    # became a 500 with no useful hint in the UI. Now everything is caught,
-    # returned as `error`, AND logged with a full traceback so operators can
-    # see the underlying problem in `docker compose logs app`.
-    try:
-        # Support event_id -> hydrate a real recent event instead of a canned
-        # sample. Lets the operator preview against actual traffic, like
-        # CloudWatch Logs Insights preview.
-        event_id = payload.get("event_id")
-        if event_id:
-            envelope = storage.get_event(str(event_id))
-            if envelope is None:
-                return {"rendered": "",
-                        "error": f"event {event_id!r} not found"}
-            # get_event returns the envelope JSONB directly.
-            sample_dict = envelope
-        else:
-            sample = _build_preview_sample(sample_kind, payload)
-            sample_dict = sample.model_dump(mode="json")
+    # Deliver the rendered body directly through the type-specific sender so
+    # we bypass the channel's default template (we've already rendered).
+    sender = channels_module._SENDERS.get(channel.type)
+    if sender is None:
+        return {"channel": channel_name, "status": "error",
+                "detail": f"unknown channel type: {channel.type}"}
 
-        env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
-        rendered = env.from_string(template).render(
-            event=sample_dict,
-            channel_name=str(payload.get("channel_name") or "preview"),
-        )
-        return {"rendered": rendered, "error": None}
-    except Exception as exc:
-        logging.getLogger(__name__).exception(
-            "template preview failed: sample_kind=%s", sample_kind,
-        )
-        # Show the operator the actual exception + first traceback line — the
-        # full trace is in docker logs but the immediate cause is enough to
-        # guide most fixes.
-        tb_last = traceback.format_exc().splitlines()[-1] if exc else ""
-        return {"rendered": "",
-                "error": f"{exc.__class__.__name__}: {exc} — {tb_last}"}
+    # Build a synthetic event to pass alongside the body — webhook / teams
+    # senders serialize it into their payload. Perf-shape gets the perf sample;
+    # event-shape gets the event sample.
+    context_kind = str(payload.get("context_kind") or "event").lower()
+    sample_kind = str(payload.get("sample_event") or ("perf_alert" if context_kind == "perf" else "vpn_failure")).lower()
+    sample_event = _build_preview_sample(sample_kind, payload)
+
+    ok, detail = sender(channel.resolved_config(), rendered, sample_event)
+    return {
+        "channel": channel_name,
+        "status": "sent" if ok else "error",
+        "detail": detail,
+        "rendered": rendered,
+    }
 
 
 def _build_preview_sample(kind: str, payload: dict[str, Any]):

@@ -222,6 +222,135 @@ _DEFAULT_TEMPLATES: dict[str, str] = {
     for ch_type, presets in TEMPLATE_PRESETS.items()
 }
 
+
+# ---- Perf-alert template presets --------------------------------------------
+#
+# Perf-alert rules use a FLAT context (hostname, metric_label, threshold, …)
+# instead of the event.* shape. Presets here reference those flat vars so
+# the operator gets ready-to-use starter templates. The picker in the perf
+# wizard fetches these via ?context_kind=perf.
+_SEV_EMOJI_FLAT = (
+    "{% if severity == 'critical' %}🚨"
+    "{% elif severity == 'high' %}⚠️"
+    "{% elif severity == 'medium' %}🟡"
+    "{% elif severity == 'low' %}🔵"
+    "{% else %}🔔{% endif %}"
+)
+
+PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
+    "slack": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "One line: what fired, on which host, at what value.",
+            "template": (
+                f"{_SEV_EMOJI_FLAT} *{{{{ metric_label }}}} at "
+                "{{ '%.1f' | format(current_value) }}%* on `{{ hostname }}`"
+                " _(threshold {{ threshold }}%, {{ window_minutes }}m)_"
+            ),
+        },
+        {
+            "id": "detailed",
+            "name": "Detailed",
+            "blurb": "Multi-line — rule name, value, host, tags.",
+            "template": (
+                f"{_SEV_EMOJI_FLAT} *{{{{ rule_name }}}}*\n"
+                "• *Metric:* {{ metric_label }}\n"
+                "• *Value:* {{ '%.1f' | format(current_value) }}% "
+                "(threshold {{ threshold }}%)\n"
+                "• *Window:* {{ window_minutes }} minutes\n"
+                "• *Host:* {{ hostname }}"
+                "{% if tags.env %} · env={{ tags.env }}{% endif %}"
+                "{% if tags.role %} · role={{ tags.role }}{% endif %}"
+            ),
+        },
+        {
+            "id": "compact",
+            "name": "Compact (one line)",
+            "blurb": "Terse. For a noisy metrics channel.",
+            "template": (
+                "{{ metric_label }} {{ '%.1f' | format(current_value) }}% "
+                "on {{ hostname }} (thr {{ threshold }}%)"
+            ),
+        },
+    ],
+    "discord": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "One line, emoji per severity.",
+            "template": (
+                f"{_SEV_EMOJI_FLAT} **{{{{ metric_label }}}} at "
+                "{{ '%.1f' | format(current_value) }}%** on `{{ hostname }}`"
+                " _(threshold {{ threshold }}%, {{ window_minutes }}m)_"
+            ),
+        },
+        {
+            "id": "compact",
+            "name": "Compact",
+            "blurb": "Single line.",
+            "template": (
+                "{{ metric_label }} {{ '%.1f' | format(current_value) }}% "
+                "on {{ hostname }} (thr {{ threshold }}%)"
+            ),
+        },
+    ],
+    "teams": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "Fits Teams card formatting.",
+            "template": (
+                "**{{ metric_label }} at {{ '%.1f' | format(current_value) }}%**"
+                " on `{{ hostname }}`"
+                " _(threshold {{ threshold }}%, {{ window_minutes }}m)_"
+            ),
+        },
+    ],
+    "email": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "Summary + rule detail.",
+            "template": (
+                "{{ metric_label }} at {{ '%.1f' | format(current_value) }}% "
+                "on {{ hostname }}\n"
+                "\n"
+                "Rule:      {{ rule_name }}\n"
+                "Threshold: {{ threshold }}%\n"
+                "Window:    {{ window_minutes }} minutes\n"
+                "Severity:  {{ severity }}\n"
+                "Host:      {{ hostname }} ({{ instance_id }})\n"
+                "{% if tags %}Tags:      "
+                "{% for k, v in tags.items() %}{{ k }}={{ v }}"
+                "{% if not loop.last %}, {% endif %}{% endfor %}\n{% endif %}"
+            ),
+        },
+    ],
+    "pagerduty": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "Short title for the incident list.",
+            "template": (
+                "{{ metric_label }} {{ '%.1f' | format(current_value) }}% "
+                "on {{ hostname }} (thr {{ threshold }}%)"
+            ),
+        },
+    ],
+    "webhook": [
+        {
+            "id": "friendly",
+            "name": "Friendly (recommended)",
+            "blurb": "Plain-English summary.",
+            "template": (
+                "{{ metric_label }} {{ '%.1f' | format(current_value) }}% "
+                "on {{ hostname }} (thr {{ threshold }}%)"
+            ),
+        },
+    ],
+}
+
 # CRITICAL/HIGH/MEDIUM/LOW -> PagerDuty severity
 _PD_SEVERITY = {
     "critical": "critical", "high": "error",

@@ -327,11 +327,17 @@ export type TemplatePreset = {
 // the Docker-internal FastAPI hostname). Next.js's rewrite rule in
 // next.config.mjs proxies /api/* to FastAPI server-side, so a relative URL
 // works in both dev and prod.
-export async function fetchTemplatePresets(channelType: string): Promise<TemplatePreset[]> {
-  const res = await fetch(
-    `/api/notifications/templates?channel_type=${encodeURIComponent(channelType)}`,
-    { cache: "no-store" },
-  );
+export type TemplateContextKind = "event" | "perf";
+
+export async function fetchTemplatePresets(
+  channelType: string,
+  contextKind: TemplateContextKind = "event",
+): Promise<TemplatePreset[]> {
+  const qs = new URLSearchParams({ channel_type: channelType });
+  if (contextKind !== "event") qs.set("context_kind", contextKind);
+  const res = await fetch(`/api/notifications/templates?${qs.toString()}`, {
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error(`fetchTemplatePresets failed: ${res.status}`);
   const j = (await res.json()) as { type: string; presets: TemplatePreset[] };
   return j.presets ?? [];
@@ -352,6 +358,7 @@ export async function previewTemplate(
     channelType?: string;
     sampleEvent?: PreviewSampleKind;
     eventId?: string;
+    contextKind?: TemplateContextKind;
   },
 ): Promise<{ rendered: string; error: string | null }> {
   const res = await fetch(`/api/notifications/templates/preview`, {
@@ -363,11 +370,49 @@ export async function previewTemplate(
       channel_type: opts?.channelType,
       sample_event: opts?.sampleEvent,
       event_id: opts?.eventId,
+      context_kind: opts?.contextKind,
     }),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`previewTemplate failed: ${res.status}`);
   return (await res.json()) as { rendered: string; error: string | null };
+}
+
+// Fires the current template + sample through the named channel so the
+// operator can see the exact message land in Slack/etc. Server renders,
+// then delivers via the type-specific sender. Returns delivery status.
+export async function testSendTemplate(opts: {
+  channelName: string;
+  template: string;
+  channelType?: string;
+  sampleEvent?: PreviewSampleKind;
+  contextKind?: TemplateContextKind;
+}): Promise<{
+  channel: string;
+  status: "sent" | "error" | "render_error" | "unknown_channel";
+  detail?: string;
+  rendered?: string;
+}> {
+  const res = await fetch(`/api/notifications/templates/test-send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channel_name: opts.channelName,
+      template: opts.template,
+      channel_type: opts.channelType,
+      sample_event: opts.sampleEvent,
+      context_kind: opts.contextKind,
+    }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return {
+      channel: opts.channelName,
+      status: "error",
+      detail: `HTTP ${res.status}`,
+    };
+  }
+  return await res.json();
 }
 
 export interface RecentEventSample {
