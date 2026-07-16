@@ -812,6 +812,7 @@ export interface PerfAlertRule {
   severity: PerfSeverity;
   channels: string[];
   throttle_seconds: number;
+  message_template?: string | null;
   samples?: Array<{ t: number; b: boolean; v: number }>;
   last_fired_at?: string | null;
   last_value: number | null;

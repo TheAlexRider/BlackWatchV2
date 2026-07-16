@@ -727,6 +727,7 @@ def perf_alerts_create(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         severity=payload.get("severity", "high"),
         channels=list(payload.get("channels") or []),
         throttle_seconds=int(payload.get("throttle_seconds", 1800)),
+        message_template=(payload.get("message_template") or None),
     )
     return {"id": rule_id}
 
@@ -754,6 +755,7 @@ def perf_alerts_update(
         severity=payload.get("severity", "high"),
         channels=list(payload.get("channels") or []),
         throttle_seconds=int(payload.get("throttle_seconds", 1800)),
+        message_template=(payload.get("message_template") or None),
     )
     return {"id": rule_id}
 

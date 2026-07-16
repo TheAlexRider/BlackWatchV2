@@ -41,6 +41,10 @@ import {
   deleteRouteAction,
   testRouteAction,
 } from "./route-actions";
+import {
+  togglePerfAlertAction,
+  deletePerfAlertAction,
+} from "./perf-alerts/actions";
 
 type SearchParams = { msg?: string };
 
@@ -457,7 +461,7 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
               <th style={{ width: 240 }}>Trigger</th>
               <th style={{ width: 200 }}>Channel</th>
               <th style={{ width: 90 }}>State</th>
-              <th data-actions style={{ width: 80 }} />
+              <th data-actions style={{ width: 320 }} />
             </tr>
           </thead>
           <tbody>
@@ -478,13 +482,15 @@ function MetricRow({ rule: r }: { rule: PerfAlertRule }) {
     : r.tag_key
     ? `tag ${r.tag_key}=${r.tag_value}`
     : "all hosts";
+  const opText =
+    { gte: "≥", gt: ">", lte: "≤", lt: "<" }[r.comparison] ?? "≥";
   return (
     <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
       <td className="truncate px-4 py-2 align-middle text-sm text-fg">
         {METRIC_LABEL[r.metric] ?? r.metric}
       </td>
       <td className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
-        ≥ {r.threshold}% / {minutes}m · {scope}
+        {opText} {r.threshold}% / {minutes}m · {scope}
       </td>
       <td className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
         {(r.channels || []).join(", ") || "—"}
@@ -497,11 +503,27 @@ function MetricRow({ rule: r }: { rule: PerfAlertRule }) {
         </span>
       </td>
       <td className="whitespace-nowrap px-4 py-2 align-middle text-right">
-        <Button asChild size="sm" variant="ghost" aria-label="Edit metric">
-          <Link href={`/notifications/perf-alerts/${encodeURIComponent(r.id)}/edit`}>
-            <Pencil size={12} />
-          </Link>
-        </Button>
+        <div className="inline-flex items-center gap-1.5">
+          <form action={togglePerfAlertAction} className="inline">
+            <input type="hidden" name="id" value={r.id} />
+            <input type="hidden" name="target" value={r.enabled ? "off" : "on"} />
+            <PendingButton size="sm" variant="secondary" pendingLabel="…">
+              {r.enabled ? "Turn off" : "Turn on"}
+            </PendingButton>
+          </form>
+          <Button asChild size="sm" variant="ghost" aria-label="Edit metric">
+            <Link href={`/notifications/perf-alerts/${encodeURIComponent(r.id)}/edit`}>
+              <Pencil size={12} />
+            </Link>
+          </Button>
+          <form action={deletePerfAlertAction} className="inline">
+            <input type="hidden" name="id" value={r.id} />
+            <input type="hidden" name="name" value={r.name} />
+            <PendingButton size="sm" variant="danger" pendingLabel="…">
+              <Trash2 size={11} /> Delete
+            </PendingButton>
+          </form>
+        </div>
       </td>
     </tr>
   );

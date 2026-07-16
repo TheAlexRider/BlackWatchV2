@@ -44,6 +44,8 @@ function buildPayload(fd: FormData): Record<string, unknown> {
   const windowMinutes = Number(fd.get("window_minutes") ?? 5);
   const throttleMinutes = Number(fd.get("throttle_minutes") ?? 30);
 
+  const template = String(fd.get("message_template") ?? "").trim();
+
   return {
     name: String(fd.get("name") ?? "").trim(),
     enabled: fd.get("enabled") !== "off",
@@ -60,6 +62,7 @@ function buildPayload(fd: FormData): Record<string, unknown> {
     severity: String(fd.get("severity") ?? "high"),
     channels,
     throttle_seconds: Math.max(0, Math.round(throttleMinutes * 60)),
+    message_template: template || null,
   };
 }
 
@@ -94,36 +97,31 @@ export async function updatePerfAlertAction(
 
 // ---------- toggle / delete --------------------------------------------------
 
-export async function togglePerfAlertAction(
-  ruleId: string,
-  enabled: boolean,
-): Promise<void> {
-  // Get-then-PUT — we don't have a partial update endpoint and a full PUT
-  // requires the whole shape. Read current state then flip enabled.
+export async function togglePerfAlertAction(fd: FormData): Promise<void> {
+  const ruleId = String(fd.get("id") ?? "").trim();
+  const target = String(fd.get("target") ?? "").trim();
+  if (!ruleId) notifRedirect("Missing rule id");
+  // Get-then-PUT — no partial update endpoint; PUT wants the full shape.
   const res = await apiFetch(`/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
     cache: "no-store",
   });
-  if (!res.ok) {
-    notifRedirect(`Toggle failed: rule not found`);
-  }
+  if (!res.ok) notifRedirect("Toggle failed: rule not found");
   const rule = await res.json();
-  rule.enabled = enabled;
+  rule.enabled = target === "on";
   await jsonReq("PUT", `/api/perf-alerts/${encodeURIComponent(ruleId)}`, rule);
   revalidatePath("/notifications");
-  notifRedirect(`Performance alert ${enabled ? "enabled" : "disabled"}: ${rule.name}`);
+  notifRedirect(`Performance alert ${rule.enabled ? "enabled" : "disabled"}: ${rule.name}`);
 }
 
-export async function deletePerfAlertAction(
-  ruleId: string,
-  ruleName: string,
-): Promise<void> {
+export async function deletePerfAlertAction(fd: FormData): Promise<void> {
+  const ruleId = String(fd.get("id") ?? "").trim();
+  const ruleName = String(fd.get("name") ?? "").trim() || ruleId;
+  if (!ruleId) notifRedirect("Missing rule id");
   const res = await apiFetch(`/api/perf-alerts/${encodeURIComponent(ruleId)}`, {
     method: "DELETE",
     cache: "no-store",
   });
-  if (!res.ok) {
-    notifRedirect(`Delete failed: ${res.status}`);
-  }
+  if (!res.ok) notifRedirect(`Delete failed: ${res.status}`);
   revalidatePath("/notifications");
   notifRedirect(`Performance alert deleted: ${ruleName}`);
 }

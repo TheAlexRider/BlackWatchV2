@@ -23,8 +23,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from jinja2 import Environment, StrictUndefined
+
 from . import storage
 from .event import Category, Event, Outcome
+
+_jinja = Environment(autoescape=False, undefined=StrictUndefined, trim_blocks=True)
+
+
+def _render_message(template: str | None, fallback: str, ctx: dict[str, Any]) -> str:
+    """Render a per-rule Jinja template with the alert context. Any error
+    (bad syntax, missing var, exception in template) falls back to the
+    auto-generated line — templates should never break delivery."""
+    tpl = (template or "").strip()
+    if not tpl:
+        return fallback
+    try:
+        return _jinja.from_string(tpl).render(**ctx)
+    except Exception:
+        return fallback
 
 
 _MODULE = "ec2.host"
@@ -218,10 +235,29 @@ def _make_alert_event(
     """Build the synthetic host.perf.alert event. Severity comes from the
     rule. `extra.actor=None` — these aren't tied to a person."""
     minutes = max(1, int(rule["window_seconds"] // 60))
-    msg = (
+    auto_msg = (
         f"{_metric_label(rule['metric'])} "
         f"{_op_symbol(rule['comparison'])} {_format_threshold(rule['threshold'])}% "
         f"for {minutes}m (current: {current_value:.1f}%)"
+    )
+    tags_map = (heartbeat.extra or {}).get("tags") or {}
+    msg = _render_message(
+        rule.get("message_template"),
+        auto_msg,
+        {
+            "instance_id": instance_id,
+            "hostname": (heartbeat.target.name if heartbeat.target else None) or instance_id,
+            "metric": rule["metric"],
+            "metric_label": _metric_label(rule["metric"]),
+            "threshold": rule["threshold"],
+            "comparison": rule["comparison"],
+            "current_value": current_value,
+            "window_seconds": rule["window_seconds"],
+            "window_minutes": minutes,
+            "rule_name": rule["name"],
+            "severity": rule["severity"],
+            "tags": tags_map,
+        },
     )
     return Event(
         source=heartbeat.source,

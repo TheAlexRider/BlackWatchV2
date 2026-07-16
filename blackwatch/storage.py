@@ -1180,7 +1180,8 @@ _PERF_COLS = (
     "metric, comparison, threshold, "
     "window_seconds, min_breach_ratio, "
     "severity, channels, throttle_seconds, "
-    "samples, last_fired_at, last_value"
+    "samples, last_fired_at, last_value, "
+    "message_template"
 )
 
 
@@ -1206,6 +1207,7 @@ def _perf_rule_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "samples": row[17] or [],
         "last_fired_at": row[18],   # keep as datetime for evaluator math
         "last_value": float(row[19]) if row[19] is not None else None,
+        "message_template": row[20],
     }
 
 
@@ -1255,9 +1257,11 @@ def upsert_perf_alert_rule(
     severity: str,
     channels: list[str],
     throttle_seconds: int,
+    message_template: str | None = None,
 ) -> None:
     """Create-or-update a rule. Evaluator state (samples, last_fired_at,
     last_value) is NEVER touched here — that's owned by the evaluator."""
+    tpl = (message_template or "").strip() or None
     with get_pool().connection() as conn:
         conn.execute(
             """
@@ -1265,8 +1269,8 @@ def upsert_perf_alert_rule(
                 (id, name, enabled, module, instance_id, tag_key, tag_value,
                  metric, comparison, threshold,
                  window_seconds, min_breach_ratio,
-                 severity, channels, throttle_seconds)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 severity, channels, throttle_seconds, message_template)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 enabled = EXCLUDED.enabled,
@@ -1282,12 +1286,13 @@ def upsert_perf_alert_rule(
                 severity = EXCLUDED.severity,
                 channels = EXCLUDED.channels,
                 throttle_seconds = EXCLUDED.throttle_seconds,
+                message_template = EXCLUDED.message_template,
                 updated_at = NOW()
             """,
             (rule_id, name, enabled, module, instance_id, tag_key, tag_value,
              metric, comparison, threshold,
              window_seconds, min_breach_ratio,
-             severity, Jsonb(channels), throttle_seconds),
+             severity, Jsonb(channels), throttle_seconds, tpl),
         )
 
 

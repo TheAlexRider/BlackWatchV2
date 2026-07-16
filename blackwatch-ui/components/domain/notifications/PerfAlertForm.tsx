@@ -90,7 +90,13 @@ export function PerfAlertForm({
   const [breachRatio, setBreachRatio] = useState<number>(
     rule?.min_breach_ratio ?? 0.6,
   );
+  const [messageTemplate, setMessageTemplate] = useState<string>(
+    rule?.message_template ?? "",
+  );
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
+  const [templateOpen, setTemplateOpen] = useState<boolean>(
+    !!rule?.message_template,
+  );
   const [instanceId, setInstanceId] = useState<string>(rule?.instance_id ?? "");
   const [tagSpec, setTagSpec] = useState<string>(
     rule?.tag_key && rule?.tag_value != null
@@ -431,6 +437,56 @@ export function PerfAlertForm({
                 </span>
               </label>
             </div>
+          )}
+        </div>
+
+        {/* ============ Custom message (optional) ========================= */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setTemplateOpen((s) => !s)}
+            className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.09em] text-fg-subtle transition-colors hover:text-fg"
+          >
+            <span
+              className={clsx(
+                "inline-block transition-transform",
+                templateOpen && "rotate-90",
+              )}
+            >
+              ▸
+            </span>
+            Custom message (optional)
+          </button>
+          {templateOpen && (
+            <div className="space-y-2 rounded border border-line-soft bg-canvas p-3">
+              <textarea
+                name="message_template"
+                value={messageTemplate}
+                onChange={(e) => setMessageTemplate(e.target.value)}
+                rows={4}
+                placeholder="Leave blank for the default: 'Memory used % ≥ 80% for 15m (current: 92.3%)'"
+                className="w-full rounded border border-line-soft bg-surface-1 px-2 py-1.5 font-mono text-xs text-fg placeholder:text-fg-disabled focus:border-sig-teal focus:outline-none"
+              />
+              <p className="text-[10px] leading-snug text-fg-subtle">
+                Jinja template. Available fields:{" "}
+                <code className="text-fg-muted">{"{{ hostname }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ instance_id }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ metric_label }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ threshold }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ current_value }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ window_minutes }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ severity }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ rule_name }}"}</code>{" "}
+                <code className="text-fg-muted">{"{{ tags.env }}"}</code>. If
+                the template errors, we fall back to the default line — bad
+                syntax will never break delivery.
+              </p>
+            </div>
+          )}
+          {/* Always submit the field (empty string when collapsed/blank
+              persists NULL server-side). */}
+          {!templateOpen && (
+            <input type="hidden" name="message_template" value="" />
           )}
         </div>
 
