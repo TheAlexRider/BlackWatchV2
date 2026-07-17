@@ -12,6 +12,7 @@ import type {
   PerfComparison,
   PerfSeverity,
 } from "@/lib/types";
+import type { PerfPreviewContext } from "@/lib/api";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
@@ -212,6 +213,46 @@ export function PerfAlertForm({
     selectedChannels.includes(c.name),
   );
 
+  // Build the live perf preview context from the wizard's form state so
+  // preview + test-send show the exact rule being built (metric_label,
+  // threshold, window, comparison, severity, scope). Instance/tag scope also
+  // flows through as hostname/instance_id/tags so `{{ hostname }}` renders.
+  const currentInstance = instances.find((i) => i.instance_id === instanceId);
+  const perfContext: PerfPreviewContext = useMemo(() => {
+    const ctx: PerfPreviewContext = {
+      metric,
+      metric_label: metricLabel,
+      threshold,
+      window_minutes: windowMinutes,
+      comparison,
+      severity,
+      rule_name: effectiveName,
+    };
+    if (scope === "instance" && currentInstance) {
+      ctx.hostname = currentInstance.hostname ?? currentInstance.instance_id;
+      ctx.instance_id = currentInstance.instance_id;
+      if (currentInstance.tags && Object.keys(currentInstance.tags).length > 0) {
+        ctx.tags = currentInstance.tags;
+      }
+    } else if (scope === "tag" && tagSpec.includes("=")) {
+      const [k, ...vparts] = tagSpec.split("=");
+      const v = vparts.join("=");
+      if (k && v) ctx.tags = { [k]: v };
+    }
+    return ctx;
+  }, [
+    metric,
+    metricLabel,
+    threshold,
+    windowMinutes,
+    comparison,
+    severity,
+    effectiveName,
+    scope,
+    currentInstance,
+    tagSpec,
+  ]);
+
   return (
     <form action={action}>
       <input type="hidden" name="module" value="ec2.host" />
@@ -318,6 +359,7 @@ export function PerfAlertForm({
             name={name}
             onName={setName}
             effectiveName={effectiveName}
+            perfContext={perfContext}
           />
         </div>
         <div hidden={step !== 6}>
@@ -336,6 +378,7 @@ export function PerfAlertForm({
             channelType={firstEnabledChannel?.type ?? "slack"}
             templateValue={templateValue}
             formValid={formValid}
+            perfContext={perfContext}
           />
         </div>
       </Wizard>
@@ -697,6 +740,7 @@ function MessageStep({
   name,
   onName,
   effectiveName,
+  perfContext,
 }: {
   channelType: string;
   defaultValue: string;
@@ -707,6 +751,7 @@ function MessageStep({
   name: string;
   onName: (n: string) => void;
   effectiveName: string;
+  perfContext: PerfPreviewContext;
 }) {
   return (
     <div>
@@ -721,6 +766,7 @@ function MessageStep({
         defaultValue={defaultValue}
         variables={[...PERF_TEMPLATE_VARIABLES]}
         contextKind="perf"
+        perfContext={perfContext}
         onValueChange={onValueChange}
       />
 
@@ -744,6 +790,7 @@ function MessageStep({
           channelType={channelType}
           contextKind="perf"
           sampleEvent="perf_alert"
+          perfContext={perfContext}
         />
       </div>
 
@@ -785,6 +832,7 @@ function ReviewStep({
   channelType,
   templateValue,
   formValid,
+  perfContext,
 }: {
   metricLabel: string;
   opText: string;
@@ -800,6 +848,7 @@ function ReviewStep({
   channelType: string;
   templateValue: string;
   formValid: boolean;
+  perfContext: PerfPreviewContext;
 }) {
   return (
     <div>
@@ -889,6 +938,7 @@ function ReviewStep({
             channelType={channelType}
             contextKind="perf"
             sampleEvent="perf_alert"
+            perfContext={perfContext}
           />
         </div>
       )}

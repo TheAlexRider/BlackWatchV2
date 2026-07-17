@@ -6,6 +6,7 @@ import { Send, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   testSendTemplate,
+  type PerfPreviewContext,
   type PreviewSampleKind,
   type TemplateContextKind,
 } from "@/lib/api";
@@ -23,6 +24,7 @@ export function TestSendButton({
   channelType,
   contextKind = "event",
   sampleEvent,
+  perfContext,
   disabled = false,
 }: {
   /** Every channel the alert would fire on. All are hit in parallel. */
@@ -33,6 +35,10 @@ export function TestSendButton({
   channelType?: string;
   contextKind?: TemplateContextKind;
   sampleEvent?: PreviewSampleKind;
+  /** Wizard's live form state (metric/threshold/window/…). Only used for
+   *  perf tests — merged onto the server's baseline perf sample so the
+   *  test message reflects the rule being built, not a stale CPU sample. */
+  perfContext?: PerfPreviewContext;
   disabled?: boolean;
 }) {
   const [sending, setSending] = useState(false);
@@ -55,6 +61,7 @@ export function TestSendButton({
             channelType,
             contextKind,
             sampleEvent,
+            perfContext,
           }).then((r) => ({
             channel: name,
             ok: r.status === "sent",

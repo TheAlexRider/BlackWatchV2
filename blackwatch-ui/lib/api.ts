@@ -351,6 +351,22 @@ export type PreviewSampleKind =
   | "iam_key_created"
   | "rds_auth_failure";
 
+// perf_context overlays the wizard's live form state on the server's
+// default perf preview sample — metric, threshold, window, comparison,
+// severity, hostname, tags — so the preview reflects the rule being built.
+export type PerfPreviewContext = {
+  metric?: string;
+  metric_label?: string;
+  threshold?: number;
+  window_minutes?: number;
+  comparison?: string;
+  severity?: string;
+  hostname?: string;
+  instance_id?: string;
+  tags?: Record<string, string>;
+  rule_name?: string;
+};
+
 export async function previewTemplate(
   template: string,
   opts?: {
@@ -359,6 +375,7 @@ export async function previewTemplate(
     sampleEvent?: PreviewSampleKind;
     eventId?: string;
     contextKind?: TemplateContextKind;
+    perfContext?: PerfPreviewContext;
   },
 ): Promise<{ rendered: string; error: string | null }> {
   const res = await fetch(`/api/notifications/templates/preview`, {
@@ -371,6 +388,7 @@ export async function previewTemplate(
       sample_event: opts?.sampleEvent,
       event_id: opts?.eventId,
       context_kind: opts?.contextKind,
+      perf_context: opts?.perfContext,
     }),
     cache: "no-store",
   });
@@ -387,6 +405,7 @@ export async function testSendTemplate(opts: {
   channelType?: string;
   sampleEvent?: PreviewSampleKind;
   contextKind?: TemplateContextKind;
+  perfContext?: PerfPreviewContext;
 }): Promise<{
   channel: string;
   status: "sent" | "error" | "render_error" | "unknown_channel";
@@ -402,6 +421,7 @@ export async function testSendTemplate(opts: {
       channel_type: opts.channelType,
       sample_event: opts.sampleEvent,
       context_kind: opts.contextKind,
+      perf_context: opts.perfContext,
     }),
     cache: "no-store",
   });

@@ -1480,10 +1480,11 @@ def notif_templates(
     return {"presets_by_type": presets_by_type}
 
 
-# Flat context used to preview perf-alert templates. Mirrors what
-# perf_alerts._render_message passes at delivery time so previews match
-# reality one-to-one.
-_PERF_PREVIEW_CTX = {
+# Baseline flat context used to preview perf-alert templates. The wizard
+# overlays the current form state on top of this via payload["perf_context"]
+# so the preview reflects the metric/threshold/window the operator is
+# actually configuring — not a stale CPU sample.
+_PERF_PREVIEW_CTX_DEFAULTS: dict[str, Any] = {
     "instance_id": "i-03499c8ce39a70d21",
     "hostname": "ip-172-16-1-97",
     "metric": "cpu_load_norm",
@@ -1497,6 +1498,58 @@ _PERF_PREVIEW_CTX = {
     "severity": "high",
     "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
 }
+
+
+def _build_perf_preview_ctx(payload: dict[str, Any]) -> dict[str, Any]:
+    """Merge the wizard's `perf_context` override onto the defaults. Missing
+    keys keep their defaults so a partially-filled form still previews.
+    Also fabricates a plausible `current_value` if the caller left it unset:
+    for `gte/gt` we set it 15pp above the threshold (capped at 100); for
+    `lte/lt` we set it 15pp below (floored at 0)."""
+    ctx = dict(_PERF_PREVIEW_CTX_DEFAULTS)
+    override = payload.get("perf_context") or {}
+    if isinstance(override, dict):
+        for k, v in override.items():
+            if v is None:
+                continue
+            ctx[k] = v
+
+    # window_seconds derived from window_minutes when the wizard sends the
+    # minutes value (which is what the UI actually tracks).
+    if "window_minutes" in ctx:
+        try:
+            wm = int(ctx["window_minutes"])
+            ctx["window_seconds"] = max(60, wm * 60)
+        except (TypeError, ValueError):
+            pass
+
+    # Plausible current_value derived from threshold + comparison. Only if
+    # the caller didn't already send one.
+    if "current_value" not in (override or {}):
+        try:
+            thr = float(ctx.get("threshold", 80))
+            comp = str(ctx.get("comparison") or "gte").lower()
+            if comp in ("gte", "gt"):
+                ctx["current_value"] = min(100.0, round(thr + 15.0, 1))
+            elif comp in ("lte", "lt"):
+                ctx["current_value"] = max(0.0, round(thr - 15.0, 1))
+        except (TypeError, ValueError):
+            pass
+
+    # Fabricate a rule_name so `{{ rule_name }}` in templates doesn't render
+    # the stale CPU-flavored default when the operator's picked memory/disk.
+    if "rule_name" not in (override or {}):
+        try:
+            op = {"gte": "≥", "gt": ">", "lte": "≤", "lt": "<"}[str(ctx["comparison"])]
+        except (KeyError, TypeError):
+            op = "≥"
+        ctx["rule_name"] = (
+            f"{ctx.get('metric_label', ctx.get('metric', 'metric'))} "
+            f"{op} {ctx.get('threshold', '?')}% "
+            f"for {ctx.get('window_minutes', '?')}m"
+        )
+
+    return ctx
 
 
 def _render_preview(payload: dict[str, Any]) -> tuple[str, str | None]:
@@ -1535,13 +1588,34 @@ def _render_preview(payload: dict[str, Any]) -> tuple[str, str | None]:
         env = Environment(autoescape=False, undefined=ChainableUndefined, trim_blocks=True)
 
         if context_kind == "perf":
+            # Merge the wizard's live form state onto the sample so the
+            # preview reflects what the operator's actually building.
+            perf_ctx = _build_perf_preview_ctx(payload)
             # Pass 1: render the user's perf template with flat context.
-            intermediate = env.from_string(template).render(**_PERF_PREVIEW_CTX)
+            intermediate = env.from_string(template).render(**perf_ctx)
             # Pass 2: wrap it in the channel type's default template so the
             # preview shows the final message the operator actually receives.
             sample = _build_preview_sample("perf_alert", payload)
             sample_dict = sample.model_dump(mode="json")
-            sample_dict.setdefault("extra", {})["message"] = intermediate
+            # Also patch the event.extra fields so channel templates that
+            # reference event.severity / event.target.name / event.extra.tags
+            # honor the wizard's current picks (severity, hostname, tags).
+            sample_dict["severity"] = str(perf_ctx.get("severity", sample_dict.get("severity")))
+            extra = sample_dict.setdefault("extra", {})
+            extra["message"] = intermediate
+            extra["metric"] = perf_ctx.get("metric", extra.get("metric"))
+            extra["metric_label"] = perf_ctx.get("metric_label", extra.get("metric_label"))
+            extra["threshold"] = perf_ctx.get("threshold", extra.get("threshold"))
+            extra["current_value"] = perf_ctx.get("current_value", extra.get("current_value"))
+            extra["window_seconds"] = perf_ctx.get("window_seconds", extra.get("window_seconds"))
+            extra["rule_name"] = perf_ctx.get("rule_name", extra.get("rule_name"))
+            if perf_ctx.get("tags"):
+                extra["tags"] = perf_ctx["tags"]
+            target = sample_dict.setdefault("target", {})
+            if perf_ctx.get("hostname"):
+                target["name"] = perf_ctx["hostname"]
+            if perf_ctx.get("instance_id"):
+                target["id"] = perf_ctx["instance_id"]
             channel_tpl = channels_module._DEFAULT_TEMPLATES.get(channel_type) or "{{ event.extra.message }}"
             rendered = env.from_string(channel_tpl).render(
                 event=sample_dict,

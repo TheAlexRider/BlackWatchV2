@@ -5,6 +5,7 @@ import {
   fetchRecentEventsForPreview,
   fetchTemplatePresets,
   previewTemplate,
+  type PerfPreviewContext,
   type PreviewSampleKind,
   type RecentEventSample,
   type TemplateContextKind,
@@ -61,6 +62,7 @@ export function TemplateEditor({
   hidePresets = false,
   hideLivePreview = false,
   contextKind = "event",
+  perfContext,
   onValueChange,
 }: {
   name: string;
@@ -76,6 +78,10 @@ export function TemplateEditor({
   /** "event" (default) → templates render with event.* shape.
    *  "perf" → flat context (hostname / threshold / current_value / …). */
   contextKind?: TemplateContextKind;
+  /** Wizard's live form values (metric, threshold, window, …) — merged onto
+   *  the server's perf preview sample so what you see matches the rule
+   *  you're actually building. Only honored when contextKind === "perf". */
+  perfContext?: PerfPreviewContext;
   /** Bubble the current value up so a parent (wizard) can send a
    *  test-send with the exact string in the textarea. */
   onValueChange?: (v: string) => void;
@@ -136,13 +142,21 @@ export function TemplateEditor({
   }, [channelType, contextKind]);
 
   // Debounce-ish: re-render preview when value / sample selection changes.
+  // Stable JSON for the perf context so the effect only re-fires when the
+  // wizard's form values actually change — not on every parent re-render.
+  const perfCtxJson = contextKind === "perf" ? JSON.stringify(perfContext ?? {}) : "";
+
   useEffect(() => {
     const handle = setTimeout(() => {
       startTransition(() => {
+        const perfCtx: PerfPreviewContext | undefined =
+          contextKind === "perf" && perfCtxJson
+            ? (JSON.parse(perfCtxJson) as PerfPreviewContext)
+            : undefined;
         const opts =
           sampleSource === "recent" && recentEventId
-            ? { channelType, eventId: recentEventId, contextKind }
-            : { channelType, sampleEvent: sample, contextKind };
+            ? { channelType, eventId: recentEventId, contextKind, perfContext: perfCtx }
+            : { channelType, sampleEvent: sample, contextKind, perfContext: perfCtx };
         previewTemplate(value, opts)
           .then((res) => {
             setPreview(res.rendered);
@@ -155,7 +169,7 @@ export function TemplateEditor({
       });
     }, 300);
     return () => clearTimeout(handle);
-  }, [value, sample, sampleSource, recentEventId, channelType, contextKind]);
+  }, [value, sample, sampleSource, recentEventId, channelType, contextKind, perfCtxJson]);
 
   function insertVariable(path: string) {
     // Insert at the textarea's cursor position (or append if no focus).
@@ -347,7 +361,20 @@ export function TemplateEditor({
           </div>
           {contextKind === "perf" ? (
             <p className="text-[10px] text-fg-disabled">
-              Sample: CPU at 98% on ip-172-16-1-97 (host tag env=Mgmt).
+              Sample:{" "}
+              {perfContext?.metric_label ?? "metric"} at{" "}
+              {(() => {
+                const t = perfContext?.threshold;
+                const comp = perfContext?.comparison ?? "gte";
+                if (typeof t !== "number") return "sample value";
+                const cv =
+                  comp === "gte" || comp === "gt"
+                    ? Math.min(100, +(t + 15).toFixed(1))
+                    : Math.max(0, +(t - 15).toFixed(1));
+                return `${cv}% (threshold ${t}%)`;
+              })()}
+              {" on "}
+              {perfContext?.hostname ?? "ip-172-16-1-97"}.
             </p>
           ) : sampleSource === "canned" ? (
             <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
