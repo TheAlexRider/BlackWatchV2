@@ -47,22 +47,29 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "id": "friendly",
             "name": "Friendly (recommended)",
             "blurb": "Plain English, easy to scan in a channel. "
-                     "Uses event.extra.message as the headline when present "
-                     "(perf alerts, FIM events with rich descriptions).",
+                     "When an event provides its own formatted body (perf "
+                     "alerts, FIM events), that body is used verbatim so its "
+                     "own markdown/newlines are preserved.",
             "template": (
-                # Headline: rich message if the event provides one, else the
-                # raw action name. Most events set extra.message when they
-                # have something more informative than the action label.
-                "*{{ event.extra.message or event.action }}*"
-                # Actor block — for events caused by a person.
+                # Two rendering modes:
+                #   1. Event has extra.message → it's already formatted by the
+                #      producer (perf_alerts.py, FIM). Pass it through
+                #      unchanged so its own markdown/newlines aren't wrapped
+                #      in another `*..*` (which garbled the headline as
+                #      `**...*`).
+                #   2. Plain event → wrap the action name in `*..*` and append
+                #      the actor/target/severity trailer, matching the classic
+                #      Slack event line.
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}*{{ event.action }}*"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
-                # Target context — prefer role tag, then hostname, then ID.
                 "{% if event.extra.tags and event.extra.tags.role %}"
                 " on `{{ event.extra.tags.role }}`"
                 "{% elif event.target.name %} on `{{ event.target.name }}`"
                 "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
                 "{% if event.severity %} _(severity: {{ event.severity }})_{% endif %}"
+                "{% endif %}"
             ),
         },
         {
@@ -97,15 +104,20 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English. Uses extra.message when available.",
+            "blurb": "Plain English. Uses extra.message verbatim when the "
+                     "producer supplied one (perf, FIM); otherwise formats a "
+                     "plain-event line.",
             "template": (
-                "**{{ event.extra.message or event.action }}**"
+                # Same two-mode logic as Slack — see that preset's comment.
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}**{{ event.action }}**"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %}"
                 " on `{{ event.extra.tags.role }}`"
                 "{% elif event.target.name %} on `{{ event.target.name }}`"
                 "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
+                "{% endif %}"
             ),
         },
         {
@@ -124,9 +136,11 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English, fits Teams card formatting.",
+            "blurb": "Plain English, fits Teams card formatting. Passes "
+                     "already-formatted producer messages through verbatim.",
             "template": (
-                "**{{ event.extra.message or event.action }}**"
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}**{{ event.action }}**"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %}"
@@ -134,6 +148,7 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
                 "{% elif event.target.name %} on `{{ event.target.name }}`"
                 "{% elif event.target.id %} on `{{ event.target.id }}`{% endif %}"
                 "{% if event.severity %} _(severity: {{ event.severity }})_{% endif %}"
+                "{% endif %}"
             ),
         },
         {
@@ -240,16 +255,17 @@ PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "detailed",
             "name": "Detailed",
-            "blurb": "Multi-line — rule name, value, host, tags.",
+            "blurb": "Multi-line — metric, host, value, tags. Headline shows the "
+                     "specific host that breached (not the rule name), so a "
+                     "fleet-wide rule still points at the culprit.",
             "template": (
-                "*{{ rule_name }}*\n"
-                "• *Metric:* {{ metric_label }}\n"
+                "*{{ metric_label }} on {{ hostname }}*\n"
                 "• *Value:* {{ '%.1f' | format(current_value) }}% "
                 "(threshold {{ threshold }}%)\n"
                 "• *Window:* {{ window_minutes }} minutes\n"
-                "• *Host:* {{ hostname }}"
-                "{% if tags.env %} · env={{ tags.env }}{% endif %}"
-                "{% if tags.role %} · role={{ tags.role }}{% endif %}"
+                "• *Rule:* {{ rule_name }}"
+                "{% if tags.env %}\n• *Env:* {{ tags.env }}{% endif %}"
+                "{% if tags.role %}\n• *Role:* {{ tags.role }}{% endif %}"
             ),
         },
         {

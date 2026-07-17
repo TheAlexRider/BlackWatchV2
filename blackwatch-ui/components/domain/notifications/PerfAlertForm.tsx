@@ -162,6 +162,10 @@ export function PerfAlertForm({
   const suggestedName = useMemo(() => {
     const metricLabel = METRIC_OPTIONS.find((m) => m.value === metric)?.label ?? metric;
     const op = { gte: "≥", gt: ">", lte: "≤", lt: "<" }[comparison] ?? "≥";
+    // All-scope is the default fleet-wide behavior — omit a "on all hosts"
+    // suffix (redundant, and the actual host shows up at fire time via
+    // {{ hostname }} in the message). Only add a suffix when the scope is
+    // narrower than everything.
     let scopeLabel: string | null = null;
     if (scope === "instance" && instanceId) {
       const i = instances.find((x) => x.instance_id === instanceId);
@@ -170,8 +174,6 @@ export function PerfAlertForm({
       scopeLabel = `${instanceIds.length} hosts`;
     } else if (scope === "tag" && tagSpec.includes("=")) {
       scopeLabel = tagSpec;
-    } else if (scope === "all") {
-      scopeLabel = "all hosts";
     }
     const base = `${metricLabel} ${op} ${threshold}% for ${windowMinutes}m`;
     return scopeLabel ? `${base} on ${scopeLabel}` : base;
