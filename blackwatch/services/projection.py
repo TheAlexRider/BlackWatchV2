@@ -22,36 +22,157 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .. import storage
-from ..event import Category, Event, Outcome, Source, Target, Transport
+from ..event import Category, Event, Outcome, Severity, Source, Target, Transport
 
 _MODULE = "ecs.probe"
 
 
-def _friendly_service_message(action: str, vpc: str, name: str,
-                              error: str | None) -> str:
-    """Produce a Slack/Discord-friendly headline so alerts don't read as
-    `service.down on api`. We include VPC + service name + a short hint
-    about the failure mode so the recipient can triage without opening BW."""
-    err_l = (error or "").lower()
+# --- severity + message helpers ---------------------------------------------
+#
+# The projection sets both the severity and the pre-formatted body on every
+# derived event. The channel templates (Slack/Discord/Teams) render
+# `event.extra.message` verbatim when set, so what we build here IS what the
+# operator sees — no per-rule template needed.
+
+def _is_prod(tags: dict[str, Any] | None) -> bool:
+    """Prod bias — checked against the target's tags. `env=prod` bumps
+    service.down to critical and service.degraded to high so operators can
+    set up one route ("high or above") and only get paged on real prod
+    problems."""
+    if not isinstance(tags, dict):
+        return False
+    v = str(tags.get("env") or "").strip().lower()
+    return v in ("prod", "production")
+
+
+def _ecs_severity(action: str, tags: dict[str, Any] | None) -> Severity:
+    """Severity per event type. Recovery/first-seen events stay quiet so a
+    "high or above" route only pages on real outages."""
+    prod = _is_prod(tags)
     if action == "service.down":
-        if "timed out" in err_l or "timeout" in err_l:
-            hint = "timeout"
-        elif "refused" in err_l or "reset" in err_l:
-            hint = "connection refused"
-        elif "name or service not known" in err_l or "name resolution" in err_l:
-            hint = "DNS lookup failed"
-        elif error and error.startswith("HTTP 5"):
-            hint = error
-        elif error:
-            hint = error[:60]
-        else:
-            hint = "no response"
-        return f"{vpc}: {name} went DOWN ({hint})"
+        return Severity.critical if prod else Severity.high
     if action == "service.degraded":
-        suffix = f" ({error})" if error else ""
-        return f"{vpc}: {name} is degraded{suffix}"
+        return Severity.high if prod else Severity.medium
+    if action == "probe.agent.stale":
+        return Severity.critical  # whole VPC's probe visibility is offline
+    if action in ("service.up", "probe.agent.recovered"):
+        return Severity.informational
+    if action == "probe.agent.first_seen":
+        return Severity.informational
+    return Severity.informational
+
+
+def _fmt_ts(when: datetime | None) -> str:
+    if when is None:
+        return "—"
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _fmt_duration(seconds: float) -> str:
+    s = int(max(0, seconds))
+    if s < 60:
+        return f"{s}s"
+    m = s // 60
+    if m < 60:
+        return f"{m} min"
+    h = m // 60
+    rem = m % 60
+    return f"{h}h {rem}m" if rem else f"{h}h"
+
+
+def _down_hint(error: str | None) -> str:
+    """Human-friendly summary of why a probe failed. Feeds the "Error" line
+    of service.down messages so the reader can triage without leaving Slack."""
+    err_l = (error or "").lower()
+    if "timed out" in err_l or "timeout" in err_l:
+        return "timeout"
+    if "refused" in err_l or "reset" in err_l:
+        return "connection refused"
+    if "name or service not known" in err_l or "name resolution" in err_l:
+        return "DNS lookup failed"
+    if error and error.startswith("HTTP 5"):
+        return error
+    if error:
+        return error[:80]
+    return "no response"
+
+
+def _friendly_service_message(
+    action: str,
+    vpc: str,
+    name: str,
+    error: str | None,
+    *,
+    tags: dict[str, Any] | None = None,
+    when: datetime | None = None,
+    down_since: datetime | None = None,
+    down_seconds: float | None = None,
+    latency_ms: int | None = None,
+) -> str:
+    """Build the pre-formatted Slack/Discord/Teams body for an ECS lifecycle
+    event. Multi-line markdown — the channel template passes it through
+    verbatim so what you see here is what lands in the channel.
+
+    The kwargs are optional so older callers keep working; when the projection
+    supplies them (down_since, latency, etc.), the body gets richer."""
+    env_line = ""
+    if isinstance(tags, dict):
+        env_val = tags.get("env")
+        if env_val:
+            env_line = f"• *Env:* {env_val}\n"
+
+    if action == "service.down":
+        hint = _down_hint(error)
+        lines = [f"*{name} went DOWN*"]
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"• *VPC:* {vpc}")
+        lines.append(f"• *Error:* {hint}")
+        if down_since is not None:
+            lines.append(f"• *Since:* {_fmt_ts(down_since)}")
+        if env_line:
+            lines.append(env_line.rstrip("\n"))
+        return "\n".join(lines)
+
+    if action == "service.degraded":
+        lines = [f"*{name} is degraded*"]
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"• *VPC:* {vpc}")
+        if error:
+            lines.append(f"• *Signal:* {error}")
+        if latency_ms is not None:
+            lines.append(f"• *Latency:* {latency_ms} ms")
+        if env_line:
+            lines.append(env_line.rstrip("\n"))
+        return "\n".join(lines)
+
     if action == "service.up":
-        return f"{vpc}: {name} recovered (UP)"
+        lines = [f"*{name} recovered*"]
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"• *VPC:* {vpc}")
+        if down_seconds is not None and down_seconds > 0:
+            lines.append(f"• *Was down for:* {_fmt_duration(down_seconds)}")
+        if latency_ms is not None:
+            lines.append(f"• *Latency now:* {latency_ms} ms")
+        if env_line:
+            lines.append(env_line.rstrip("\n"))
+        return "\n".join(lines)
+
+    if action == "probe.agent.first_seen":
+        return (
+            f"*New probe agent seen in `{vpc}`*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• *First report:* {_fmt_ts(when)}"
+        )
+
+    if action == "probe.agent.recovered":
+        return (
+            f"*Probe agent recovered in `{vpc}`*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• *Reporting again as of:* {_fmt_ts(when)}"
+        )
+
+    # probe.agent.stale is built in staleness.py — kept there because it has
+    # access to age_seconds; we only fall through here for unknown actions.
     return action
 
 # How many consecutive failed probes before declaring a target `down`.
@@ -91,9 +212,27 @@ def _project_heartbeat(event: Event) -> list[Event]:
         active=True,
     )
     if prev_active is None:
-        return [_derive(event, "probe.agent.first_seen", vpc, {"vpc": vpc}, when)]
+        return [_derive(
+            event, "probe.agent.first_seen", vpc,
+            {
+                "vpc": vpc,
+                "message": _friendly_service_message(
+                    "probe.agent.first_seen", vpc, vpc, None, when=when,
+                ),
+            },
+            when,
+        )]
     if prev_active is False:
-        return [_derive(event, "probe.agent.recovered", vpc, {"vpc": vpc}, when)]
+        return [_derive(
+            event, "probe.agent.recovered", vpc,
+            {
+                "vpc": vpc,
+                "message": _friendly_service_message(
+                    "probe.agent.recovered", vpc, vpc, None, when=when,
+                ),
+            },
+            when,
+        )]
     return []
 
 
@@ -169,30 +308,60 @@ def _project_result(event: Event) -> list[Event]:
             "degraded": "service.degraded",
         }.get(effective)
         if action:
+            # Promote target's tags onto the derived event so per-env routing
+            # works (e.g. service-down-prod-critical rule) AND so the severity
+            # helper can bias by env=prod.
+            target_row = storage.get_probe_target(target_id)
+            target_tags = (target_row.get("tags") or {}) if target_row else {}
+
+            # For service.up, compute how long the outage lasted so the
+            # recovery message can say "was down for 12 min".
+            down_seconds: float | None = None
+            if action == "service.up" and prev_down_since is not None:
+                try:
+                    down_seconds = (when - prev_down_since).total_seconds()
+                except Exception:
+                    down_seconds = None
+
             extras = {
                 "vpc": vpc, "name": name, "tier": tier,
                 "target_id": target_id, "prev_status": prev_status,
                 "status": effective, "latency_ms": latency_ms,
                 "error": e.get("error"),
-                # Friendly headline -- the notification templates render
-                # `event.extra.message` ahead of `event.action`, so this is
-                # what shows up in Slack/Discord/Teams.
-                "message": _friendly_service_message(action, vpc, name, e.get("error")),
+                # Pre-formatted body — the Slack/Discord/Teams channel
+                # templates use this verbatim (see notify/channels.py).
+                "message": _friendly_service_message(
+                    action, vpc, name, e.get("error"),
+                    tags=target_tags,
+                    when=when,
+                    down_since=prev_down_since,
+                    down_seconds=down_seconds,
+                    latency_ms=latency_ms,
+                ),
             }
-            # Promote target's tags onto the derived event so per-env routing
-            # works (e.g. service-down-prod-critical rule).
-            target_row = storage.get_probe_target(target_id)
-            if target_row:
-                extras["tags"] = target_row.get("tags") or {}
-            derived.append(_derive(event, action, target_id, extras, when,
-                                    target_type="ecs.service", target_name=name))
+            if target_tags:
+                extras["tags"] = target_tags
+            if down_seconds is not None:
+                extras["down_seconds"] = int(down_seconds)
+
+            derived.append(_derive(
+                event, action, target_id, extras, when,
+                target_type="ecs.service", target_name=name,
+                severity=_ecs_severity(action, target_tags),
+            ))
     return derived
 
 
 def _derive(
     parent: Event, action: str, target_id: str, extra: dict[str, Any],
-    when: datetime, *, target_type: str = "probe.agent", target_name: str | None = None,
+    when: datetime, *, target_type: str = "probe.agent",
+    target_name: str | None = None,
+    severity: Severity | None = None,
 ) -> Event:
+    # Severity default: compute from the action + tags on the extra if the
+    # caller didn't pass one. Keeps _project_heartbeat calls one-liner.
+    if severity is None:
+        severity = _ecs_severity(action, extra.get("tags") if isinstance(extra, dict) else None)
     return Event(
         source=Source(module=_MODULE, transport=Transport.api),
         event_time=when,
@@ -200,6 +369,7 @@ def _derive(
         action=action,
         outcome=(Outcome.success if action.endswith(".up") or action.endswith(".recovered")
                  or action.endswith(".first_seen") else Outcome.failure),
+        severity=severity,
         target=Target(id=target_id, type=target_type, name=target_name or target_id),
         extra=extra,
         raw={"derived_from": parent.action, "module": _MODULE},
