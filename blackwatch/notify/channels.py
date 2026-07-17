@@ -75,9 +75,16 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "detailed",
             "name": "Detailed",
-            "blurb": "Multi-line with all key fields. Best for an alerts channel where each message stands alone.",
+            "blurb": "Multi-line with all key fields. Producer-formatted "
+                     "bodies (perf, FIM, ECS) pass through verbatim so their "
+                     "own layout isn't double-wrapped.",
             "template": (
-                "*{{ event.extra.message or event.action }}*\n"
+                # Same two-mode split as Friendly: if the producer already
+                # formatted a message (perf/FIM/ECS all set extra.message
+                # today), render it verbatim. Otherwise build the classic
+                # multi-line event card with actor/target/tags/severity rows.
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}*{{ event.action }}*\n"
                 "{% if event.actor.principal %}• *Who:* {{ event.actor.principal }}\n{% endif %}"
                 "{% if event.actor.source_ip %}• *From:* {{ event.actor.source_ip }}\n{% endif %}"
                 "• *When:* {{ event.event_time }}\n"
@@ -86,17 +93,22 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
                 "{% for k, v in event.extra.tags.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}\n{% endif %}"
                 "{% if event.severity %}• *Severity:* {{ event.severity }}\n{% endif %}"
                 "{% if event.rule_matches %}• *Matched rules:* {{ event.rule_matches|join(', ') }}{% endif %}"
+                "{% endif %}"
             ),
         },
         {
             "id": "compact",
             "name": "Compact (one line)",
-            "blurb": "Single line, no fluff. Best for a noisy logs channel.",
+            "blurb": "Single line, no fluff. Best for a noisy logs channel. "
+                     "Producer-formatted bodies pass through verbatim so "
+                     "actor/tag suffixes aren't double-appended.",
             "template": (
-                "{{ event.extra.message or event.action }}"
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}{{ event.action }}"
                 "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
+                "{% endif %}"
             ),
         },
     ],
@@ -123,12 +135,15 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "compact",
             "name": "Compact (one line)",
-            "blurb": "Single line, no fluff.",
+            "blurb": "Single line, no fluff. Producer-formatted bodies pass "
+                     "through verbatim.",
             "template": (
-                "{{ event.extra.message or event.action }}"
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}{{ event.action }}"
                 "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
+                "{% endif %}"
             ),
         },
     ],
@@ -154,12 +169,15 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "compact",
             "name": "Compact (one line)",
-            "blurb": "Single line.",
+            "blurb": "Single line. Producer-formatted bodies pass through "
+                     "verbatim.",
             "template": (
-                "{{ event.extra.message or event.action }}"
+                "{% if event.extra.message %}{{ event.extra.message }}"
+                "{% else %}{{ event.action }}"
                 "{% if event.actor.principal %} · {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} ({{ event.actor.source_ip }}){% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %} · {{ event.extra.tags.role }}{% endif %}"
+                "{% endif %}"
             ),
         },
     ],
@@ -167,9 +185,11 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Human-readable summary at the top, full detail below.",
+            "blurb": "Human-readable summary at the top, full detail below. "
+                     "Producer-formatted bodies replace the whole summary.",
             "template": (
-                "{{ event.extra.message or event.action }}"
+                "{% if event.extra.message %}{{ event.extra.message }}\n"
+                "{% else %}{{ event.action }}"
                 "{% if event.actor.principal %} — {{ event.actor.principal }}{% endif %}"
                 "{% if event.actor.source_ip %} from {{ event.actor.source_ip }}{% endif %}\n"
                 "\n"
@@ -181,6 +201,7 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
                 "Module:   {{ event.source.module }}\n"
                 "Action:   {{ event.action }}\n"
                 "Rules:    {{ event.rule_matches|join(', ') or '-' }}\n"
+                "{% endif %}"
             ),
         },
         {
