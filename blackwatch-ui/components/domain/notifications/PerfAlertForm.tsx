@@ -38,6 +38,13 @@ const PERF_TEMPLATE_VARIABLES = [
   { name: "Severity",       path: "severity",       example: "high" },
   { name: "Rule name",      path: "rule_name",      example: "CPU > 80% prod" },
   { name: "Env tag",        path: "tags.env",       example: "prod" },
+  // Timestamp bundle — added so operators can eyeball the delay between the
+  // observation window (window_end) and when Slack actually shows the alert.
+  // All UTC, minute-precision except fired_at (seconds).
+  { name: "Fired at",       path: "fired_at",       example: "2026-07-17 14:32:15 UTC" },
+  { name: "Window start",   path: "window_start",   example: "2026-07-17 14:27 UTC" },
+  { name: "Window end",     path: "window_end",     example: "2026-07-17 14:32 UTC" },
+  { name: "Window range",   path: "window_range",   example: "14:27–14:32 UTC" },
 ] as const;
 
 const METRIC_OPTIONS: Array<{

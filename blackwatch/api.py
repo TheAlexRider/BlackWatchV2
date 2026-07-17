@@ -1559,6 +1559,7 @@ def _build_perf_preview_ctx(payload: dict[str, Any]) -> dict[str, Any]:
     Also fabricates a plausible `current_value` if the caller left it unset:
     for `gte/gt` we set it 15pp above the threshold (capped at 100); for
     `lte/lt` we set it 15pp below (floored at 0)."""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     ctx = dict(_PERF_PREVIEW_CTX_DEFAULTS)
     override = payload.get("perf_context") or {}
     if isinstance(override, dict):
@@ -1601,6 +1602,23 @@ def _build_perf_preview_ctx(payload: dict[str, Any]) -> dict[str, Any]:
             f"{op} {ctx.get('threshold', '?')}% "
             f"for {ctx.get('window_minutes', '?')}m"
         )
+
+    # Timestamp bundle — mirrors the fire-time context in perf_alerts.
+    # "Now" for the preview so operators see how a fresh alert would render.
+    now = _dt.now(_tz.utc)
+    try:
+        wm = int(ctx.get("window_minutes") or 5)
+    except (TypeError, ValueError):
+        wm = 5
+    window_end = now.replace(second=0, microsecond=0)
+    window_start = window_end - _td(minutes=max(1, wm))
+    ctx["fired_at"] = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+    ctx["window_start"] = window_start.strftime("%Y-%m-%d %H:%M UTC")
+    ctx["window_end"] = window_end.strftime("%Y-%m-%d %H:%M UTC")
+    ctx["window_range"] = (
+        f"{window_start.strftime('%H:%M')}–{window_end.strftime('%H:%M')} UTC"
+    )
+    ctx["event_time"] = now.isoformat()
 
     return ctx
 

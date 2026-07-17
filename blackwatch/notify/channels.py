@@ -269,6 +269,23 @@ PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             ),
         },
         {
+            "id": "rich",
+            "name": "Rich (distinct)",
+            "blurb": "Bigger headline, unicode divider, observation window + "
+                     "fired-at footer. Pairs with the severity-coloured "
+                     "attachment stripe so the alert pops in a busy channel.",
+            "template": (
+                "*{{ metric_label }} · {{ hostname }}*  "
+                "`{{ '%.1f' | format(current_value) }}%`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "• *Threshold:* {{ threshold }}% for {{ window_minutes }}m\n"
+                "• *Window:* {{ window_range }}\n"
+                "{% if tags.env %}• *Env:* {{ tags.env }}"
+                "{% if tags.role %} · {{ tags.role }}{% endif %}\n{% endif %}"
+                "_Fired {{ fired_at }} · {{ rule_name }}_"
+            ),
+        },
+        {
             "id": "compact",
             "name": "Compact (one line)",
             "blurb": "Terse. For a noisy metrics channel.",
@@ -420,11 +437,63 @@ def _post_json(url: str, payload: dict, timeout: int = _TIMEOUT) -> tuple[bool, 
 
 # ---- Per-type senders --------------------------------------------------------
 
+# Severity color palette — matches the UI's globals.css tokens so an alert
+# in Slack/Discord/Teams reads the same colour as its row in the dashboard.
+# Slack/Teams take "#RRGGBB"; Discord takes a decimal int.
+_SEV_HEX: dict[str, str] = {
+    "critical":      "#F43F5E",
+    "high":          "#FB923C",
+    "medium":        "#FACC15",
+    "low":           "#60A5FA",
+    "informational": "#8E8E93",
+}
+
+
+def _sev_str(event: Event) -> str:
+    sev = event.severity
+    if sev is None:
+        return "informational"
+    # `sev` may be an Enum or a raw string depending on how the event was
+    # built. Accept both.
+    v = getattr(sev, "value", sev)
+    return str(v).lower()
+
+
+def _sev_hex(event: Event) -> str:
+    return _SEV_HEX.get(_sev_str(event), _SEV_HEX["informational"])
+
+
 def _send_slack(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
+    """Deliver the rendered body as a Slack attachment with a severity-
+    coloured left border. The border is what makes an alert visually
+    distinct in a channel — same convention as CloudWatch/Datadog/PagerDuty.
+    Falls back to a plain-text message if the attachment API misbehaves."""
     url = cfg.get("url")
     if not url:
         return False, "missing config.url"
-    return _post_json(url, {"text": body})
+    sev = _sev_str(event)
+    # Attachment layout:
+    #   • color   → the vertical stripe on the left
+    #   • text    → the rendered template body (markdown enabled)
+    #   • footer  → "BlackWatch · <severity>" so a channel with mixed sources
+    #               still tells the reader who sent it
+    #   • ts      → epoch seconds; Slack renders it as "1 min ago" beside footer
+    ts = None
+    try:
+        et = event.event_time
+        if et is not None:
+            ts = int(et.timestamp())
+    except Exception:
+        ts = None
+    attachment: dict[str, Any] = {
+        "color": _sev_hex(event),
+        "text": body,
+        "mrkdwn_in": ["text"],
+        "footer": f"BlackWatch · {sev}",
+    }
+    if ts is not None:
+        attachment["ts"] = ts
+    return _post_json(url, {"attachments": [attachment]})
 
 
 def _send_webhook(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
@@ -435,23 +504,51 @@ def _send_webhook(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
 
 
 def _send_teams(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
+    """Legacy MessageCard with a themeColor stripe. `themeColor` shows up as
+    the coloured bar down the left of the Teams card — same visual anchor as
+    the Slack attachment stripe."""
     url = cfg.get("url")
     if not url:
         return False, "missing config.url"
+    sev = _sev_str(event)
+    # themeColor is a 6-char hex, NO "#" prefix (Teams quirk).
+    theme_color = _sev_hex(event).lstrip("#")
     payload = {
         "@type": "MessageCard", "@context": "https://schema.org/extensions",
         "summary": f"BlackWatch: {event.action}",
-        "title": f"BlackWatch [{event.severity.value if event.severity else 'unscored'}]",
+        "themeColor": theme_color,
+        "title": f"BlackWatch · {sev}",
         "text": body,
     }
     return _post_json(url, payload)
 
 
 def _send_discord(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
+    """Discord embed with a severity-coloured left border. Discord's
+    `color` is a decimal int (0xRRGGBB), unlike Slack's hex string."""
     url = cfg.get("url")
     if not url:
         return False, "missing config.url"
-    return _post_json(url, {"content": body[:1990]})  # Discord has a 2000-char limit
+    # Discord embed description is capped at 4096; well above our render size,
+    # but truncate defensively so we never lose the tail of a big alert.
+    description = body if len(body) <= 4000 else (body[:3990] + "…")
+    hex_str = _sev_hex(event).lstrip("#")
+    try:
+        color_int = int(hex_str, 16)
+    except ValueError:
+        color_int = 0x8E8E93
+    embed: dict[str, Any] = {
+        "description": description,
+        "color": color_int,
+        "footer": {"text": f"BlackWatch · {_sev_str(event)}"},
+    }
+    try:
+        et = event.event_time
+        if et is not None:
+            embed["timestamp"] = et.isoformat()
+    except Exception:
+        pass
+    return _post_json(url, {"embeds": [embed]})
 
 
 def _send_pagerduty(cfg: dict, body: str, event: Event) -> tuple[bool, str]:

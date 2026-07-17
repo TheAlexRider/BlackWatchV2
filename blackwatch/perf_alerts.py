@@ -266,6 +266,25 @@ def _make_alert_event(
         display = None
     heartbeat_host = (heartbeat.target.name if heartbeat.target else None)
     resolved_hostname = display or heartbeat_host or instance_id
+
+    # Timestamp bundle for the template — lets operators eyeball the delay
+    # between the metric being observed (window_end) and when Slack/etc.
+    # actually shows the message. window_start / window_end are minute-
+    # precision because the observation window is defined in whole minutes.
+    fired_dt = heartbeat.event_time or datetime.now(timezone.utc)
+    if fired_dt.tzinfo is None:
+        fired_dt = fired_dt.replace(tzinfo=timezone.utc)
+    window_end_dt = fired_dt.replace(second=0, microsecond=0)
+    from datetime import timedelta as _td
+    window_start_dt = window_end_dt - _td(minutes=minutes)
+    fired_at_str = fired_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    window_start_str = window_start_dt.strftime("%Y-%m-%d %H:%M UTC")
+    window_end_str = window_end_dt.strftime("%Y-%m-%d %H:%M UTC")
+    # Compact same-day form for one-line templates: "14:27–14:32 UTC".
+    window_range_str = (
+        f"{window_start_dt.strftime('%H:%M')}"
+        f"–{window_end_dt.strftime('%H:%M')} UTC"
+    )
     msg = _render_message(
         rule.get("message_template"),
         auto_msg,
@@ -282,6 +301,12 @@ def _make_alert_event(
             "window_minutes": minutes,
             "rule_name": rule["name"],
             "severity": rule["severity"],
+            # Timestamp bundle — all UTC; format is stable so grep still works.
+            "fired_at": fired_at_str,
+            "window_start": window_start_str,
+            "window_end": window_end_str,
+            "window_range": window_range_str,
+            "event_time": fired_dt.isoformat(),
             "tags": tags_map,
         },
     )
