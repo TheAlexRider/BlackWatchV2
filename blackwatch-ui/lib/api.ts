@@ -380,7 +380,11 @@ export type PreviewSampleKind =
   | "fim_modified"
   | "ssh_failure"
   | "iam_key_created"
-  | "rds_auth_failure";
+  | "rds_auth_failure"
+  | "service_down"
+  | "service_degraded"
+  | "service_up"
+  | "probe_agent_stale";
 
 // perf_context overlays the wizard's live form state on the server's
 // default perf preview sample — metric, threshold, window, comparison,

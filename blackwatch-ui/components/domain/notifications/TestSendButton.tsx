@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Send, Check, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { NativeSelect } from "@/components/ui/NativeSelect";
 import {
   testSendTemplate,
   type PerfPreviewContext,
@@ -11,19 +12,23 @@ import {
   type TemplateContextKind,
 } from "@/lib/api";
 
+export type SampleOption = { value: PreviewSampleKind; label: string };
+
 // Deliver the current template + a sample event through the selected
 // channel(s) so the operator sees the exact message land in Slack/Discord/etc.
 // This is what "test alert" means in the wizards — NOT a generic
 // informational probe.
 //
-// Renders as an inline button with a status pill that clears itself after a
-// short cooldown so the operator can send another one.
+// If `sampleOptions` has more than one entry, the button gets a dropdown so
+// the operator picks WHICH sample event to fire — e.g. an ECS route can
+// test service.down vs service.up vs probe.agent.stale from the same button.
 export function TestSendButton({
   channelNames,
   template,
   channelType,
   contextKind = "event",
   sampleEvent,
+  sampleOptions,
   perfContext,
   disabled = false,
 }: {
@@ -34,7 +39,13 @@ export function TestSendButton({
   template: string;
   channelType?: string;
   contextKind?: TemplateContextKind;
+  /** Default sample kind. Ignored when `sampleOptions` is passed (the picker's
+   *  selection wins). */
   sampleEvent?: PreviewSampleKind;
+  /** Optional sample dropdown. First entry is the default. Pass this from
+   *  the wizard based on the selected module so the operator can preview
+   *  every event shape the route would receive. */
+  sampleOptions?: SampleOption[];
   /** Wizard's live form state (metric/threshold/window/…). Only used for
    *  perf tests — merged onto the server's baseline perf sample so the
    *  test message reflects the rule being built, not a stale CPU sample. */
@@ -45,6 +56,18 @@ export function TestSendButton({
   const [results, setResults] = useState<
     Array<{ channel: string; ok: boolean; detail?: string }>
   >([]);
+
+  // Selected sample kind — seeded from options[0] or the fallback prop.
+  const [selectedSample, setSelectedSample] = useState<PreviewSampleKind | undefined>(
+    sampleOptions?.[0]?.value ?? sampleEvent,
+  );
+  // Re-seed if the parent swaps options (e.g. user changes the wizard module).
+  useEffect(() => {
+    const first = sampleOptions?.[0]?.value;
+    if (first && !sampleOptions?.some((o) => o.value === selectedSample)) {
+      setSelectedSample(first);
+    }
+  }, [sampleOptions, selectedSample]);
 
   const noChannels = channelNames.length === 0;
   const isDisabled = disabled || sending || noChannels;
@@ -60,7 +83,7 @@ export function TestSendButton({
             template,
             channelType,
             contextKind,
-            sampleEvent,
+            sampleEvent: selectedSample ?? sampleEvent,
             perfContext,
           }).then((r) => ({
             channel: name,
@@ -82,6 +105,22 @@ export function TestSendButton({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {sampleOptions && sampleOptions.length > 1 && (
+        <NativeSelect
+          value={selectedSample ?? sampleOptions[0].value}
+          onChange={(e) => setSelectedSample(e.target.value as PreviewSampleKind)}
+          className="w-52"
+          aria-label="Which sample event to fire"
+          disabled={sending}
+        >
+          {sampleOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </NativeSelect>
+      )}
+
       <Button
         type="button"
         variant="secondary"

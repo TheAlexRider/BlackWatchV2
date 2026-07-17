@@ -1911,6 +1911,116 @@ def _build_preview_sample(kind: str, payload: dict[str, Any]):
             },
         )
 
+    # --- ECS probe samples ------------------------------------------------
+    # Bodies mirror services/projection.py::_friendly_service_message so a
+    # test-send lands in the channel looking exactly like the real thing.
+    if kind == "service_down":
+        return Event(
+            source=Source(module="ecs.probe", transport="api", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "service.down",
+            outcome=Outcome.failure,
+            severity=Severity.critical,
+            target=Target(id="prod/api-gateway", type="ecs.service",
+                          name="api-gateway"),
+            extra={
+                "vpc": "prod", "name": "api-gateway", "tier": "http",
+                "target_id": "prod/api-gateway",
+                "prev_status": "up", "status": "down",
+                "error": "Connection refused",
+                "tags": {"env": "prod", "tier": "http"},
+                "message": (
+                    "*api-gateway went DOWN*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Error:* connection refused\n"
+                    "• *Since:* 2026-07-17 14:30 UTC\n"
+                    "• *Env:* prod"
+                ),
+            },
+        )
+
+    if kind == "service_degraded":
+        return Event(
+            source=Source(module="ecs.probe", transport="api", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "service.degraded",
+            outcome=Outcome.failure,
+            severity=Severity.high,
+            target=Target(id="prod/checkout", type="ecs.service",
+                          name="checkout"),
+            extra={
+                "vpc": "prod", "name": "checkout", "tier": "http",
+                "target_id": "prod/checkout",
+                "prev_status": "up", "status": "degraded",
+                "latency_ms": 2400,
+                "error": "HTTP 502",
+                "tags": {"env": "prod", "tier": "http"},
+                "message": (
+                    "*checkout is degraded*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Signal:* HTTP 502\n"
+                    "• *Latency:* 2400 ms\n"
+                    "• *Env:* prod"
+                ),
+            },
+        )
+
+    if kind == "service_up":
+        return Event(
+            source=Source(module="ecs.probe", transport="api", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "service.up",
+            outcome=Outcome.success,
+            severity=Severity.informational,
+            target=Target(id="prod/api-gateway", type="ecs.service",
+                          name="api-gateway"),
+            extra={
+                "vpc": "prod", "name": "api-gateway", "tier": "http",
+                "target_id": "prod/api-gateway",
+                "prev_status": "down", "status": "up",
+                "latency_ms": 210,
+                "down_seconds": 720,
+                "tags": {"env": "prod", "tier": "http"},
+                "message": (
+                    "*api-gateway recovered*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Was down for:* 12 min\n"
+                    "• *Latency now:* 210 ms\n"
+                    "• *Env:* prod"
+                ),
+            },
+        )
+
+    if kind == "probe_agent_stale":
+        return Event(
+            source=Source(module="ecs.probe", transport="poll", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "probe.agent.stale",
+            outcome=Outcome.failure,
+            severity=Severity.critical,
+            target=Target(id="prod", type="probe.agent", name="probe-prod"),
+            extra={
+                "vpc": "prod",
+                "last_report": "2026-07-17T14:18:00+00:00",
+                "age_seconds": 780,
+                "message": (
+                    "*Probe agent went silent in `prod`*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Silent for:* 13 min\n"
+                    "• *Last report:* 2026-07-17 14:18 UTC\n"
+                    "• *Impact:* HTTP/TCP monitoring for this VPC is offline"
+                ),
+            },
+        )
+
     # Default: VPN auth failure (kept for backward compat with UI callers).
     return Event(
         source=Source(module="vpn.openvpn", transport="queue", account="prod"),

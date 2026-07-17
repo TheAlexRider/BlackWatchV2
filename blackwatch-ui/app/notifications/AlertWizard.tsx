@@ -16,7 +16,43 @@ import { SeverityChip } from "@/components/ui/SeverityChip";
 import { ReviewGrid, ReviewLabel, ReviewValue } from "@/components/ui/ReviewGrid";
 import { Wizard, WizardStepHeader } from "@/components/ui/WizardShell";
 import { TemplateEditor } from "@/components/domain/notifications/TemplateEditor";
-import { TestSendButton } from "@/components/domain/notifications/TestSendButton";
+import {
+  TestSendButton,
+  type SampleOption,
+} from "@/components/domain/notifications/TestSendButton";
+
+// Which sample events make sense per module. When the operator picks
+// ecs.probe, the test button offers service.down / .degraded / .up / stale
+// so they can preview every event shape their route would receive. Modules
+// missing from this map fall back to a single generic sample.
+const SAMPLES_BY_MODULE: Record<string, SampleOption[]> = {
+  "ecs.probe": [
+    { value: "service_down",       label: "Service went down" },
+    { value: "service_degraded",   label: "Service degraded" },
+    { value: "service_up",         label: "Service recovered" },
+    { value: "probe_agent_stale",  label: "Probe agent stale" },
+  ],
+  "ec2.host": [
+    { value: "perf_alert",   label: "Performance alert" },
+    { value: "fim_modified", label: "File integrity change" },
+    { value: "ssh_failure",  label: "SSH failed login" },
+  ],
+  "vpn.openvpn": [
+    { value: "vpn_failure", label: "VPN failed login" },
+  ],
+  "aws.cloudtrail": [
+    { value: "iam_key_created", label: "IAM access key created" },
+  ],
+  "aws.rds": [
+    { value: "rds_auth_failure", label: "RDS proxy auth failure" },
+  ],
+};
+
+function samplesFor(moduleKey: string): SampleOption[] {
+  return SAMPLES_BY_MODULE[moduleKey] ?? [
+    { value: "vpn_failure", label: "Generic sample event" },
+  ];
+}
 
 import { saveAlertRouteAction } from "./wizard-actions";
 
@@ -165,6 +201,7 @@ export function AlertWizard({
             onToggle={setUseCustomTemplate}
             defaultValue={existing?.message_template ?? ""}
             onValueChange={setTemplateValue}
+            sampleOptions={samplesFor(module)}
           />
         </div>
         <div hidden={step !== 5}>
@@ -175,6 +212,7 @@ export function AlertWizard({
             channelType={selectedChannel?.type ?? "slack"}
             customTemplate={useCustomTemplate}
             templateValue={templateValue}
+            sampleOptions={samplesFor(module)}
           />
         </div>
       </Wizard>
@@ -339,6 +377,7 @@ function MessageStep({
   onToggle,
   defaultValue,
   onValueChange,
+  sampleOptions,
 }: {
   channelName: string;
   channelType: string;
@@ -346,6 +385,7 @@ function MessageStep({
   onToggle: (v: boolean) => void;
   defaultValue: string;
   onValueChange: (v: string) => void;
+  sampleOptions: SampleOption[];
 }) {
   return (
     <div>
@@ -399,6 +439,7 @@ function MessageStep({
                 template={defaultValue}
                 channelType={channelType}
                 contextKind="event"
+                sampleOptions={sampleOptions}
               />
             </div>
           )}
@@ -419,6 +460,7 @@ function ReviewStep({
   channelType,
   customTemplate,
   templateValue,
+  sampleOptions,
 }: {
   moduleLabel: string;
   severities: SeverityKey[];
@@ -426,6 +468,7 @@ function ReviewStep({
   channelType: string;
   customTemplate: boolean;
   templateValue: string;
+  sampleOptions: SampleOption[];
 }) {
   return (
     <div>
@@ -472,14 +515,17 @@ function ReviewStep({
             One-shot test
           </p>
           <p className="mb-2.5 text-[11px] text-fg-subtle">
-            Fires the exact configured alert (with sample data) to{" "}
-            <code className="font-mono text-fg-muted">{channelName}</code> right now.
+            Fires the picked sample event through{" "}
+            <code className="font-mono text-fg-muted">{channelName}</code> right now
+            {customTemplate ? " using your custom template." : " using the channel's default template — no template setup needed."}
+            {sampleOptions.length > 1 && " Pick which event shape to preview:"}
           </p>
           <TestSendButton
             channelNames={[channelName]}
             template={customTemplate ? templateValue : ""}
             channelType={channelType}
             contextKind="event"
+            sampleOptions={sampleOptions}
           />
         </div>
       )}
