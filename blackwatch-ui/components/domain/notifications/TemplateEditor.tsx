@@ -19,6 +19,10 @@ const SAMPLE_EVENTS: Array<{ value: PreviewSampleKind; label: string }> = [
   { value: "ssh_failure", label: "SSH failed login" },
   { value: "iam_key_created", label: "IAM access key created" },
   { value: "rds_auth_failure", label: "RDS proxy auth failure" },
+  { value: "service_down", label: "ECS: service went down" },
+  { value: "service_degraded", label: "ECS: service degraded" },
+  { value: "service_up", label: "ECS: service recovered" },
+  { value: "probe_agent_stale", label: "ECS: probe agent stale" },
 ];
 
 type SampleSource = "canned" | "recent";
@@ -64,6 +68,9 @@ export function TemplateEditor({
   contextKind = "event",
   perfContext,
   onValueChange,
+  sampleOptions,
+  sample: sampleProp,
+  onSampleChange,
 }: {
   name: string;
   channelType: string;
@@ -78,6 +85,15 @@ export function TemplateEditor({
   /** "event" (default) → templates render with event.* shape.
    *  "perf" → flat context (hostname / threshold / current_value / …). */
   contextKind?: TemplateContextKind;
+  /** Overrides the built-in SAMPLE_EVENTS list in the preview's "canned
+   *  sample" dropdown — pass module-appropriate samples so the operator
+   *  isn't wading through irrelevant ones. */
+  sampleOptions?: Array<{ value: PreviewSampleKind; label: string }>;
+  /** Controlled sample kind. When provided together with onSampleChange,
+   *  the wizard owns the state — lets a Send-test button next to the editor
+   *  fire whatever sample the operator is currently previewing. */
+  sample?: PreviewSampleKind;
+  onSampleChange?: (kind: PreviewSampleKind) => void;
   /** Wizard's live form values (metric, threshold, window, …) — merged onto
    *  the server's perf preview sample so what you see matches the rule
    *  you're actually building. Only honored when contextKind === "perf". */
@@ -91,9 +107,23 @@ export function TemplateEditor({
   const [preview, setPreview] = useState<string>("");
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sampleSource, setSampleSource] = useState<SampleSource>("canned");
-  const [sample, setSample] = useState<PreviewSampleKind>(
-    contextKind === "perf" ? "perf_alert" : "vpn_failure",
-  );
+
+  // Effective sample list — either the module-scoped one the wizard passed
+  // in, or the fully-generic SAMPLE_EVENTS catalog.
+  const effectiveSampleOptions = sampleOptions ?? SAMPLE_EVENTS;
+  const defaultSample: PreviewSampleKind =
+    effectiveSampleOptions[0]?.value
+    ?? (contextKind === "perf" ? "perf_alert" : "vpn_failure");
+
+  // Controlled by the parent when both `sample` and `onSampleChange` are set;
+  // otherwise TemplateEditor owns its own state (existing callers unchanged).
+  const [internalSample, setInternalSample] = useState<PreviewSampleKind>(defaultSample);
+  const controlled = sampleProp !== undefined && onSampleChange !== undefined;
+  const sample = controlled ? (sampleProp as PreviewSampleKind) : internalSample;
+  const setSample = (kind: PreviewSampleKind) => {
+    if (controlled) onSampleChange!(kind);
+    else setInternalSample(kind);
+  };
   const [recentEvents, setRecentEvents] = useState<RecentEventSample[]>([]);
   const [recentEventId, setRecentEventId] = useState<string>("");
   const [recentLoading, setRecentLoading] = useState(false);
@@ -384,7 +414,7 @@ export function TemplateEditor({
                 onChange={(e) => setSample(e.target.value as PreviewSampleKind)}
                 className="border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
               >
-                {SAMPLE_EVENTS.map((s) => (
+                {effectiveSampleOptions.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>

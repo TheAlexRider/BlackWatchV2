@@ -9,6 +9,7 @@ import type {
   Route,
   SeverityKey,
 } from "@/lib/types";
+import type { PreviewSampleKind } from "@/lib/api";
 
 import { Button } from "@/components/ui/Button";
 import { SelectableCard } from "@/components/ui/SelectableCard";
@@ -96,12 +97,22 @@ export function AlertWizard({
     new Set(existing?.severities ?? []),
   );
   const [channel, setChannel] = useState<string>(existing?.channel ?? "");
-  const [useCustomTemplate, setUseCustomTemplate] = useState<boolean>(
-    !!existing?.message_template,
-  );
   const [templateValue, setTemplateValue] = useState<string>(
     existing?.message_template ?? "",
   );
+
+  // Sample event the operator is previewing — shared across the Message
+  // and Review steps so the same choice drives both the live preview and
+  // the Send-test button. Seeded from the first module-appropriate sample.
+  const moduleSamples = useMemo(() => samplesFor(module), [module]);
+  const [sample, setSample] = useState<PreviewSampleKind>(moduleSamples[0].value);
+  // If the operator changes the source module and the current sample no
+  // longer applies, re-seed to the first sample for the new module.
+  useMemo(() => {
+    if (!moduleSamples.some((o) => o.value === sample)) {
+      setSample(moduleSamples[0].value);
+    }
+  }, [moduleSamples, sample]);
 
   const selectedModule = useMemo(
     () => catalog.find((m) => m.key === module) ?? null,
@@ -142,9 +153,10 @@ export function AlertWizard({
       {Array.from(severities).map((s) => (
         <input key={s} type="hidden" name="severity" value={s} />
       ))}
-      {!useCustomTemplate && (
-        <input type="hidden" name="message_template" value="" />
-      )}
+      {/* Empty template = server falls back to the channel's default. That's
+          the "no setup needed" path: ECS/perf events carry their own
+          extra.message which the channel default renders verbatim. */}
+      <input type="hidden" name="message_template" value={templateValue} />
 
       <Wizard
         backHref="/notifications"
@@ -197,11 +209,12 @@ export function AlertWizard({
           <MessageStep
             channelName={channel}
             channelType={selectedChannel?.type ?? "slack"}
-            enabled={useCustomTemplate}
-            onToggle={setUseCustomTemplate}
             defaultValue={existing?.message_template ?? ""}
+            templateValue={templateValue}
             onValueChange={setTemplateValue}
-            sampleOptions={samplesFor(module)}
+            sampleOptions={moduleSamples}
+            sample={sample}
+            onSampleChange={setSample}
           />
         </div>
         <div hidden={step !== 5}>
@@ -210,9 +223,8 @@ export function AlertWizard({
             severities={Array.from(severities)}
             channelName={channel}
             channelType={selectedChannel?.type ?? "slack"}
-            customTemplate={useCustomTemplate}
             templateValue={templateValue}
-            sampleOptions={samplesFor(module)}
+            sample={sample}
           />
         </div>
       </Wizard>
@@ -373,76 +385,57 @@ function ChannelStep({
 function MessageStep({
   channelName,
   channelType,
-  enabled,
-  onToggle,
   defaultValue,
+  templateValue,
   onValueChange,
   sampleOptions,
+  sample,
+  onSampleChange,
 }: {
   channelName: string;
   channelType: string;
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
   defaultValue: string;
+  templateValue: string;
   onValueChange: (v: string) => void;
   sampleOptions: SampleOption[];
+  sample: PreviewSampleKind;
+  onSampleChange: (kind: PreviewSampleKind) => void;
 }) {
   return (
     <div>
       <WizardStepHeader
-        title="Customize the message (optional)"
-        subtitle="By default the channel's own template is used. Toggle on to write a per-rule template with variables, a live preview against sample events (or a real recent event), and a Send-test button."
+        title="Message"
+        subtitle="Pick a preset or write your own. The preview updates live against the sample event you pick below. Leave everything empty to use the channel's built-in formatting — recommended for ECS/perf events that already ship pre-formatted bodies."
       />
 
-      <label
-        className={
-          enabled
-            ? "flex cursor-pointer items-center gap-3 border border-signal bg-signal/5 px-4 py-3 text-sm text-fg transition-colors"
-            : "flex cursor-pointer items-center gap-3 border border-line-soft bg-canvas px-4 py-3 text-sm text-fg-muted transition-colors hover:bg-surface-2"
-        }
-      >
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => onToggle(e.currentTarget.checked)}
-          className="sr-only"
-        />
-        <span
-          aria-hidden
-          className={
-            enabled
-              ? "h-2 w-2 shrink-0 rounded-full border border-signal bg-signal transition-colors"
-              : "h-2 w-2 shrink-0 rounded-full border border-fg-subtle bg-transparent transition-colors"
-          }
-        />
-        <span>Use a custom message for this route</span>
-      </label>
+      <TemplateEditor
+        name="message_template"
+        channelType={channelType}
+        defaultValue={defaultValue}
+        onValueChange={onValueChange}
+        sampleOptions={sampleOptions}
+        sample={sample}
+        onSampleChange={onSampleChange}
+      />
 
-      {enabled && (
-        <div className="mt-5 space-y-4">
-          <TemplateEditor
-            name="message_template"
+      {channelName && (
+        <div className="mt-6 border-t border-line-soft pt-5">
+          <p className="mb-2 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+            Test-send this message
+          </p>
+          <p className="mb-2.5 text-[11px] text-fg-subtle">
+            Delivers the currently-previewed sample to{" "}
+            <code className="font-mono text-fg-muted">{channelName}</code> using
+            the template above (or the channel default if empty). Change the
+            sample from the preview dropdown to test each event type.
+          </p>
+          <TestSendButton
+            channelNames={[channelName]}
+            template={templateValue}
             channelType={channelType}
-            defaultValue={defaultValue}
-            onValueChange={onValueChange}
+            contextKind="event"
+            sampleEvent={sample}
           />
-          {channelName && (
-            <div className="border-t border-line-soft pt-4">
-              <p className="mb-2 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                Test-send this message
-              </p>
-              <p className="mb-2.5 text-[11px] text-fg-subtle">
-                Delivers the rendered template to <code className="font-mono text-fg-muted">{channelName}</code> so you can see the real message land before saving.
-              </p>
-              <TestSendButton
-                channelNames={[channelName]}
-                template={defaultValue}
-                channelType={channelType}
-                contextKind="event"
-                sampleOptions={sampleOptions}
-              />
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -458,18 +451,17 @@ function ReviewStep({
   severities,
   channelName,
   channelType,
-  customTemplate,
   templateValue,
-  sampleOptions,
+  sample,
 }: {
   moduleLabel: string;
   severities: SeverityKey[];
   channelName: string;
   channelType: string;
-  customTemplate: boolean;
   templateValue: string;
-  sampleOptions: SampleOption[];
+  sample: PreviewSampleKind;
 }) {
+  const customTemplate = templateValue.trim().length > 0;
   return (
     <div>
       <WizardStepHeader
@@ -515,17 +507,16 @@ function ReviewStep({
             One-shot test
           </p>
           <p className="mb-2.5 text-[11px] text-fg-subtle">
-            Fires the picked sample event through{" "}
+            Fires the sample event picked in the Message step through{" "}
             <code className="font-mono text-fg-muted">{channelName}</code> right now
             {customTemplate ? " using your custom template." : " using the channel's default template — no template setup needed."}
-            {sampleOptions.length > 1 && " Pick which event shape to preview:"}
           </p>
           <TestSendButton
             channelNames={[channelName]}
-            template={customTemplate ? templateValue : ""}
+            template={templateValue}
             channelType={channelType}
             contextKind="event"
-            sampleOptions={sampleOptions}
+            sampleEvent={sample}
           />
         </div>
       )}
