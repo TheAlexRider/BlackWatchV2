@@ -83,6 +83,7 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="w-20 px-4 py-2 text-left font-normal">Env</th>
           <th className="w-32 px-4 py-2 text-left font-normal">Role</th>
+          <th className="w-36 px-4 py-2 text-left font-normal">Name</th>
           <th className="w-36 px-4 py-2 text-left font-normal">Instance</th>
           <th className="w-32 px-4 py-2 text-left font-normal">Hostname</th>
           <th className="w-28 px-4 py-2 text-left font-normal">Agent</th>
@@ -108,7 +109,18 @@ function InstancesTable({ servers }: { servers: HostSummary[] }) {
             <td className="truncate px-4 py-2.5">
               <Link
                 href={`/hosts/${s.instance_id}`}
-                className="font-mono text-xs text-fg transition-colors hover:text-signal"
+                className="text-xs text-fg transition-colors hover:text-signal"
+                title="Set on the host detail page"
+              >
+                {s.display_name ?? (
+                  <span className="text-fg-disabled">—</span>
+                )}
+              </Link>
+            </td>
+            <td className="truncate px-4 py-2.5">
+              <Link
+                href={`/hosts/${s.instance_id}`}
+                className="font-mono text-xs text-fg-muted transition-colors hover:text-signal"
               >
                 {s.instance_id}
               </Link>

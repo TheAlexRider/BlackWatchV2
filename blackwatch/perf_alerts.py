@@ -101,12 +101,25 @@ def evaluate(event: Event) -> list[Event]:
 
 
 def _rule_targets_instance(rule: dict, instance_id: str, tags: dict) -> bool:
-    if rule.get("instance_id") and rule["instance_id"] == instance_id:
-        return True
+    """Match the heartbeat's instance against the rule's scope.
+
+    Precedence (see sql/030_perf_alert_multi_instance.sql):
+      1. instance_ids non-empty  → hit if instance_id ∈ list  (multi-instance)
+      2. instance_id set          → exact match               (single-instance)
+      3. tag_key + tag_value      → tag match                 (fleet by tag)
+      4. everything else falsy    → matches every host        (all-scope)
+    """
+    ids = rule.get("instance_ids") or []
+    if ids:
+        return instance_id in ids
+    if rule.get("instance_id"):
+        return rule["instance_id"] == instance_id
     tk, tv = rule.get("tag_key"), rule.get("tag_value")
-    if tk and tv is not None and tags.get(tk) == tv:
-        return True
-    return False
+    if tk and tv is not None:
+        return tags.get(tk) == tv
+    # No scope set at all → all-instance rule (explicit opt-in via the API,
+    # which allows all four fields to be empty only when scope=all).
+    return True
 
 
 # --- metric extraction ------------------------------------------------------
@@ -241,12 +254,25 @@ def _make_alert_event(
         f"for {minutes}m (current: {current_value:.1f}%)"
     )
     tags_map = (heartbeat.extra or {}).get("tags") or {}
+    # Resolve display: user-set display_name > DNS hostname > instance_id.
+    # Reading from storage is cheap (one row lookup) and only happens when a
+    # perf alert actually fires, so it stays off the heartbeat hot path.
+    display = None
+    try:
+        row = storage.get_host_status(instance_id)
+        if row:
+            display = row.get("display_name")
+    except Exception:
+        display = None
+    heartbeat_host = (heartbeat.target.name if heartbeat.target else None)
+    resolved_hostname = display or heartbeat_host or instance_id
     msg = _render_message(
         rule.get("message_template"),
         auto_msg,
         {
             "instance_id": instance_id,
-            "hostname": (heartbeat.target.name if heartbeat.target else None) or instance_id,
+            "hostname": resolved_hostname,
+            "display_name": display,
             "metric": rule["metric"],
             "metric_label": _metric_label(rule["metric"]),
             "threshold": rule["threshold"],
@@ -259,18 +285,30 @@ def _make_alert_event(
             "tags": tags_map,
         },
     )
+    # Rebuild the event's target with the resolved friendly name so channel
+    # templates that reference `event.target.name` render "Prod-NAT" instead
+    # of "ip-172-16-1-97.us-west-1.compute.internal" or the raw instance id.
+    # Keep the original target's other fields; only `name` gets promoted.
+    from .event import Target as _Target
+    friendly_target = _Target(
+        id=(heartbeat.target.id if heartbeat.target else instance_id),
+        type=(heartbeat.target.type if heartbeat.target else "ec2.instance"),
+        name=resolved_hostname,
+    )
     return Event(
         source=heartbeat.source,
         event_time=heartbeat.event_time,
         category=Category.host,
         action="host.perf.alert",
         outcome=Outcome.failure,
-        target=heartbeat.target,
+        target=friendly_target,
         severity=rule["severity"],
         extra={
             "instance_id": instance_id,
             "rule_id": rule["id"],
             "rule_name": rule["name"],
+            "display_name": display,
+            "hostname": resolved_hostname,
             "metric": rule["metric"],
             "metric_label": _metric_label(rule["metric"]),
             "threshold": float(rule["threshold"]),

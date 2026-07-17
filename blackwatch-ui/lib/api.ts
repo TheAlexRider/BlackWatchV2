@@ -180,6 +180,37 @@ export async function fetchHostDetail(
   return (await res.json()) as HostDetailResponse;
 }
 
+// Set the user-editable friendly name for a host. Client-callable — uses a
+// relative URL so the browser's cookie is attached. Server clears the name
+// on empty/null so callers can wipe it back to "hostname > id" fallback.
+export async function setHostDisplayName(
+  instanceId: string,
+  displayName: string | null,
+): Promise<{ instance_id: string; display_name: string | null }> {
+  const res = await fetch(
+    `/api/hosts/${encodeURIComponent(instanceId)}/display-name`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: displayName }),
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) throw new Error(`setHostDisplayName failed: ${res.status}`);
+  return await res.json();
+}
+
+// Resolve the display label for a host object across the UI. Single source
+// of truth: display_name > hostname > instance_id. Every list/card/select
+// that shows an instance should call this.
+export function hostLabel(host: {
+  display_name?: string | null;
+  hostname?: string | null;
+  instance_id: string;
+}): string {
+  return host.display_name || host.hostname || host.instance_id;
+}
+
 // --- File Integrity (FIM) -------------------------------------------------
 
 export async function fetchFimView(): Promise<FimViewResponse> {

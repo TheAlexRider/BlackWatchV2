@@ -630,6 +630,7 @@ export interface PostureFindingsResponse {
 export interface HostSummary {
   instance_id: string;
   hostname: string | null;
+  display_name: string | null;
   account: string | null;
   region: string | null;
   active: boolean;
@@ -804,6 +805,7 @@ export interface PerfAlertRule {
   instance_id: string | null;
   tag_key: string | null;
   tag_value: string | null;
+  instance_ids: string[];
   metric: PerfMetric;
   comparison: PerfComparison;
   threshold: number;
@@ -821,6 +823,7 @@ export interface PerfAlertRule {
 export interface PerfAlertInstance {
   instance_id: string;
   hostname: string | null;
+  display_name: string | null;
   tags: Record<string, string> | null;
 }
 
@@ -840,6 +843,7 @@ export interface PerfAlertsListResponse {
 export interface HostRecord {
   instance_id: string;
   hostname: string | null;
+  display_name: string | null;
   account: string | null;
   region: string | null;
   active: boolean;

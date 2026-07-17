@@ -37,27 +37,23 @@ _TIMEOUT = 10
 # Severity is often unset for routine telemetry. We bias toward NOT shouting
 # "UNSCORED" — when severity is missing, the friendly templates just omit it.
 
-_SEV_EMOJI = (
-    "{% if event.severity == 'critical' %}🚨"
-    "{% elif event.severity == 'high' %}⚠️"
-    "{% elif event.severity == 'medium' %}🟡"
-    "{% elif event.severity == 'low' %}🔵"
-    "{% else %}🔔{% endif %}"
-)
+# Severity emojis were removed from the default presets — operators can
+# reintroduce them via the template picker if they want. The old friendly
+# preset always prepended one which was not customisable and felt noisy.
 
 TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
     "slack": [
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English, emoji per severity. Easy to scan in a channel. "
+            "blurb": "Plain English, easy to scan in a channel. "
                      "Uses event.extra.message as the headline when present "
                      "(perf alerts, FIM events with rich descriptions).",
             "template": (
                 # Headline: rich message if the event provides one, else the
                 # raw action name. Most events set extra.message when they
                 # have something more informative than the action label.
-                f"{_SEV_EMOJI} *{{{{ event.extra.message or event.action }}}}*"
+                "*{{ event.extra.message or event.action }}*"
                 # Actor block — for events caused by a person.
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
@@ -74,7 +70,7 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Detailed",
             "blurb": "Multi-line with all key fields. Best for an alerts channel where each message stands alone.",
             "template": (
-                f"{_SEV_EMOJI} *{{{{ event.extra.message or event.action }}}}*\n"
+                "*{{ event.extra.message or event.action }}*\n"
                 "{% if event.actor.principal %}• *Who:* {{ event.actor.principal }}\n{% endif %}"
                 "{% if event.actor.source_ip %}• *From:* {{ event.actor.source_ip }}\n{% endif %}"
                 "• *When:* {{ event.event_time }}\n"
@@ -101,9 +97,9 @@ TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "Plain English, emoji per severity. Uses extra.message when available.",
+            "blurb": "Plain English. Uses extra.message when available.",
             "template": (
-                f"{_SEV_EMOJI} **{{{{ event.extra.message or event.action }}}}**"
+                "**{{ event.extra.message or event.action }}**"
                 "{% if event.actor.principal %} — `{{ event.actor.principal }}`{% endif %}"
                 "{% if event.actor.source_ip %} from `{{ event.actor.source_ip }}`{% endif %}"
                 "{% if event.extra.tags and event.extra.tags.role %}"
@@ -229,14 +225,6 @@ _DEFAULT_TEMPLATES: dict[str, str] = {
 # instead of the event.* shape. Presets here reference those flat vars so
 # the operator gets ready-to-use starter templates. The picker in the perf
 # wizard fetches these via ?context_kind=perf.
-_SEV_EMOJI_FLAT = (
-    "{% if severity == 'critical' %}🚨"
-    "{% elif severity == 'high' %}⚠️"
-    "{% elif severity == 'medium' %}🟡"
-    "{% elif severity == 'low' %}🔵"
-    "{% else %}🔔{% endif %}"
-)
-
 PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
     "slack": [
         {
@@ -244,7 +232,7 @@ PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Friendly (recommended)",
             "blurb": "One line: what fired, on which host, at what value.",
             "template": (
-                f"{_SEV_EMOJI_FLAT} *{{{{ metric_label }}}} at "
+                "*{{ metric_label }} at "
                 "{{ '%.1f' | format(current_value) }}%* on `{{ hostname }}`"
                 " _(threshold {{ threshold }}%, {{ window_minutes }}m)_"
             ),
@@ -254,7 +242,7 @@ PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
             "name": "Detailed",
             "blurb": "Multi-line — rule name, value, host, tags.",
             "template": (
-                f"{_SEV_EMOJI_FLAT} *{{{{ rule_name }}}}*\n"
+                "*{{ rule_name }}*\n"
                 "• *Metric:* {{ metric_label }}\n"
                 "• *Value:* {{ '%.1f' | format(current_value) }}% "
                 "(threshold {{ threshold }}%)\n"
@@ -278,9 +266,9 @@ PERF_TEMPLATE_PRESETS: dict[str, list[dict[str, str]]] = {
         {
             "id": "friendly",
             "name": "Friendly (recommended)",
-            "blurb": "One line, emoji per severity.",
+            "blurb": "One line.",
             "template": (
-                f"{_SEV_EMOJI_FLAT} **{{{{ metric_label }}}} at "
+                "**{{ metric_label }} at "
                 "{{ '%.1f' | format(current_value) }}%** on `{{ hostname }}`"
                 " _(threshold {{ threshold }}%, {{ window_minutes }}m)_"
             ),

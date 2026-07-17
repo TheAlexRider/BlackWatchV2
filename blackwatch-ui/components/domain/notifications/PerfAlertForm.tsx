@@ -12,7 +12,7 @@ import type {
   PerfComparison,
   PerfSeverity,
 } from "@/lib/types";
-import type { PerfPreviewContext } from "@/lib/api";
+import { hostLabel, type PerfPreviewContext } from "@/lib/api";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
@@ -93,6 +93,16 @@ function uniqueTagPairs(instances: PerfAlertInstance[]): string[] {
   return Array.from(set).sort();
 }
 
+type Scope = "instance" | "instances" | "tag" | "all";
+
+function initialScopeFor(rule?: PerfAlertRule): Scope {
+  if (!rule) return "instance";
+  if (rule.instance_ids && rule.instance_ids.length > 0) return "instances";
+  if (rule.tag_key) return "tag";
+  if (rule.instance_id) return "instance";
+  return "all";
+}
+
 export function PerfAlertForm({
   mode,
   rule,
@@ -106,11 +116,12 @@ export function PerfAlertForm({
   channels: PerfAlertChannel[];
   action: (fd: FormData) => Promise<void>;
 }) {
-  const initialScope: "instance" | "tag" = rule?.tag_key ? "tag" : "instance";
-
   // Edit mode jumps straight to Review — matches AlertWizard's behavior.
   const [step, setStep] = useState<Step>(rule ? 6 : 1);
-  const [scope, setScope] = useState<"instance" | "tag">(initialScope);
+  const [scope, setScope] = useState<Scope>(initialScopeFor(rule));
+  const [instanceIds, setInstanceIds] = useState<string[]>(
+    rule?.instance_ids ?? [],
+  );
   const [metric, setMetric] = useState<PerfMetric>(
     (rule?.metric as PerfMetric) ?? "memory_pct",
   );
@@ -151,22 +162,27 @@ export function PerfAlertForm({
   const suggestedName = useMemo(() => {
     const metricLabel = METRIC_OPTIONS.find((m) => m.value === metric)?.label ?? metric;
     const op = { gte: "≥", gt: ">", lte: "≤", lt: "<" }[comparison] ?? "≥";
-    const scopeLabel =
-      scope === "instance"
-        ? instanceId
-          ? instances.find((i) => i.instance_id === instanceId)?.hostname ?? instanceId
-          : null
-        : tagSpec.includes("=")
-          ? tagSpec
-          : null;
+    let scopeLabel: string | null = null;
+    if (scope === "instance" && instanceId) {
+      const i = instances.find((x) => x.instance_id === instanceId);
+      scopeLabel = i ? hostLabel(i) : instanceId;
+    } else if (scope === "instances" && instanceIds.length > 0) {
+      scopeLabel = `${instanceIds.length} hosts`;
+    } else if (scope === "tag" && tagSpec.includes("=")) {
+      scopeLabel = tagSpec;
+    } else if (scope === "all") {
+      scopeLabel = "all hosts";
+    }
     const base = `${metricLabel} ${op} ${threshold}% for ${windowMinutes}m`;
     return scopeLabel ? `${base} on ${scopeLabel}` : base;
-  }, [metric, comparison, scope, instanceId, tagSpec, threshold, windowMinutes, instances]);
+  }, [metric, comparison, scope, instanceId, instanceIds, tagSpec, threshold, windowMinutes, instances]);
 
   const effectiveName = name.trim() || suggestedName;
 
   const scopeValid =
+    scope === "all" ||
     (scope === "instance" && instanceId.trim() !== "") ||
+    (scope === "instances" && instanceIds.length > 0) ||
     (scope === "tag" && tagSpec.includes("=") && tagSpec.split("=")[1].trim() !== "");
   const channelValid = selectedChannels.length > 0;
   const metricValid = !!metric;
@@ -194,15 +210,24 @@ export function PerfAlertForm({
 
   const opText = { gte: "≥", gt: ">", lte: "≤", lt: "<" }[comparison] ?? "≥";
   const breachPct = Math.round(breachRatio * 100);
-  const previewScope =
-    scope === "instance"
-      ? instanceId
-        ? instances.find((i) => i.instance_id === instanceId)?.hostname ??
-          instanceId
-        : "(no instance)"
-      : tagSpec.includes("=")
-        ? tagSpec
-        : "(no tag)";
+  const previewScope = (() => {
+    if (scope === "all") return "all hosts";
+    if (scope === "instance") {
+      if (!instanceId) return "(no instance)";
+      const i = instances.find((x) => x.instance_id === instanceId);
+      return i ? hostLabel(i) : instanceId;
+    }
+    if (scope === "instances") {
+      if (instanceIds.length === 0) return "(no instances)";
+      const labels = instanceIds.map((id) => {
+        const i = instances.find((x) => x.instance_id === id);
+        return i ? hostLabel(i) : id;
+      });
+      if (labels.length <= 3) return labels.join(", ");
+      return `${labels.slice(0, 3).join(", ")} +${labels.length - 3} more`;
+    }
+    return tagSpec.includes("=") ? tagSpec : "(no tag)";
+  })();
   const metricLabel =
     METRIC_OPTIONS.find((m) => m.value === metric)?.label ?? metric;
 
@@ -215,9 +240,12 @@ export function PerfAlertForm({
 
   // Build the live perf preview context from the wizard's form state so
   // preview + test-send show the exact rule being built (metric_label,
-  // threshold, window, comparison, severity, scope). Instance/tag scope also
-  // flows through as hostname/instance_id/tags so `{{ hostname }}` renders.
+  // threshold, window, comparison, severity, scope). Scope flows through as
+  // hostname/instance_id/tags so `{{ hostname }}` renders.
   const currentInstance = instances.find((i) => i.instance_id === instanceId);
+  const firstMultiInstance = instances.find(
+    (i) => instanceIds.length > 0 && i.instance_id === instanceIds[0],
+  );
   const perfContext: PerfPreviewContext = useMemo(() => {
     const ctx: PerfPreviewContext = {
       metric,
@@ -228,11 +256,19 @@ export function PerfAlertForm({
       severity,
       rule_name: effectiveName,
     };
-    if (scope === "instance" && currentInstance) {
-      ctx.hostname = currentInstance.hostname ?? currentInstance.instance_id;
-      ctx.instance_id = currentInstance.instance_id;
-      if (currentInstance.tags && Object.keys(currentInstance.tags).length > 0) {
-        ctx.tags = currentInstance.tags;
+    // For each scope, pick a representative host so the preview has real
+    // hostname/tags/instance_id to render. Multi-scope uses the first
+    // selected instance; all-scope picks whatever's first in the list.
+    let pick: PerfAlertInstance | undefined;
+    if (scope === "instance") pick = currentInstance;
+    else if (scope === "instances") pick = firstMultiInstance;
+    else if (scope === "all") pick = instances[0];
+
+    if (pick) {
+      ctx.hostname = hostLabel(pick);
+      ctx.instance_id = pick.instance_id;
+      if (pick.tags && Object.keys(pick.tags).length > 0) {
+        ctx.tags = pick.tags;
       }
     } else if (scope === "tag" && tagSpec.includes("=")) {
       const [k, ...vparts] = tagSpec.split("=");
@@ -250,6 +286,8 @@ export function PerfAlertForm({
     effectiveName,
     scope,
     currentInstance,
+    firstMultiInstance,
+    instances,
     tagSpec,
   ]);
 
@@ -269,6 +307,10 @@ export function PerfAlertForm({
       {scope === "instance" && (
         <input type="hidden" name="instance_id" value={instanceId} />
       )}
+      {scope === "instances" &&
+        instanceIds.map((id) => (
+          <input key={id} type="hidden" name="instance_ids" value={id} />
+        ))}
       {scope === "tag" && (
         <input type="hidden" name="tag_spec" value={tagSpec} />
       )}
@@ -330,6 +372,15 @@ export function PerfAlertForm({
             onScope={setScope}
             instanceId={instanceId}
             onInstanceId={setInstanceId}
+            instanceIds={instanceIds}
+            onInstanceIdsToggle={(id, next) =>
+              setInstanceIds((prev) =>
+                next ? [...prev, id] : prev.filter((x) => x !== id),
+              )
+            }
+            onInstanceIdsSetAll={(all) =>
+              setInstanceIds(all ? instances.map((i) => i.instance_id) : [])
+            }
             instances={instances}
             tagSpec={tagSpec}
             onTagSpec={setTagSpec}
@@ -564,25 +615,34 @@ function ScopeStep({
   onScope,
   instanceId,
   onInstanceId,
+  instanceIds,
+  onInstanceIdsToggle,
+  onInstanceIdsSetAll,
   instances,
   tagSpec,
   onTagSpec,
   tagPairs,
 }: {
-  scope: "instance" | "tag";
-  onScope: (s: "instance" | "tag") => void;
+  scope: Scope;
+  onScope: (s: Scope) => void;
   instanceId: string;
   onInstanceId: (id: string) => void;
+  instanceIds: string[];
+  onInstanceIdsToggle: (id: string, next: boolean) => void;
+  onInstanceIdsSetAll: (all: boolean) => void;
   instances: PerfAlertInstance[];
   tagSpec: string;
   onTagSpec: (t: string) => void;
   tagPairs: string[];
 }) {
+  const allSelected =
+    instances.length > 0 && instanceIds.length === instances.length;
+
   return (
     <div>
       <WizardStepHeader
         title="Where should this rule apply?"
-        subtitle="One instance, or a fleet by tag. Tag scope catches every host that matches — good for env=prod style rules."
+        subtitle="One host, a set of hosts, everything with a tag, or the whole fleet. Instance names come from the hosts page; the ID is the fallback."
       />
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -593,7 +653,16 @@ function ScopeStep({
           checked={scope === "instance"}
           onChange={() => onScope("instance")}
           title="A specific instance"
-          description="One box, pinned by instance id."
+          description="One host, pinned by name."
+        />
+        <SelectableCard
+          type="radio"
+          name="scope-ui"
+          value="instances"
+          checked={scope === "instances"}
+          onChange={() => onScope("instances")}
+          title="Multiple specific instances"
+          description="Pick any set of hosts by name."
         />
         <SelectableCard
           type="radio"
@@ -602,12 +671,21 @@ function ScopeStep({
           checked={scope === "tag"}
           onChange={() => onScope("tag")}
           title="Instances matching a tag"
-          description="Fleet-wide — any host with this tag pair."
+          description="Fleet-wide — every host with the tag pair."
+        />
+        <SelectableCard
+          type="radio"
+          name="scope-ui"
+          value="all"
+          checked={scope === "all"}
+          onChange={() => onScope("all")}
+          title="All instances"
+          description="Every reporting host. Careful — this fires everywhere."
         />
       </div>
 
       <div className="mt-5">
-        {scope === "instance" ? (
+        {scope === "instance" && (
           <>
             <p className="mb-1.5 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               Instance
@@ -631,7 +709,61 @@ function ScopeStep({
               </p>
             )}
           </>
-        ) : (
+        )}
+
+        {scope === "instances" && (
+          <>
+            <div className="mb-2 flex items-baseline justify-between">
+              <p className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                Instances ({instanceIds.length} selected)
+              </p>
+              {instances.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onInstanceIdsSetAll(!allSelected)}
+                  className="text-[11px] text-signal hover:underline"
+                >
+                  {allSelected ? "Clear all" : "Select all"}
+                </button>
+              )}
+            </div>
+            {instances.length === 0 ? (
+              <p className="text-[11px] text-fg-subtle">
+                No instances reporting. Install the EC2 agent first.
+              </p>
+            ) : (
+              <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                {instances.map((i) => (
+                  <SelectableCard
+                    key={i.instance_id}
+                    type="checkbox"
+                    name="instance-multi-ui"
+                    value={i.instance_id}
+                    checked={instanceIds.includes(i.instance_id)}
+                    onChange={(next) => onInstanceIdsToggle(i.instance_id, next)}
+                    title={
+                      <span className="flex items-center gap-2">
+                        <span>{hostLabel(i)}</span>
+                        {i.tags?.env && (
+                          <code className="font-mono text-[10px] text-fg-subtle">
+                            env={i.tags.env}
+                          </code>
+                        )}
+                      </span>
+                    }
+                    description={
+                      i.hostname && i.hostname !== hostLabel(i)
+                        ? `${i.hostname} · ${i.instance_id}`
+                        : i.instance_id
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {scope === "tag" && (
           <>
             <p className="mb-1.5 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
               Tag pair
@@ -657,6 +789,14 @@ function ScopeStep({
               </p>
             )}
           </>
+        )}
+
+        {scope === "all" && (
+          <div className="border border-sev-medium/30 bg-sev-medium/5 px-4 py-3 text-xs text-fg-muted">
+            This rule will fire for every reporting host. Good for infra-wide
+            SLOs (e.g. "any host at 95% memory"). For a smaller blast radius,
+            pick a tag or a specific set of instances.
+          </div>
         )}
       </div>
     </div>
@@ -947,7 +1087,13 @@ function ReviewStep({
 }
 
 function labelFor(i: PerfAlertInstance): string {
+  // Primary label: display_name > hostname > id. Tag suffix for disambiguation
+  // when the same role is spread across env/prod/staging.
+  const primary = hostLabel(i);
   const tag = i.tags?.role ?? i.tags?.env;
-  const hostname = i.hostname ?? "";
-  return [i.instance_id, hostname, tag].filter(Boolean).join("  ·  ");
+  const parts = [primary];
+  if (i.hostname && i.hostname !== primary) parts.push(i.hostname);
+  parts.push(i.instance_id);
+  if (tag) parts.push(tag);
+  return parts.filter(Boolean).join("  ·  ");
 }

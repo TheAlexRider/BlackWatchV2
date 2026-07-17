@@ -38,6 +38,11 @@ function buildPayload(fd: FormData): Record<string, unknown> {
     tag_key = k.trim() || null;
     tag_value = vparts.join("=").trim();
   }
+  // Multi-select instance_ids arrives as N FormData entries with the same key.
+  const instanceIds =
+    scope === "instances"
+      ? fd.getAll("instance_ids").map((x) => String(x)).filter(Boolean)
+      : [];
   // Channels arrive as multiple FormData entries with the same key.
   const channels = fd.getAll("channels").map((c) => String(c)).filter(Boolean);
 
@@ -50,8 +55,10 @@ function buildPayload(fd: FormData): Record<string, unknown> {
     name: String(fd.get("name") ?? "").trim(),
     enabled: fd.get("enabled") !== "off",
     module: String(fd.get("module") ?? "ec2.host"),
+    scope, // "all" flips the API validator into fleet-wide mode
     instance_id:
       scope === "instance" ? (String(fd.get("instance_id") ?? "").trim() || null) : null,
+    instance_ids: instanceIds,
     tag_key,
     tag_value,
     metric: String(fd.get("metric") ?? "memory_pct"),

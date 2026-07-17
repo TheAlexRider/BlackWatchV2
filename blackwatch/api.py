@@ -474,6 +474,7 @@ def hosts_list() -> dict[str, Any]:
         servers.append({
             "instance_id": row["instance_id"],
             "hostname": row.get("hostname"),
+            "display_name": row.get("display_name"),
             "account": row.get("account"),
             "region": row.get("region"),
             "active": row.get("active"),
@@ -550,6 +551,22 @@ def host_detail(instance_id: str) -> dict[str, Any]:
         "fim_coverage": storage.get_fim_coverage(instance_id),
         "fim_recent_changes": storage.list_fim_history(instance_id, limit=50),
     }
+
+
+@router.put("/hosts/{instance_id}/display-name")
+def host_set_display_name(
+    instance_id: str, payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Set the user-editable friendly name for a host. Empty or missing
+    display_name clears it (falls back to hostname > instance_id in the UI).
+    Returns 404 if the host has never reported."""
+    if storage.get_host_status(instance_id) is None:
+        raise HTTPException(status_code=404, detail="host not found")
+    name = payload.get("display_name")
+    if name is not None and not isinstance(name, str):
+        raise HTTPException(status_code=400, detail="display_name must be a string")
+    storage.set_host_display_name(instance_id, name)
+    return {"instance_id": instance_id, "display_name": (name or "").strip() or None}
 
 
 # --- File Integrity Monitoring (FIM) top-level view -------------------------
@@ -682,6 +699,7 @@ def perf_alerts_list() -> dict[str, Any]:
         instances.append({
             "instance_id": h["instance_id"],
             "hostname": h.get("hostname"),
+            "display_name": h.get("display_name"),
             "tags": tags,
         })
     # Channels available — for the dropdown.
@@ -705,20 +723,38 @@ def perf_alerts_get(rule_id: str) -> dict[str, Any]:
     return rule
 
 
+def _perf_scope_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract scope-related fields from an incoming payload, normalising
+    empty strings/arrays to None/[]. Precedence matches
+    perf_alerts._rule_targets_instance."""
+    raw_ids = payload.get("instance_ids") or []
+    if not isinstance(raw_ids, list):
+        raw_ids = []
+    ids = [str(x).strip() for x in raw_ids if str(x).strip()]
+    return {
+        "instance_id": (payload.get("instance_id") or None),
+        "tag_key": (payload.get("tag_key") or None),
+        "tag_value": (payload.get("tag_value") or None),
+        "instance_ids": ids,
+    }
+
+
 @router.post("/perf-alerts")
 def perf_alerts_create(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Create a new perf alert rule. Validation is permissive on display
     fields (name, severity), strict on semantic fields (metric, scope)."""
     rule_id = payload.get("id") or str(__import__("uuid").uuid4())
     _validate_perf_payload(payload)
+    scope = _perf_scope_fields(payload)
     storage.upsert_perf_alert_rule(
         rule_id,
         name=str(payload["name"]).strip(),
         enabled=bool(payload.get("enabled", True)),
         module=payload.get("module") or "ec2.host",
-        instance_id=(payload.get("instance_id") or None),
-        tag_key=(payload.get("tag_key") or None),
-        tag_value=(payload.get("tag_value") or None),
+        instance_id=scope["instance_id"],
+        tag_key=scope["tag_key"],
+        tag_value=scope["tag_value"],
+        instance_ids=scope["instance_ids"],
         metric=payload["metric"],
         comparison=payload.get("comparison", "gte"),
         threshold=float(payload["threshold"]),
@@ -739,14 +775,16 @@ def perf_alerts_update(
     if storage.get_perf_alert_rule(rule_id) is None:
         raise HTTPException(status_code=404, detail="rule not found")
     _validate_perf_payload(payload)
+    scope = _perf_scope_fields(payload)
     storage.upsert_perf_alert_rule(
         rule_id,
         name=str(payload["name"]).strip(),
         enabled=bool(payload.get("enabled", True)),
         module=payload.get("module") or "ec2.host",
-        instance_id=(payload.get("instance_id") or None),
-        tag_key=(payload.get("tag_key") or None),
-        tag_value=(payload.get("tag_value") or None),
+        instance_id=scope["instance_id"],
+        tag_key=scope["tag_key"],
+        tag_value=scope["tag_value"],
+        instance_ids=scope["instance_ids"],
         metric=payload["metric"],
         comparison=payload.get("comparison", "gte"),
         threshold=float(payload["threshold"]),
@@ -912,19 +950,34 @@ def _validate_perf_payload(p: dict[str, Any]) -> None:
         )
     if p.get("threshold") is None:
         raise HTTPException(status_code=400, detail="threshold is required")
-    # Scope: must pick instance OR tag pair (avoid fleet-wide alerts by
-    # accident — easy to add explicitly later if needed).
+    # Scope options (matches perf_alerts._rule_targets_instance):
+    #   instance_ids: multi-instance                (non-empty JSON list)
+    #   instance_id : single specific instance     (legacy single-instance)
+    #   tag_key/value: tag-matched fleet
+    #   scope=all   : matches every host           (opt-in via explicit flag)
+    # Only one scope may be set at a time. "all" requires no other fields.
+    scope_flag = str(p.get("scope") or "").lower()
     has_instance = bool(p.get("instance_id"))
     has_tag = bool(p.get("tag_key")) and p.get("tag_value") is not None
-    if not has_instance and not has_tag:
+    ids = p.get("instance_ids") or []
+    has_ids = bool(ids) if isinstance(ids, list) else False
+    is_all = scope_flag == "all"
+
+    active = [n for n, v in (
+        ("instance", has_instance),
+        ("tag", has_tag),
+        ("instance_ids", has_ids),
+        ("all", is_all),
+    ) if v]
+    if len(active) == 0:
         raise HTTPException(
             status_code=400,
-            detail="scope required: either instance_id or (tag_key + tag_value)",
+            detail="scope required: instance_id, instance_ids, tag_key+tag_value, or scope=all",
         )
-    if has_instance and has_tag:
+    if len(active) > 1:
         raise HTTPException(
             status_code=400,
-            detail="scope conflict: set instance_id OR tag, not both",
+            detail=f"scope conflict: pick one — got {active}",
         )
     try:
         ws = int(p.get("window_seconds", 300))

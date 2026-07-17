@@ -441,7 +441,7 @@ def event_count_since(since: datetime) -> int:
 
 # --- EC2 host read-model -------------------------------------------------------
 
-_HOST_COLS = "instance_id, hostname, account, region, updated_at, active, extra, snapshots"
+_HOST_COLS = "instance_id, hostname, account, region, updated_at, active, extra, snapshots, display_name"
 
 
 def _host_row(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -454,7 +454,20 @@ def _host_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "active": row[5],
         "extra": row[6],
         "snapshots": row[7] if len(row) > 7 else None,
+        "display_name": row[8] if len(row) > 8 else None,
     }
+
+
+def set_host_display_name(instance_id: str, display_name: str | None) -> None:
+    """User-editable friendly name for a host. Setting to None (or empty)
+    clears it — the UI then falls back to hostname > instance_id. Called
+    from the API's PUT /hosts/{id}/name; never touched by the projection."""
+    name = (display_name or "").strip() or None
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE host_status SET display_name = %s WHERE instance_id = %s",
+            (name, instance_id),
+        )
 
 
 def list_host_status() -> list[dict[str, Any]]:
@@ -1181,7 +1194,7 @@ _PERF_COLS = (
     "window_seconds, min_breach_ratio, "
     "severity, channels, throttle_seconds, "
     "samples, last_fired_at, last_value, "
-    "message_template"
+    "message_template, instance_ids"
 )
 
 
@@ -1208,6 +1221,7 @@ def _perf_rule_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "last_fired_at": row[18],   # keep as datetime for evaluator math
         "last_value": float(row[19]) if row[19] is not None else None,
         "message_template": row[20],
+        "instance_ids": row[21] if (len(row) > 21 and row[21] is not None) else [],
     }
 
 
@@ -1258,10 +1272,17 @@ def upsert_perf_alert_rule(
     channels: list[str],
     throttle_seconds: int,
     message_template: str | None = None,
+    instance_ids: list[str] | None = None,
 ) -> None:
     """Create-or-update a rule. Evaluator state (samples, last_fired_at,
-    last_value) is NEVER touched here — that's owned by the evaluator."""
+    last_value) is NEVER touched here — that's owned by the evaluator.
+
+    instance_ids: optional list of specific instance ids the rule targets.
+    Non-empty list overrides instance_id/tag_key at match time (evaluator
+    checks it first). Empty list means "fall back to instance_id / tag_key /
+    all"."""
     tpl = (message_template or "").strip() or None
+    ids = [str(x).strip() for x in (instance_ids or []) if str(x).strip()]
     with get_pool().connection() as conn:
         conn.execute(
             """
@@ -1269,8 +1290,9 @@ def upsert_perf_alert_rule(
                 (id, name, enabled, module, instance_id, tag_key, tag_value,
                  metric, comparison, threshold,
                  window_seconds, min_breach_ratio,
-                 severity, channels, throttle_seconds, message_template)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 severity, channels, throttle_seconds, message_template,
+                 instance_ids)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 enabled = EXCLUDED.enabled,
@@ -1287,12 +1309,14 @@ def upsert_perf_alert_rule(
                 channels = EXCLUDED.channels,
                 throttle_seconds = EXCLUDED.throttle_seconds,
                 message_template = EXCLUDED.message_template,
+                instance_ids = EXCLUDED.instance_ids,
                 updated_at = NOW()
             """,
             (rule_id, name, enabled, module, instance_id, tag_key, tag_value,
              metric, comparison, threshold,
              window_seconds, min_breach_ratio,
-             severity, Jsonb(channels), throttle_seconds, tpl),
+             severity, Jsonb(channels), throttle_seconds, tpl,
+             Jsonb(ids)),
         )
 
 

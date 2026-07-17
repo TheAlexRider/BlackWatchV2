@@ -2,7 +2,8 @@ import Link from "next/link";
 import clsx from "clsx";
 import { ArrowLeft } from "lucide-react";
 
-import { fetchHostDetail } from "@/lib/api";
+import { fetchHostDetail, hostLabel } from "@/lib/api";
+import { HostDisplayNameEditor } from "@/components/domain/HostDisplayNameEditor";
 import type {
   HostRecord,
   HostSnapshots,
@@ -49,8 +50,12 @@ export default async function HostDetailPage({
       </div>
 
       <PageHeader
-        title={id}
-        subtitle={host?.hostname ?? "no hostname reported"}
+        title={host ? hostLabel({ ...host, instance_id: id }) : id}
+        subtitle={
+          host
+            ? [host.hostname, id].filter(Boolean).join(" · ")
+            : "no hostname reported"
+        }
       />
 
       {!host && (
@@ -208,6 +213,12 @@ function StatusSection({
                 )}
               </span>
             )}
+          </KeyValueRow>
+          <KeyValueRow label="Name">
+            <HostDisplayNameEditor
+              instanceId={host.instance_id}
+              initial={host.display_name ?? null}
+            />
           </KeyValueRow>
           <KeyValueRow label="Hostname">
             <span className="font-mono text-xs text-fg">{host.hostname ?? "—"}</span>
