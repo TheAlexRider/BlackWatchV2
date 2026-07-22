@@ -88,7 +88,12 @@ def evaluate(event: Event) -> list[Event]:
         metric_value = metrics.get(rule["metric"])
         if metric_value is None:
             continue
-        fired = _evaluate_one(rule, metric_value, now_ts)
+        # Per-host evaluation — the samples buffer holds tuples from every
+        # host that matches the rule's scope; breach ratio is computed against
+        # only the current host's slice. See docstring on _evaluate_one for
+        # why this matters (fleet-wide rules were previously diluted by quiet
+        # hosts and missed real single-host spikes).
+        fired = _evaluate_one(rule, metric_value, now_ts, instance_id)
         if fired:
             alert = _make_alert_event(event, instance_id, rule, metric_value)
             derived.append(alert)
@@ -174,25 +179,51 @@ def _extract_metrics(extra: dict) -> dict[str, float]:
 # --- per-rule evaluator -----------------------------------------------------
 
 
-def _evaluate_one(rule: dict, current_value: float, now_ts: float) -> bool:
-    """Returns True if the rule fires THIS tick. Always persists state."""
+def _evaluate_one(
+    rule: dict, current_value: float, now_ts: float, instance_id: str,
+) -> bool:
+    """Returns True if the rule fires THIS tick for `instance_id`. Always
+    persists state.
+
+    Per-host semantics: the samples buffer contains tuples from every host
+    that matches the rule's scope (relevant for tag-wide and all-hosts rules
+    where multiple hosts share the same buffer). Each sample is tagged with
+    `h` = the reporting instance_id. Breach ratio is computed against the
+    slice of the buffer for the CURRENT host only — that way a fleet-wide
+    rule fires when ANY single host has enough breach samples, instead of
+    getting averaged into inactivity by quiet neighbours.
+
+    Backward-compat: pre-fix samples missing `h` are treated as belonging to
+    the current host (safe default — they age out of the window naturally).
+    """
     breached = _compare(current_value, rule["threshold"], rule["comparison"])
     samples = list(rule.get("samples") or [])
-    samples.append({"t": now_ts, "b": bool(breached), "v": current_value})
+    samples.append({
+        "t": now_ts, "b": bool(breached), "v": current_value, "h": instance_id,
+    })
 
     cutoff = now_ts - max(60, int(rule["window_seconds"]))
     samples = [s for s in samples if float(s.get("t", 0)) >= cutoff]
 
-    # Defensive cap — see _MAX_SAMPLES_PER_RULE comment.
+    # Defensive cap — see _MAX_SAMPLES_PER_RULE comment. Applies to the WHOLE
+    # buffer (all hosts) so a very chatty fleet can't unboundedly grow one
+    # rule row. Per-host ratio is computed after this cap.
     if len(samples) > _MAX_SAMPLES_PER_RULE:
         samples = samples[-_MAX_SAMPLES_PER_RULE:]
+
+    # This-host slice of the buffer. Missing `h` (legacy sample) → assume
+    # current host so old data doesn't spuriously block a fresh fire.
+    host_samples = [
+        s for s in samples
+        if str(s.get("h", instance_id)) == instance_id
+    ]
 
     # Decide whether to fire BEFORE persisting state — last_fired_at must
     # only update on actual fire.
     fire = False
-    if len(samples) >= _MIN_SAMPLES_TO_EVAL:
-        breach_count = sum(1 for s in samples if s.get("b"))
-        ratio = breach_count / len(samples)
+    if len(host_samples) >= _MIN_SAMPLES_TO_EVAL:
+        breach_count = sum(1 for s in host_samples if s.get("b"))
+        ratio = breach_count / len(host_samples)
         if ratio >= float(rule["min_breach_ratio"]):
             # Throttle check.
             last_fired = rule.get("last_fired_at")
