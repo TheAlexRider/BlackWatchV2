@@ -260,7 +260,9 @@ def _project_heartbeat(event: Event, instance_id: str) -> list[Event]:
     # and normalized CPU load % only. Disk isn't rolled up because it drifts
     # day-over-day, not by the minute — perf-alert threshold breach covers
     # that case, no chart to add signal. Failing the rollup must NEVER break
-    # the projection or the alert path — swallow any exception.
+    # the projection or the alert path — but we DO log so class-of-bug like
+    # missing imports or SQL breakage doesn't hide silently the way the
+    # timezone-import bug did on first deploy.
     try:
         metrics = perf_alerts._extract_metrics(e)
         storage.upsert_host_metric_sample(
@@ -270,7 +272,10 @@ def _project_heartbeat(event: Event, instance_id: str) -> list[Event]:
             cpu_pct=metrics.get("cpu_load_norm"),
         )
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).exception(
+            "host_metrics rollup failed for instance %s", instance_id,
+        )
 
     return derived
 

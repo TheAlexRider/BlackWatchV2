@@ -3,7 +3,7 @@ touch SQL. Everything else speaks in Event objects / plain dicts."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from psycopg.types.json import Jsonb
