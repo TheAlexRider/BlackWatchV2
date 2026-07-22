@@ -181,14 +181,22 @@ export async function fetchHostDetail(
   return (await res.json()) as HostDetailResponse;
 }
 
-// Hourly memory/CPU/disk rollup for the chart on the host detail page.
+// Hourly memory/CPU rollup for the chart on the host detail page.
 // Server caps `hours` at the 9-day retention window (216).
+//
+// Called from a CLIENT component (HostMetricsChart), so this MUST use a
+// relative URL. The browser can't reach API_BASE (which is the Docker-
+// internal FastAPI hostname / localhost:8000) — Next.js's rewrite rule in
+// next.config.mjs proxies /api/* to the FastAPI server. Same pattern as
+// fetchTemplatePresets / previewTemplate / setHostDisplayName.
 export async function fetchHostMetrics(
   instanceId: string,
   hours: number = 48,
 ): Promise<HostMetricsResponse> {
-  const url = `${API_BASE}/api/hosts/${encodeURIComponent(instanceId)}/metrics?hours=${hours}`;
-  const res = await bwFetch(url);
+  const res = await fetch(
+    `/api/hosts/${encodeURIComponent(instanceId)}/metrics?hours=${hours}`,
+    { cache: "no-store" },
+  );
   if (!res.ok) {
     throw new Error(`fetchHostMetrics failed: ${res.status} ${res.statusText}`);
   }
