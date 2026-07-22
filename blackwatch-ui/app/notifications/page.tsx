@@ -428,7 +428,8 @@ function computeRouteState(r: Route): { label: string; className: string } {
 
 const METRIC_LABEL: Record<string, string> = {
   memory_pct: "Memory %",
-  cpu_load_norm: "CPU load (norm)",
+  cpu_utilization_pct: "CPU utilization %",
+  cpu_load_norm: "CPU load (queue)",
   disk_pct_max: "Disk %",
 };
 

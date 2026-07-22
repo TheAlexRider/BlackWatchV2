@@ -699,7 +699,12 @@ def fim_instance_view(instance_id: str) -> dict[str, Any]:
 
 # --- Performance alert rules ------------------------------------------------
 
-_VALID_PERF_METRICS = {"memory_pct", "cpu_load_norm", "disk_pct_max"}
+_VALID_PERF_METRICS = {
+    "memory_pct",
+    "cpu_load_norm",
+    "cpu_utilization_pct",
+    "disk_pct_max",
+}
 _VALID_PERF_COMPARISONS = {"gte", "gt", "lte", "lt"}
 _VALID_PERF_SEVERITIES = {"informational", "low", "medium", "high", "critical"}
 

@@ -802,6 +802,7 @@ export interface FimInstanceResponse {
 export type PerfMetric =
   | "memory_pct"
   | "cpu_load_norm"
+  | "cpu_utilization_pct"
   | "disk_pct_max";
 
 export type PerfComparison = "gte" | "gt" | "lte" | "lt";

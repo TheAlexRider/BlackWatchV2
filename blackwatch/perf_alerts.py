@@ -146,6 +146,16 @@ def _extract_metrics(extra: dict) -> dict[str, float]:
 
     cpu = extra.get("cpu")
     if isinstance(cpu, dict):
+        # True CPU utilization (0-100%) computed from /proc/stat delta in
+        # the agent. Matches CloudWatch's CPUUtilization. Prefer this for
+        # user-facing alert thresholds — load-normalized is a queue-depth
+        # signal that can exceed 100% under contention.
+        util = cpu.get("utilization_pct")
+        if util is not None:
+            try:
+                out["cpu_utilization_pct"] = float(util)
+            except (TypeError, ValueError):
+                pass
         load_norm = cpu.get("load_norm")
         if load_norm is None:
             try:
@@ -157,6 +167,8 @@ def _extract_metrics(extra: dict) -> dict[str, float]:
         if load_norm is not None:
             try:
                 # Represent as percentage: load_norm 1.0 = "100% busy".
+                # NOTE: can exceed 100 under contention — this is a queue-
+                # depth metric, not utilization. See cpu_utilization_pct.
                 out["cpu_load_norm"] = float(load_norm) * 100.0
             except (TypeError, ValueError):
                 pass
@@ -389,7 +401,8 @@ def _make_alert_event(
 def _metric_label(metric: str) -> str:
     return {
         "memory_pct": "Memory",
-        "cpu_load_norm": "CPU (normalized load)",
+        "cpu_utilization_pct": "CPU utilization",
+        "cpu_load_norm": "CPU load (queue depth)",
         "disk_pct_max": "Disk (worst mount)",
     }.get(metric, metric)
 

@@ -624,9 +624,54 @@ def snapshot_memory():
     }
 
 
+# Previous /proc/stat cpu-summary counters. Utilization needs a delta between
+# two samples — we cache the last read so each snapshot_cpu() call can compute
+# (active_delta / total_delta) since the previous call. First call after boot
+# has no previous, so utilization is reported as None (backend handles it).
+_LAST_CPU_STAT: tuple[int, int] | None = None  # (active_total, wall_total)
+
+
+def _read_cpu_utilization_pct() -> float | None:
+    """True 0-100% CPU utilization from /proc/stat, computed as a delta since
+    the last call. Idle + iowait counts as NOT working; everything else does.
+    This is what CloudWatch's CPUUtilization reports — capped at 100, based on
+    time actually spent doing work, not on queue depth."""
+    global _LAST_CPU_STAT
+    try:
+        # First line of /proc/stat is the aggregate CPU summary:
+        #   cpu  user nice system idle iowait irq softirq steal guest guest_nice
+        # Units = clock ticks since boot.
+        first = Path("/proc/stat").read_text().split("\n", 1)[0]
+    except Exception:
+        return None
+    parts = first.split()
+    if len(parts) < 5 or parts[0] != "cpu":
+        return None
+    try:
+        vals = [int(x) for x in parts[1:]]
+    except ValueError:
+        return None
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)   # idle + iowait
+    total = sum(vals)
+    active = total - idle
+    prev = _LAST_CPU_STAT
+    _LAST_CPU_STAT = (active, total)
+    if prev is None:
+        return None  # need two samples to compute a rate
+    active_delta = active - prev[0]
+    total_delta = total - prev[1]
+    if total_delta <= 0:
+        return None
+    pct = 100.0 * active_delta / total_delta
+    # Clamp to a sane range — small integer drift can produce -0.1 or 100.4.
+    return round(max(0.0, min(100.0, pct)), 1)
+
+
 def snapshot_cpu():
     """1/5/15-min load average + CPU count, plus load normalized by CPU count
-    (1.0 = fully utilized; >1.0 = oversubscribed). Cheap — two /proc reads."""
+    (1.0 = fully utilized; >1.0 = oversubscribed). Also true CPU utilization
+    from /proc/stat delta (0-100%, matches CloudWatch's CPUUtilization).
+    Cheap — three /proc reads."""
     try:
         parts = Path("/proc/loadavg").read_text().strip().split()
         load_1, load_5, load_15 = float(parts[0]), float(parts[1]), float(parts[2])
@@ -644,6 +689,9 @@ def snapshot_cpu():
         "cpu_count": cpu_count,
         "load_norm_1min": round(load_1 / cpu_count, 3),
         "load_norm_5min": round(load_5 / cpu_count, 3),
+        # True utilization — the "CloudWatch-style" number. None on first
+        # tick after boot (needs two samples for a delta).
+        "utilization_pct": _read_cpu_utilization_pct(),
     }
 
 
