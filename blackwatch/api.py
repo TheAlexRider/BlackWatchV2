@@ -553,6 +553,24 @@ def host_detail(instance_id: str) -> dict[str, Any]:
     }
 
 
+@router.get("/hosts/{instance_id}/metrics")
+def host_metrics_hourly(
+    instance_id: str,
+    hours: int = Query(default=48, ge=1, le=216),  # cap at 9-day retention
+) -> dict[str, Any]:
+    """Hourly rollup of memory / CPU / disk %. Used by the host detail
+    page's chart. Each row has min/avg/max per metric — draws as a band
+    with an avg line, CloudWatch-style. Returns oldest-first for direct
+    left-to-right chart rendering."""
+    rows = storage.list_host_metrics_hourly(instance_id, hours=hours)
+    return {
+        "instance_id": instance_id,
+        "hours": hours,
+        "count": len(rows),
+        "series": rows,
+    }
+
+
 @router.put("/hosts/{instance_id}/display-name")
 def host_set_display_name(
     instance_id: str, payload: dict[str, Any] = Body(...),

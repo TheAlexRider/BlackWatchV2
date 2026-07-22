@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { fetchHostDetail, hostLabel } from "@/lib/api";
 import { HostDisplayNameEditor } from "@/components/domain/HostDisplayNameEditor";
+import { HostMetricsChart } from "@/components/domain/HostMetricsChart";
 import type {
   HostRecord,
   HostSnapshots,
@@ -69,6 +70,8 @@ export default async function HostDetailPage({
       {host && (
         <>
           <StatusSection host={host} ageSeconds={age_seconds} stale={stale} />
+
+          <HostMetricsChart instanceId={host.instance_id} />
 
           {(host.extra?.active_sessions?.length ?? 0) > 0 && (
             <SessionsSection sessions={host.extra!.active_sessions!} />

@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 
 import { fetchPerfAlerts, fetchPerfAlert } from "@/lib/api";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { BackLink } from "@/components/ui/BackLink";
 import { PerfAlertForm } from "@/components/domain/notifications/PerfAlertForm";
 
 import { updatePerfAlertAction } from "../../actions";
 
+// PerfAlertForm renders the whole wizard shell (back link + title + stepper),
+// so this page is intentionally a bare passthrough — no PageHeader / BackLink
+// here or they'd double up.
 export default async function EditPerfAlertPage({
   params,
 }: {
@@ -23,27 +24,15 @@ export default async function EditPerfAlertPage({
     notFound();
   }
 
-  // bind the rule id into the action
   const action = updatePerfAlertAction.bind(null, id);
 
   return (
-    <>
-      <BackLink href="/notifications" label="back to notifications" />
-
-      <PageHeader
-        title="Edit performance alert"
-        subtitle={rule.name}
-      />
-
-      <div className="mt-4">
-        <PerfAlertForm
-          mode="edit"
-          rule={rule}
-          instances={list.instances}
-          channels={list.channels}
-          action={action}
-        />
-      </div>
-    </>
+    <PerfAlertForm
+      mode="edit"
+      rule={rule}
+      instances={list.instances}
+      channels={list.channels}
+      action={action}
+    />
   );
 }

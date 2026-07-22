@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Lock, ShieldAlert } from "lucide-react";
 
 import { Input } from "@/components/ui/Input";
@@ -101,15 +100,6 @@ export default async function LoginPage({
             <Lock size={12} /> Sign in
           </PendingButton>
         </form>
-
-        <p className="mt-8 text-[11px] text-fg-subtle">
-          First-time setup? The default account is <code className="text-fg-muted">admin</code>{" "}
-          / <code className="text-fg-muted">password</code>.{" "}
-          <Link href="/settings" className="text-signal hover:underline">
-            Change it in Settings
-          </Link>{" "}
-          right after you sign in.
-        </p>
       </div>
     </div>
   );

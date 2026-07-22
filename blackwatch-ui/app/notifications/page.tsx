@@ -8,11 +8,13 @@ import {
   fetchNotificationLog,
   fetchNotificationAcks,
   fetchPerfAlerts,
+  hostLabel,
 } from "@/lib/api";
 import type {
   NotificationChannel,
   NotificationLogEntry,
   NotificationAck,
+  PerfAlertInstance,
   PerfAlertRule,
   Route,
   SeverityKey,
@@ -114,7 +116,7 @@ export default async function NotificationsPage({
         label="metric routes"
         action={{ href: "/notifications/perf-alerts/new", label: "add metric" }}
       />
-      <MetricRoutesTable rules={perfData.rules} />
+      <MetricRoutesTable rules={perfData.rules} instances={perfData.instances} />
 
       {/* ACTIVITY */}
       <div className="mt-8 mb-2 flex items-baseline justify-between">
@@ -430,7 +432,17 @@ const METRIC_LABEL: Record<string, string> = {
   disk_pct_max: "Disk %",
 };
 
-function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
+function MetricRoutesTable({
+  rules,
+  instances,
+}: {
+  rules: PerfAlertRule[];
+  instances: PerfAlertInstance[];
+}) {
+  // Build a lookup so each row can resolve display_name > hostname > id
+  // without re-scanning the instance list per rule.
+  const byId = new Map(instances.map((i) => [i.instance_id, i]));
+
   return (
     <DataPanel className="overflow-hidden">
       {rules.length === 0 ? (
@@ -456,7 +468,7 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
           </thead>
           <tbody>
             {rules.map((r) => (
-              <MetricRow key={r.id} rule={r} />
+              <MetricRow key={r.id} rule={r} instancesById={byId} />
             ))}
           </tbody>
         </Table>
@@ -465,13 +477,40 @@ function MetricRoutesTable({ rules }: { rules: PerfAlertRule[] }) {
   );
 }
 
-function MetricRow({ rule: r }: { rule: PerfAlertRule }) {
+// Resolve a rule's scope into a human-readable string, using instance names
+// (display_name > hostname > id) instead of raw IDs. Matches the same
+// fallback logic hostLabel uses everywhere else.
+function scopeLabel(
+  r: PerfAlertRule,
+  instancesById: Map<string, PerfAlertInstance>,
+): string {
+  const ids = r.instance_ids ?? [];
+  if (ids.length > 0) {
+    const names = ids.map((id) => {
+      const inst = instancesById.get(id);
+      return inst ? hostLabel(inst) : id;
+    });
+    // Compact past 3 to keep the trigger cell readable.
+    if (names.length <= 3) return names.join(", ");
+    return `${names.slice(0, 3).join(", ")} +${names.length - 3} more`;
+  }
+  if (r.instance_id) {
+    const inst = instancesById.get(r.instance_id);
+    return inst ? hostLabel(inst) : r.instance_id;
+  }
+  if (r.tag_key) return `tag ${r.tag_key}=${r.tag_value}`;
+  return "all hosts";
+}
+
+function MetricRow({
+  rule: r,
+  instancesById,
+}: {
+  rule: PerfAlertRule;
+  instancesById: Map<string, PerfAlertInstance>;
+}) {
   const minutes = Math.max(1, Math.round(r.window_seconds / 60));
-  const scope = r.instance_id
-    ? r.instance_id
-    : r.tag_key
-    ? `tag ${r.tag_key}=${r.tag_value}`
-    : "all hosts";
+  const scope = scopeLabel(r, instancesById);
   const opText =
     { gte: "≥", gt: ">", lte: "≤", lt: "<" }[r.comparison] ?? "≥";
   return (

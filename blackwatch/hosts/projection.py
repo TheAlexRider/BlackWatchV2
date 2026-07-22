@@ -256,6 +256,22 @@ def _project_heartbeat(event: Event, instance_id: str) -> list[Event]:
     # the user doesn't have to wire a separate notification rule.
     derived.extend(perf_alerts.evaluate(event))
 
+    # Hourly metric rollup — powers the host detail page's chart. Memory %
+    # and normalized CPU load % only. Disk isn't rolled up because it drifts
+    # day-over-day, not by the minute — perf-alert threshold breach covers
+    # that case, no chart to add signal. Failing the rollup must NEVER break
+    # the projection or the alert path — swallow any exception.
+    try:
+        metrics = perf_alerts._extract_metrics(e)
+        storage.upsert_host_metric_sample(
+            instance_id,
+            when,
+            mem_pct=metrics.get("memory_pct"),
+            cpu_pct=metrics.get("cpu_load_norm"),
+        )
+    except Exception:
+        pass
+
     return derived
 
 

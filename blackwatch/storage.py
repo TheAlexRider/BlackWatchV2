@@ -458,6 +458,113 @@ def _host_row(row: tuple[Any, ...]) -> dict[str, Any]:
     }
 
 
+# --- Host metrics hourly rollup --------------------------------------------
+#
+# Called from hosts/projection.py on every heartbeat. Upserts the current
+# hour's row with a running min/avg/max across all heartbeats in that hour.
+# Retention is enforced inline: each call also deletes rows older than 9 days
+# (a rounding-error-cheap DELETE with the hour_start index).
+
+_METRICS_RETENTION_DAYS = 9
+
+
+def upsert_host_metric_sample(
+    instance_id: str,
+    when: datetime,
+    *,
+    mem_pct: float | None,
+    cpu_pct: float | None,
+) -> None:
+    """Fold a single heartbeat's memory + CPU readings into the current
+    hour's rollup row. Any None value is skipped (the running column stays
+    as-is). Disk is intentionally excluded — see the migration comments."""
+    # Bucket by the top of the hour, UTC. datetime.replace preserves tzinfo.
+    hour_start = when.astimezone(timezone.utc).replace(
+        minute=0, second=0, microsecond=0,
+    )
+    with get_pool().connection() as conn:
+        # Running mean: (old_avg * n + new) / (n + 1). Written as a single
+        # UPSERT so N heartbeats/hour = N cheap statements, no read-modify-write.
+        conn.execute(
+            """
+            INSERT INTO host_metrics_hourly (
+                instance_id, hour_start,
+                mem_min, mem_avg, mem_max,
+                cpu_min, cpu_avg, cpu_max,
+                sample_count, updated_at
+            ) VALUES (
+                %(iid)s, %(hour)s,
+                %(m)s, %(m)s, %(m)s,
+                %(c)s, %(c)s, %(c)s,
+                1, NOW()
+            )
+            ON CONFLICT (instance_id, hour_start) DO UPDATE SET
+                mem_min = LEAST(host_metrics_hourly.mem_min, EXCLUDED.mem_min),
+                mem_max = GREATEST(host_metrics_hourly.mem_max, EXCLUDED.mem_max),
+                mem_avg = CASE
+                    WHEN EXCLUDED.mem_avg IS NULL THEN host_metrics_hourly.mem_avg
+                    WHEN host_metrics_hourly.mem_avg IS NULL THEN EXCLUDED.mem_avg
+                    ELSE (host_metrics_hourly.mem_avg * host_metrics_hourly.sample_count
+                          + EXCLUDED.mem_avg) / (host_metrics_hourly.sample_count + 1)
+                END,
+                cpu_min = LEAST(host_metrics_hourly.cpu_min, EXCLUDED.cpu_min),
+                cpu_max = GREATEST(host_metrics_hourly.cpu_max, EXCLUDED.cpu_max),
+                cpu_avg = CASE
+                    WHEN EXCLUDED.cpu_avg IS NULL THEN host_metrics_hourly.cpu_avg
+                    WHEN host_metrics_hourly.cpu_avg IS NULL THEN EXCLUDED.cpu_avg
+                    ELSE (host_metrics_hourly.cpu_avg * host_metrics_hourly.sample_count
+                          + EXCLUDED.cpu_avg) / (host_metrics_hourly.sample_count + 1)
+                END,
+                sample_count = host_metrics_hourly.sample_count + 1,
+                updated_at = NOW()
+            """,
+            {
+                "iid": instance_id, "hour": hour_start,
+                "m": mem_pct, "c": cpu_pct,
+            },
+        )
+        # Retention prune — hot path but tiny (~24 rows/host/day, so pruning
+        # deletes at most a handful on any given call).
+        conn.execute(
+            "DELETE FROM host_metrics_hourly WHERE hour_start < NOW() - INTERVAL '%s days'"
+            % _METRICS_RETENTION_DAYS
+        )
+
+
+def list_host_metrics_hourly(
+    instance_id: str, hours: int = 48,
+) -> list[dict[str, Any]]:
+    """Fetch the last `hours` of hourly rollups for one host, oldest first
+    so the chart draws left-to-right."""
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT hour_start,
+                   mem_min, mem_avg, mem_max,
+                   cpu_min, cpu_avg, cpu_max,
+                   sample_count
+            FROM host_metrics_hourly
+            WHERE instance_id = %s
+              AND hour_start >= NOW() - (%s || ' hours')::INTERVAL
+            ORDER BY hour_start ASC
+            """,
+            (instance_id, str(hours)),
+        ).fetchall()
+    return [
+        {
+            "hour_start": r[0].isoformat() if r[0] else None,
+            "mem_min": float(r[1]) if r[1] is not None else None,
+            "mem_avg": float(r[2]) if r[2] is not None else None,
+            "mem_max": float(r[3]) if r[3] is not None else None,
+            "cpu_min": float(r[4]) if r[4] is not None else None,
+            "cpu_avg": float(r[5]) if r[5] is not None else None,
+            "cpu_max": float(r[6]) if r[6] is not None else None,
+            "sample_count": int(r[7]),
+        }
+        for r in rows
+    ]
+
+
 def set_host_display_name(instance_id: str, display_name: str | None) -> None:
     """User-editable friendly name for a host. Setting to None (or empty)
     clears it — the UI then falls back to hostname > instance_id. Called

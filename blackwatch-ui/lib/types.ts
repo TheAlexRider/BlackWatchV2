@@ -650,6 +650,24 @@ export interface HostsListResponse {
   changes: EventEnvelope[];
 }
 
+export interface HostMetricsHourlyRow {
+  hour_start: string;
+  mem_min: number | null;
+  mem_avg: number | null;
+  mem_max: number | null;
+  cpu_min: number | null;
+  cpu_avg: number | null;
+  cpu_max: number | null;
+  sample_count: number;
+}
+
+export interface HostMetricsResponse {
+  instance_id: string;
+  hours: number;
+  count: number;
+  series: HostMetricsHourlyRow[];
+}
+
 export interface HostDetailResponse {
   instance_id: string;
   host: HostRecord | null;

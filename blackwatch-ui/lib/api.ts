@@ -11,6 +11,7 @@ import type {
   PostureFindingsResponse,
   HostsListResponse,
   HostDetailResponse,
+  HostMetricsResponse,
   ServicesListResponse,
   RulesResponse,
   BucketsListResponse,
@@ -178,6 +179,20 @@ export async function fetchHostDetail(
     throw new Error(`fetchHostDetail failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as HostDetailResponse;
+}
+
+// Hourly memory/CPU/disk rollup for the chart on the host detail page.
+// Server caps `hours` at the 9-day retention window (216).
+export async function fetchHostMetrics(
+  instanceId: string,
+  hours: number = 48,
+): Promise<HostMetricsResponse> {
+  const url = `${API_BASE}/api/hosts/${encodeURIComponent(instanceId)}/metrics?hours=${hours}`;
+  const res = await bwFetch(url);
+  if (!res.ok) {
+    throw new Error(`fetchHostMetrics failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as HostMetricsResponse;
 }
 
 // Set the user-editable friendly name for a host. Client-callable — uses a
