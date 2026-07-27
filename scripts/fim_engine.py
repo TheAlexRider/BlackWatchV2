@@ -26,6 +26,7 @@ inotify thread (~zero when nothing changes).
 from __future__ import annotations
 
 import binascii
+import contextlib
 import hashlib
 import os
 import re
@@ -465,7 +466,7 @@ class FimEngine:
     # -------- SQLite baseline (atomic per-path) ---------
 
     def _ensure_schema(self) -> None:
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS baseline (
                     path TEXT PRIMARY KEY,
@@ -484,7 +485,7 @@ class FimEngine:
             pass
 
     def _read_baseline_path(self, path: str) -> dict | None:
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             row = conn.execute(
                 "SELECT sha256, size, perm, owner_uid, owner_gid, mtime "
                 "FROM baseline WHERE path = ?",
@@ -503,7 +504,7 @@ class FimEngine:
         # bundled with Python 3.7 — INSERT OR REPLACE is the compatible upsert.
         # Semantically identical for our case: PK is `path`, we always update
         # every column with the fresh values.
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute(
                 "INSERT OR REPLACE INTO baseline "
                 "(path, sha256, size, perm, owner_uid, owner_gid, mtime) "
@@ -513,16 +514,16 @@ class FimEngine:
             )
 
     def _delete_baseline_path(self, path: str) -> None:
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute("DELETE FROM baseline WHERE path = ?", (path,))
 
     def _all_baseline_paths(self) -> set[str]:
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             rows = conn.execute("SELECT path FROM baseline").fetchall()
         return {r[0] for r in rows}
 
     def _count_baseline_paths(self) -> int:
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             row = conn.execute("SELECT COUNT(*) FROM baseline").fetchone()
         return int(row[0]) if row else 0
 
@@ -535,7 +536,7 @@ class FimEngine:
         Returns: {path: {file_count: N, total_size_bytes: N, category: str}}
         """
         stats: dict[str, dict] = {}
-        with sqlite3.connect(self._db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self._db_path)) as conn, conn:
             # Critical files: exact-match.
             for p in self.critical_files:
                 row = conn.execute(
