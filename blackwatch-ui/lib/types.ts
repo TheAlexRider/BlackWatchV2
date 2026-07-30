@@ -504,7 +504,7 @@ export interface RoutesResponse {
 
 // --- Quick perf-alert cards ----------------------------------------------
 
-export type PerfQuickMetric = "memory_pct" | "cpu_load_norm" | "disk_pct_max";
+export type PerfQuickMetric = "memory_pct" | "cpu_utilization_pct" | "disk_pct_max";
 
 export interface PerfQuickExistingRule {
   id: string;
@@ -801,7 +801,6 @@ export interface FimInstanceResponse {
 
 export type PerfMetric =
   | "memory_pct"
-  | "cpu_load_norm"
   | "cpu_utilization_pct"
   | "disk_pct_max";
 

@@ -701,7 +701,6 @@ def fim_instance_view(instance_id: str) -> dict[str, Any]:
 
 _VALID_PERF_METRICS = {
     "memory_pct",
-    "cpu_load_norm",
     "cpu_utilization_pct",
     "disk_pct_max",
 }
@@ -835,11 +834,11 @@ _PERF_QUICK_METRICS = {
         "default_window_minutes": 5,
         "default_severity": "high",
     },
-    "cpu_load_norm": {
-        "label": "CPU load (normalised)",
-        "blurb": "1-minute load average / CPU count, as a %.",
-        "default_threshold": 90,
-        "default_window_minutes": 10,
+    "cpu_utilization_pct": {
+        "label": "CPU utilization %",
+        "blurb": "True /proc/stat-based utilization, 0-100%. Matches CloudWatch.",
+        "default_threshold": 85,
+        "default_window_minutes": 5,
         "default_severity": "high",
     },
     "disk_pct_max": {
@@ -1563,14 +1562,14 @@ def notif_templates(
 _PERF_PREVIEW_CTX_DEFAULTS: dict[str, Any] = {
     "instance_id": "i-03499c8ce39a70d21",
     "hostname": "ip-172-16-1-97",
-    "metric": "cpu_load_norm",
-    "metric_label": "CPU (normalized load)",
+    "metric": "cpu_utilization_pct",
+    "metric_label": "CPU utilization",
     "threshold": 80,
     "comparison": "gte",
     "current_value": 98.0,
     "window_seconds": 300,
     "window_minutes": 5,
-    "rule_name": "CPU load ≥ 80% on prod for 5 minutes",
+    "rule_name": "CPU utilization ≥ 80% on prod for 5 minutes",
     "severity": "high",
     "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
 }
@@ -1839,16 +1838,16 @@ def _build_preview_sample(kind: str, payload: dict[str, Any]):
             target=Target(id="i-03499c8ce39a70d21", type="ec2.instance",
                           name="ip-172-16-1-97.us-west-1.compute.internal"),
             extra={
-                "metric": "cpu_load_norm",
-                "metric_label": "CPU (normalized load)",
+                "metric": "cpu_utilization_pct",
+                "metric_label": "CPU utilization",
                 "rule_id": "preview-rule-id",
-                "rule_name": "CPU load (normalized) ≥ 80% on Mgmt-NAT EC2 for 5 minutes",
+                "rule_name": "CPU utilization ≥ 80% on Mgmt-NAT EC2 for 5 minutes",
                 "threshold": 80,
                 "comparison": "gte",
                 "current_value": 98.0,
                 "window_seconds": 300,
                 "min_breach_ratio": 0.6,
-                "message": "CPU (normalized load) ≥ 80% for 5m (current: 98.0%)",
+                "message": "CPU utilization ≥ 80% for 5m (current: 98.0%)",
                 "tags": {"env": "Mgmt", "role": "Mgmt-NAT"},
             },
         )

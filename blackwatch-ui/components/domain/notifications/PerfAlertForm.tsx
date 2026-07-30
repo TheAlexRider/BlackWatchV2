@@ -61,16 +61,8 @@ const METRIC_OPTIONS: Array<{
     value: "cpu_utilization_pct",
     label: "CPU utilization %",
     blurb:
-      "True /proc/stat-based utilization, hard-capped at 100%. Matches "
-      + "CloudWatch's CPUUtilization — use this for most alerts.",
-  },
-  {
-    value: "cpu_load_norm",
-    label: "CPU load (queue depth)",
-    blurb:
-      "1-minute load average ÷ CPU count. Queue-depth signal — can EXCEED "
-      + "100% under contention (2 = 2× oversubscribed). Catches I/O wait "
-      + "and process pileups that hide behind a 100%-capped utilization.",
+      "True /proc/stat-based utilization, hard-capped at 100%. "
+      + "Matches CloudWatch's CPUUtilization.",
   },
   {
     value: "disk_pct_max",
