@@ -47,12 +47,13 @@ function formatRecentEventLabel(ev: RecentEventSample): string {
 type TemplateVariable = { name: string; path: string; example: string };
 
 const DEFAULT_VARIABLES: TemplateVariable[] = [
+  { name: "Host (display name)", path: "event.extra.display_name | default(event.target.name) | default(event.target.id)", example: "Prod-Integration" },
   { name: "Action", path: "event.action", example: "vpn.auth.failure" },
   { name: "Severity", path: "event.severity", example: "high" },
   { name: "Who (principal)", path: "event.actor.principal", example: "apoorvasharma" },
   { name: "Source IP", path: "event.actor.source_ip", example: "27.58.20.140" },
   { name: "When", path: "event.event_time", example: "2026-06-10T06:25:24Z" },
-  { name: "Target", path: "event.target.id", example: "openvpn-prod-1" },
+  { name: "Target ID", path: "event.target.id", example: "i-0cd0d7bc5326e0fbe" },
   { name: "Module", path: "event.source.module", example: "vpn.openvpn" },
   { name: "Outcome", path: "event.outcome", example: "failure" },
   { name: "Matched rules", path: "event.rule_matches|join(', ')", example: "Failed logins" },
