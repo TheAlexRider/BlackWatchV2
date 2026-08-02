@@ -463,6 +463,18 @@ def _project_snapshot(event: Event, instance_id: str) -> list[Event]:
 # ---------- Derived event helper -------------------------------------------
 
 def _make_derived(parent: Event, instance_id: str, action: str, extra: dict[str, Any]) -> Event:
+    # Resolve friendly display name so notification templates can use
+    # {{ event.target.name }} or {{ event.extra.display_name }} and get
+    # what operators see in the UI. Falls back to the parent event's
+    # target.name (usually hostname) and finally the instance id.
+    display_name = None
+    try:
+        row = storage.get_host_status(instance_id)
+        if row:
+            display_name = row.get("display_name")
+    except Exception:
+        pass
+    resolved_name = display_name or parent.target.name or instance_id
     return Event(
         source=Source(module=_MODULE, vendor="aws", account=parent.source.account,
                       region=parent.source.region, transport=Transport.queue),
@@ -472,7 +484,12 @@ def _make_derived(parent: Event, instance_id: str, action: str, extra: dict[str,
         # `outcome=success` for "good news" transitions, failure for the rest.
         outcome=(Outcome.success if action.endswith(("recovered", "first_seen", "normal"))
                  else Outcome.failure),
-        target=Target(id=instance_id, type="ec2.instance", name=parent.target.name),
-        extra={"instance_id": instance_id, **extra},
+        target=Target(id=instance_id, type="ec2.instance", name=resolved_name),
+        extra={
+            "instance_id": instance_id,
+            "display_name": display_name,
+            "hostname": parent.target.name,
+            **extra,
+        },
         raw={"derived": "host-state-diff", "instance_id": instance_id},
     )
