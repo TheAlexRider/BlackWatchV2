@@ -332,9 +332,13 @@ function RouteRow({ route: r }: { route: Route }) {
   return (
     <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
       <td className="truncate px-4 py-2 align-middle">
-        <div className="text-sm text-fg">{r.module_label}</div>
+        <div className="text-sm text-fg">
+          {r.kind === "custom" && r.name ? r.name : r.module_label}
+        </div>
         {r.kind === "custom" && (
-          <div className="font-mono text-[10px] text-fg-subtle">custom rule</div>
+          <div className="font-mono text-[10px] text-fg-subtle">
+            {r.module_label}
+          </div>
         )}
       </td>
       <td className="px-4 py-2 align-middle">
@@ -349,7 +353,12 @@ function RouteRow({ route: r }: { route: Route }) {
         )}
       </td>
       <td className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
-        {r.channel ? (
+        {r.channels && r.channels.length > 0 ? (
+          <>
+            <span className="text-fg-subtle">→ </span>
+            {r.channels.join(", ")}
+          </>
+        ) : r.channel ? (
           <>
             <span className="text-fg-subtle">→ </span>
             {r.channel}
