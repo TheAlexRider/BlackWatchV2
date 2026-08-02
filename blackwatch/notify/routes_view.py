@@ -145,6 +145,11 @@ def list_routes() -> dict[str, Any]:
         all_rules = storage.list_notification_rules()
     except Exception:
         all_rules = []
+    try:
+        all_channels = storage.list_notification_channels()
+    except Exception:
+        all_channels = []
+    channel_names_by_id = {str(c["id"]): str(c["name"]) for c in all_channels}
     now_utc = datetime.utcnow()
 
     rows: list[dict[str, Any]] = []
@@ -152,7 +157,7 @@ def list_routes() -> dict[str, Any]:
         if not (r.get("channels") or []):
             continue  # No channel = not really a route; skip from list.
         module = _extract_module_from_match(r.get("match"))
-        row = _route_row(r, now_utc)
+        row = _route_row(r, now_utc, channel_names_by_id)
         row["module"] = module or CUSTOM_BUCKET_KEY
         # Attach the display label so the UI doesn't need a separate lookup.
         label = next(
@@ -183,7 +188,11 @@ def list_routes() -> dict[str, Any]:
     }
 
 
-def _route_row(rule: dict[str, Any], now_utc: datetime) -> dict[str, Any]:
+def _route_row(
+    rule: dict[str, Any],
+    now_utc: datetime,
+    channel_names_by_id: dict[str, str] | None = None,
+) -> dict[str, Any]:
     silence_until = rule.get("silence_until")
     silenced = (
         bool(silence_until)
@@ -191,12 +200,21 @@ def _route_row(rule: dict[str, Any], now_utc: datetime) -> dict[str, Any]:
         if silence_until
         else False
     )
+    channel_ids = rule.get("channels") or []
+    id_to_name = channel_names_by_id or {}
+    resolved_names = [id_to_name.get(cid, cid) for cid in channel_ids]
+    first_id = channel_ids[0] if channel_ids else None
+    first_name = id_to_name.get(first_id, first_id) if first_id else None
     return {
         "id": rule["id"],
         "name": rule.get("name"),
         "enabled": bool(rule.get("enabled")),
-        "channel": (rule.get("channels") or [None])[0],
-        "channels": rule.get("channels") or [],
+        # `channel` = display+API-friendly NAME (for table row + test-send).
+        # `channel_id` = raw UUID (for backend references + form save).
+        "channel": first_name,
+        "channel_id": first_id,
+        "channels": resolved_names,
+        "channel_ids": channel_ids,
         "severities": _extract_severities(rule.get("match")),
         "kind": _rule_kind(rule.get("match")),
         "silence_until": silence_until.isoformat() if silence_until else None,
