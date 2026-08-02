@@ -105,7 +105,8 @@
       "Bash(where pandoc *)",
       "Bash(node -e \"console.log\\(require\\('docx'\\).Document ? 'docx OK' : 'no'\\)\")",
       "Bash(mkdir -p /c/Users/TheAl/AppData/Local/Temp/claude/C--Users-TheAl-Documents-GitHub-BlackWatchV2/5529d16d-acb3-4c7d-878e-580810754fa1/scratchpad)",
-      "Bash(node build-wazuh-docx.js \"/c/Users/TheAl/Downloads/Wazuh Archival Pipeline.docx\")"
+      "Bash(node build-wazuh-docx.js \"/c/Users/TheAl/Downloads/Wazuh Archival Pipeline.docx\")",
+      "Bash(python -c \"import ast, io; ast.parse\\(io.open\\('C:/Users/TheAl/Documents/GitHub/BlackWatchV2/blackwatch/notify/channels.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

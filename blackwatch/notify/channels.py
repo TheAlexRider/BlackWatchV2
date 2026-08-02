@@ -595,6 +595,7 @@ def _send_pagerduty(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
 
 
 def _send_email(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
+    from email.mime.multipart import MIMEMultipart
     host = cfg.get("smtp_host")
     port = int(cfg.get("smtp_port", 587))
     from_addr = cfg.get("from_addr")
@@ -607,10 +608,28 @@ def _send_email(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
     password = _env(pw_env) if pw_env else cfg.get("password")
     use_tls = bool(cfg.get("use_tls", True))
     sev = event.severity.value if event.severity else "unscored"
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = f"[BlackWatch][{sev}] {event.action}"
+    # Subject prefers a friendly rule name + host label. Falls back to the raw
+    # action when neither is present. Format: "[sev] Rule name — Host".
+    extra = event.extra or {}
+    rule_name = extra.get("rule_name") or extra.get("rule") or event.action
+    host_label = (
+        extra.get("display_name")
+        or extra.get("hostname")
+        or (event.target.name if event.target else None)
+        or (event.target.id if event.target else None)
+    )
+    if host_label:
+        subject = f"[{sev}] {rule_name} — {host_label}"
+    else:
+        subject = f"[{sev}] {rule_name}"
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_addrs)
+    # Multipart/alternative: plain text (original body) + HTML (markdown-lite
+    # rendered so *bold* and lists look right in an email client).
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(_body_to_html(body), "html", "utf-8"))
     try:
         with smtplib.SMTP(host, port, timeout=_TIMEOUT) as s:
             if use_tls:
@@ -621,6 +640,28 @@ def _send_email(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
         return True, f"SMTP delivered to {len(to_addrs)} recipient(s)"
     except Exception as exc:
         return False, str(exc)
+
+
+def _body_to_html(body: str) -> str:
+    """Convert markdown-lite templates (used across Slack/email/etc.) into
+    a minimal HTML rendering for email clients. Not a full markdown parser —
+    just the bits we actually use in templates: *bold*, `code`, line breaks.
+    """
+    import html as _html
+    import re as _re
+    escaped = _html.escape(body)
+    # Inline code: `text` → <code>text</code>
+    escaped = _re.sub(r"`([^`\n]+)`", r"<code>\1</code>", escaped)
+    # Bold: *text* → <strong>text</strong>  (skip *** and leading spaces)
+    escaped = _re.sub(r"\*([^*\n]+?)\*", r"<strong>\1</strong>", escaped)
+    # Preserve line breaks
+    escaped = escaped.replace("\n", "<br>\n")
+    return (
+        "<html><body style=\"font-family:-apple-system,Segoe UI,sans-serif;"
+        "font-size:14px;line-height:1.5;color:#222;\">"
+        f"{escaped}"
+        "</body></html>"
+    )
 
 
 _SENDERS = {
