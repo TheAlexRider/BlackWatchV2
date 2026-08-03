@@ -814,7 +814,19 @@ def detect_rpm_db_corruption() -> dict | None:
             return None
     except Exception:
         pass
-    return {"lock_files": lock_files, "lock_count": len(lock_files)}
+    # Lock files sitting on disk are common on healthy systems (modern rpm
+    # doesn't use BDB and never cleans them up). Only flag as corrupted if
+    # `rpm -qa` actually fails.
+    try:
+        probe = subprocess.run(
+            ["rpm", "-qa"], capture_output=True, timeout=30,
+        )
+        if probe.returncode != 0:
+            return {"lock_files": lock_files, "lock_count": len(lock_files)}
+    except Exception:
+        # Can't verify → don't cry wolf.
+        return None
+    return None
 
 
 # ---------- Staggered collector runner -------------------------------------
