@@ -41,22 +41,72 @@ MODULE_CATALOG: list[dict[str, str]] = [
 
 CUSTOM_BUCKET_KEY = "__custom__"
 
+# Map action-prefix → module key. Custom rules typically match on
+# `action` (e.g. host.bruteforce) rather than source.module, so we infer
+# the owning module from the action's dotted prefix. Order matters —
+# most-specific first — because we do a startswith walk.
+_ACTION_PREFIX_TO_MODULE: list[tuple[str, str]] = [
+    ("aws.cloudtrail.", "aws.cloudtrail"),
+    ("aws.rds.",        "aws.rds"),
+    ("aws.s3.",         "aws.s3"),
+    ("aws.posture.",    "aws.posture"),
+    ("vpn.openvpn.",    "vpn.openvpn"),
+    ("vpn.",            "vpn.openvpn"),
+    ("ecs.probe.",      "ecs.probe"),
+    ("ecs.",            "ecs.probe"),
+    ("cert.",           "cert"),
+    ("host.",           "ec2.host"),
+]
+
+
+def _module_from_action_value(value: Any) -> str | None:
+    """Given the value of an `action` clause (string or list), return the
+    module all values agree on — else None."""
+    values: list[str] = []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = [str(v) for v in value if isinstance(v, (str, int))]
+    modules = set()
+    for v in values:
+        for prefix, mod in _ACTION_PREFIX_TO_MODULE:
+            if v.startswith(prefix):
+                modules.add(mod)
+                break
+    if len(modules) == 1:
+        return next(iter(modules))
+    return None
+
 
 # ---- match-tree parsing --------------------------------------------------
 
 def _extract_module_from_match(match: dict[str, Any] | None) -> str | None:
     """Return the target module of a rule's match tree if it can be
-    unambiguously determined. Handles the shapes the routes UI produces:
+    unambiguously determined. Recognized shapes:
       {all: [{field: source.module, op: equals, value: X}, ...]}
       {field: source.module, op: equals, value: X}
-    Anything else (multiple modules, `in` list, `not`, `any`) returns None →
-    the rule shows up under the custom bucket."""
+      {field: action, op: equals|in|icontains, value: X} — module inferred
+        from the action's dotted prefix (host.* → ec2.host, etc.)
+    Anything else (multiple modules, ambiguous action, `not`, `any`)
+    returns None → the rule shows up under the custom bucket."""
     if not isinstance(match, dict):
         return None
     if match.get("field") == "source.module" and match.get("op") == "equals":
         val = match.get("value")
         if isinstance(val, str):
             return val
+    if match.get("field") == "action":
+        op = match.get("op")
+        val = match.get("value")
+        if op in ("equals", "in"):
+            mod = _module_from_action_value(val)
+            if mod:
+                return mod
+        elif op == "icontains" and isinstance(val, str):
+            for prefix, mod in _ACTION_PREFIX_TO_MODULE:
+                # `host` (no trailing dot) still points at ec2.host
+                if val.startswith(prefix.rstrip(".")):
+                    return mod
     for clause in match.get("all") or []:
         m = _extract_module_from_match(clause)
         if m is not None:
