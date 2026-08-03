@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Button } from "@/components/ui/Button";
+import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
@@ -304,25 +305,53 @@ function RoutesTable({
       </DataPanel>
     );
   }
+  // Group by raw module key (source.module value, or "__custom__" bucket).
+  // Preserve first-seen order — backend already sorts catalog order → severity.
+  const groups: { key: string; label: string; routes: Route[] }[] = [];
+  const seen = new Map<string, number>();
+  for (const r of routes) {
+    const k = r.module || "__custom__";
+    let idx = seen.get(k);
+    if (idx === undefined) {
+      idx = groups.length;
+      seen.set(k, idx);
+      groups.push({
+        key: k,
+        label: k === "__custom__" ? "Custom / advanced" : k,
+        routes: [],
+      });
+    }
+    groups[idx].routes.push(r);
+  }
+
   return (
-    <DataPanel className="overflow-hidden">
-      <Table tableId="notifications-alert-routes" ariaLabel="Alert routes">
-        <thead>
-          <tr>
-            <th style={{ width: 200 }}>Source</th>
-            <th style={{ width: 220 }}>Trigger</th>
-            <th style={{ width: 200 }}>Channel</th>
-            <th style={{ width: 90 }}>State</th>
-            <th data-actions style={{ width: 480 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {routes.map((r) => (
-            <RouteRow key={r.id} route={r} />
-          ))}
-        </tbody>
-      </Table>
-    </DataPanel>
+    <>
+      {groups.map((g) => (
+        <CollapsibleSection
+          key={g.key}
+          storageKey={`bw.notif.routeGroup.${g.key}`}
+          title={g.label}
+          count={g.routes.length}
+        >
+          <Table tableId={`notifications-alert-routes-${g.key}`} ariaLabel={`Alert routes for ${g.label}`}>
+            <thead>
+              <tr>
+                <th style={{ width: 200 }}>Source</th>
+                <th style={{ width: 220 }}>Trigger</th>
+                <th style={{ width: 200 }}>Channel</th>
+                <th style={{ width: 90 }}>State</th>
+                <th data-actions style={{ width: 480 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {g.routes.map((r) => (
+                <RouteRow key={r.id} route={r} />
+              ))}
+            </tbody>
+          </Table>
+        </CollapsibleSection>
+      ))}
+    </>
   );
 }
 
