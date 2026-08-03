@@ -17,14 +17,21 @@ import { fetchHostMetrics } from "@/lib/api";
 import type { HostMetricsHourlyRow } from "@/lib/types";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
+import {
+  TimezoneSelect,
+  formatAxisTick,
+  formatTooltipStamp,
+  type TzKey,
+} from "@/components/ui/TimezoneSelect";
 
-// Chart of hourly memory / CPU / disk % for one host over the last N hours.
+// Chart of hourly memory / CPU % for one host over the last N hours.
 // Layout matches CloudWatch: shaded min-max band with a solid average line on
-// top. Three tabs (Memory / CPU / Disk) let the operator flip metrics without
-// three separate charts stacked vertically.
+// top. The X axis is a NUMERIC (time) axis so ranges > 24h render distinct
+// points instead of collapsing duplicate category labels (which is what made
+// 48h/7d/14d all look the same in earlier versions).
 
 type Metric = "mem" | "cpu";
-type Range = 24 | 48 | 168 | 216;  // last-day / 2-day / week / 9-day max
+type Range = 24 | 48 | 168 | 336;  // 24h · 48h · 7d · 14d
 
 const METRICS: Array<{ key: Metric; label: string }> = [
   { key: "mem", label: "Memory %" },
@@ -35,15 +42,14 @@ const RANGES: Array<{ hours: Range; label: string }> = [
   { hours: 24,  label: "24h" },
   { hours: 48,  label: "48h" },
   { hours: 168, label: "7d" },
-  { hours: 216, label: "9d" },
+  { hours: 336, label: "14d" },
 ];
 
-// One entry per hour, shaped for recharts. `range` is the 2-tuple
-// [min, max] used for the shaded band, `avg` for the overlaid line.
+const TZ_STORAGE_KEY = "bw.hostMetrics.tz";
+
 type ChartPoint = {
-  ts: number;                          // epoch seconds for X axis
-  label: string;                       // pre-formatted for the axis tick
-  range: [number, number] | undefined;
+  ts: number;                          // epoch seconds — numeric X value
+  range: [number, number] | undefined; // min-max band
   avg: number | null;
   min: number | null;
   max: number | null;
@@ -57,38 +63,31 @@ function pointsFor(rows: HostMetricsHourlyRow[], metric: Metric): ChartPoint[] {
     const min = r[minKey];
     const avg = r[avgKey];
     const max = r[maxKey];
-    const ts = new Date(r.hour_start).getTime() / 1000;
     return {
-      ts,
-      label: formatHour(r.hour_start),
+      ts: Math.floor(new Date(r.hour_start).getTime() / 1000),
       range: min !== null && max !== null ? [min, max] : undefined,
-      avg: avg,
+      avg,
       min,
       max,
     };
   });
 }
 
-// Compact axis tick — "14:00" for same-day hours, "Mon 14:00" beyond that.
-function formatHour(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay =
-    d.getUTCFullYear() === now.getUTCFullYear() &&
-    d.getUTCMonth() === now.getUTCMonth() &&
-    d.getUTCDate() === now.getUTCDate();
-  const hh = d.getUTCHours().toString().padStart(2, "0");
-  if (sameDay) return `${hh}:00`;
-  const day = d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" });
-  return `${day} ${hh}:00`;
-}
-
 export function HostMetricsChart({ instanceId }: { instanceId: string }) {
   const [range, setRange] = useState<Range>(48);
   const [metric, setMetric] = useState<Metric>("mem");
+  const [tz, setTz] = useState<TzKey>("UTC");
   const [rows, setRows] = useState<HostMetricsHourlyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Hydrate TZ preference from localStorage on mount.
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem(TZ_STORAGE_KEY);
+      if (v === "UTC" || v === "PST" || v === "IST") setTz(v);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,8 +110,6 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
 
   const points = useMemo(() => pointsFor(rows, metric), [rows, metric]);
 
-  // Precompute quick stats for the header — average of the averages,
-  // overall peak from the max column. Cheap on ≤216 points.
   const summary = useMemo(() => {
     const avgs = points.map((p) => p.avg).filter((v): v is number => v !== null);
     const maxes = points.map((p) => p.max).filter((v): v is number => v !== null);
@@ -121,6 +118,9 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
     const peak = maxes.length > 0 ? Math.max(...maxes) : null;
     return { avg, peak, samples: rows.reduce((s, r) => s + r.sample_count, 0) };
   }, [points, rows]);
+
+  // Ticks show dates only on ranges wider than 24h (short range = time only).
+  const showDateOnAxis = range > 24;
 
   return (
     <section className="mt-6 space-y-2">
@@ -141,11 +141,13 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
               {r.label}
             </button>
           ))}
+          <div className="ml-1">
+            <TimezoneSelect value={tz} onChange={setTz} storageKey={TZ_STORAGE_KEY} />
+          </div>
         </div>
       </div>
 
       <DataPanel scrollX={false}>
-        {/* Metric tab strip */}
         <div className="flex items-center gap-1 border-b border-line-soft px-4 pb-2 pt-3">
           {METRICS.map((m) => (
             <button
@@ -182,7 +184,6 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
           )}
         </div>
 
-        {/* Chart body */}
         <div className="h-[280px] w-full px-2 py-3">
           {loading ? (
             <ChartEmpty label="loading…" />
@@ -202,22 +203,25 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
                   vertical={false}
                 />
                 <XAxis
-                  dataKey="label"
+                  dataKey="ts"
+                  type="number"
+                  scale="time"
+                  domain={["dataMin", "dataMax"]}
                   stroke="var(--color-fg-subtle)"
                   tick={{ fontSize: 10, fill: "var(--color-fg-subtle)" }}
                   tickLine={false}
-                  minTickGap={30}
+                  minTickGap={40}
+                  tickFormatter={(v: number) => formatAxisTick(v, tz, showDateOnAxis)}
                 />
                 <YAxis
                   domain={[0, 100]}
                   stroke="var(--color-fg-subtle)"
                   tick={{ fontSize: 10, fill: "var(--color-fg-subtle)" }}
                   tickLine={false}
-                  tickFormatter={(v) => `${v}%`}
+                  tickFormatter={(v: number) => `${v}%`}
                   width={40}
                 />
-                <Tooltip content={<MetricTooltip />} />
-                {/* Shaded min-max band — the "range" area. */}
+                <Tooltip content={<MetricTooltip tz={tz} />} />
                 <Area
                   dataKey="range"
                   stroke="none"
@@ -225,7 +229,6 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
                   fillOpacity={0.14}
                   isAnimationActive={false}
                 />
-                {/* Solid avg line on top of the band. */}
                 <Line
                   type="monotone"
                   dataKey="avg"
@@ -240,8 +243,8 @@ export function HostMetricsChart({ instanceId }: { instanceId: string }) {
         </div>
 
         <div className="border-t border-line-soft px-4 py-2 text-[10px] text-fg-subtle">
-          Shaded band = hourly min→max · line = hourly avg · retained for 9
-          days · timestamps UTC
+          Shaded band = hourly min→max · line = hourly avg · retained for 14
+          days · times shown in {tz}
         </div>
       </DataPanel>
     </section>
@@ -256,8 +259,11 @@ function ChartEmpty({ label }: { label: string }) {
   );
 }
 
-// Custom tooltip — shows min / avg / max stacked, matches BW's typography.
-function MetricTooltip({ active, payload, label }: TooltipProps<number, string>) {
+function MetricTooltip({
+  active,
+  payload,
+  tz,
+}: TooltipProps<number, string> & { tz: TzKey }) {
   if (!active || !payload || payload.length === 0) return null;
   const p = payload[0]?.payload as ChartPoint | undefined;
   if (!p) return null;
@@ -265,7 +271,7 @@ function MetricTooltip({ active, payload, label }: TooltipProps<number, string>)
   return (
     <div className="border border-line-soft bg-surface-1 px-3 py-2 font-mono text-xs shadow-lg">
       <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
-        {label}
+        {formatTooltipStamp(p.ts, tz)}
       </div>
       <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <span className="text-fg-subtle">min</span>

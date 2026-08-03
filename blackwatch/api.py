@@ -556,7 +556,7 @@ def host_detail(instance_id: str) -> dict[str, Any]:
 @router.get("/hosts/{instance_id}/metrics")
 def host_metrics_hourly(
     instance_id: str,
-    hours: int = Query(default=48, ge=1, le=216),  # cap at 9-day retention
+    hours: int = Query(default=48, ge=1, le=336),  # cap at 14-day retention
 ) -> dict[str, Any]:
     """Hourly rollup of memory / CPU / disk %. Used by the host detail
     page's chart. Each row has min/avg/max per metric — draws as a band

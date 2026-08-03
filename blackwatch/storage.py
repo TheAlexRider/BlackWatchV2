@@ -465,7 +465,7 @@ def _host_row(row: tuple[Any, ...]) -> dict[str, Any]:
 # Retention is enforced inline: each call also deletes rows older than 9 days
 # (a rounding-error-cheap DELETE with the hour_start index).
 
-_METRICS_RETENTION_DAYS = 9
+_METRICS_RETENTION_DAYS = 14
 
 
 def upsert_host_metric_sample(
