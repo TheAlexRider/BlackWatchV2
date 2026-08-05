@@ -9,7 +9,7 @@ import clsx from "clsx";
 // nav + a11y announcements work unmodified.
 //
 // Consistent visual grammar with the rest of BW: line-soft border,
-// surface-2 fill when active, sig-teal signal on hover and focus, no
+// surface-2 fill when active, signal color on hover and focus, no
 // motion beyond a 150ms color transition.
 //
 // State (8): default · hover · focus-visible · active (press) · selected
@@ -41,12 +41,12 @@ export function SelectableCard({
     <label
       className={clsx(
         "group relative block cursor-pointer rounded border p-3 transition-colors",
-        "focus-within:outline-none focus-within:ring-1 focus-within:ring-sig-teal focus-within:ring-offset-2 focus-within:ring-offset-canvas",
+        "focus-within:outline-none focus-within:ring-1 focus-within:ring-signal focus-within:ring-offset-2 focus-within:ring-offset-canvas",
         disabled && "cursor-not-allowed opacity-50",
         error
           ? "border-sev-critical"
           : checked
-            ? "border-sig-teal bg-surface-2"
+            ? "border-signal bg-surface-2"
             : "border-line-soft bg-canvas hover:border-fg-subtle",
       )}
     >
@@ -66,7 +66,7 @@ export function SelectableCard({
             "mt-1 inline-block h-2 w-2 shrink-0 rounded-full border transition-colors",
             type === "radio" ? "rounded-full" : "rounded-sm",
             checked
-              ? "border-sig-teal bg-sig-teal"
+              ? "border-signal bg-signal"
               : "border-fg-subtle bg-transparent group-hover:border-fg",
           )}
         />

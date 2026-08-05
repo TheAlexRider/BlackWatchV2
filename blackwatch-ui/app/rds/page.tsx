@@ -27,7 +27,8 @@ import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { PendingButton } from "@/components/ui/PendingButton";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
+import { NativeSelect } from "@/components/ui/NativeSelect";
 import {
   addAllowlistUserAction,
   removeAllowlistUserAction,
@@ -399,23 +400,26 @@ function AllowlistManager({
             <input
               name="username"
               placeholder="username (e.g. aravinda_jatavallabha)"
-              className="min-w-0 flex-1 rounded border border-line-soft bg-surface-1 px-3 py-1.5 font-mono text-xs text-fg placeholder:text-fg-disabled focus:border-sig-teal focus:outline-none"
+              aria-label="Allowlist username"
+              className="min-w-0 flex-1 rounded border border-line-soft bg-surface-1 px-3 py-1.5 font-mono text-xs text-fg placeholder:text-fg-disabled focus-visible:border-signal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
               required
             />
-            <select
+            <NativeSelect
               name="kind"
               defaultValue="human"
-              className="rounded border border-line-soft bg-surface-1 px-3 py-1.5 text-xs text-fg focus:border-sig-teal focus:outline-none"
+              aria-label="Allowlist entry type"
+              className="h-8 rounded px-3 text-xs"
             >
               <option value="human">human</option>
               <option value="service">service</option>
-            </select>
+            </NativeSelect>
             <input
               name="note"
               placeholder="note (optional)"
-              className="min-w-0 flex-1 rounded border border-line-soft bg-surface-1 px-3 py-1.5 text-xs text-fg placeholder:text-fg-disabled focus:border-sig-teal focus:outline-none"
+              aria-label="Allowlist note"
+              className="min-w-0 flex-1 rounded border border-line-soft bg-surface-1 px-3 py-1.5 text-xs text-fg placeholder:text-fg-disabled focus-visible:border-signal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
             />
-            <PendingButton className="rounded border border-sig-teal bg-sig-teal/10 px-3 py-1.5 text-xs text-sig-teal hover:bg-sig-teal/20">
+            <PendingButton className="rounded border border-signal bg-signal/10 px-3 py-1.5 text-xs text-signal hover:bg-signal/20">
               Add
             </PendingButton>
           </div>
@@ -485,7 +489,7 @@ function AllowlistTable({
                   className={clsx(
                     "inline-block rounded px-1.5 py-0.5 text-[10px]",
                     u.kind === "human"
-                      ? "bg-sig-teal/10 text-sig-teal"
+                      ? "bg-signal/10 text-signal"
                       : "bg-fg-subtle/10 text-fg-muted",
                   )}
                 >
@@ -501,9 +505,13 @@ function AllowlistTable({
               <td className="px-4 py-2.5 text-right">
                 <form action={removeAllowlistUserAction}>
                   <input type="hidden" name="username" value={u.username} />
-                  <PendingButton className="rounded border border-line-soft px-2 py-1 text-[11px] text-fg-muted hover:border-sev-critical hover:text-sev-critical">
+                  <ConfirmSubmitButton
+                    className="rounded border border-line-soft px-2 py-1 text-[11px] text-fg-muted hover:border-sev-critical hover:text-sev-critical"
+                    confirmMessage={`Remove ${u.username} from the allowlist?`}
+                    pendingLabel="Removing…"
+                  >
                     Remove
-                  </PendingButton>
+                  </ConfirmSubmitButton>
                 </form>
               </td>
             </tr>
@@ -736,4 +744,12 @@ function formatDuration(secs: number): string {
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   }
   return `${Math.floor(secs / 60)}m`;
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-6 py-10 text-center text-sm text-fg-muted">
+      {children}
+    </div>
+  );
 }
