@@ -56,7 +56,7 @@ export function IpLookupModal({ ip, onClose }: IpLookupModalProps) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[min(900px,95vw)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto border border-line bg-canvas shadow-2xl"
+          className="fixed left-1/2 top-1/2 z-50 w-[min(900px,95vw)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain border border-line bg-canvas shadow-2xl"
           aria-describedby={undefined}
         >
           <div className="flex items-center justify-between border-b border-line-soft px-5 py-3">
@@ -77,7 +77,7 @@ export function IpLookupModal({ ip, onClose }: IpLookupModalProps) {
                 <button
                   type="button"
                   aria-label="Close"
-                  className="text-fg-subtle transition-colors hover:text-fg"
+                  className="text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
                 >
                   <X size={14} />
                 </button>
@@ -93,7 +93,7 @@ export function IpLookupModal({ ip, onClose }: IpLookupModalProps) {
               </div>
             )}
             {error && !loading && (
-              <div className="border border-sev-critical/40 bg-sev-critical/5 px-4 py-3 text-sm text-sev-critical">
+              <div role="alert" aria-live="assertive" className="border border-sev-critical/40 bg-sev-critical/5 px-4 py-3 text-sm text-sev-critical">
                 {error}
               </div>
             )}

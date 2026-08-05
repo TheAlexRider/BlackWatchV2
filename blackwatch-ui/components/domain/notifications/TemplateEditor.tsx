@@ -11,6 +11,7 @@ import {
   type TemplateContextKind,
   type TemplatePreset,
 } from "@/lib/api";
+import { NativeSelect } from "@/components/ui/NativeSelect";
 
 const SAMPLE_EVENTS: Array<{ value: PreviewSampleKind; label: string }> = [
   { value: "vpn_failure", label: "VPN failed login" },
@@ -410,17 +411,17 @@ export function TemplateEditor({
           ) : sampleSource === "canned" ? (
             <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
               <span>event type:</span>
-              <select
+              <NativeSelect
                 value={sample}
                 onChange={(e) => setSample(e.target.value as PreviewSampleKind)}
-                className="border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
+                className="h-6 min-w-32 text-[10px]"
               >
                 {effectiveSampleOptions.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
           ) : (
             <label className="flex items-center gap-1.5 text-[10px] text-fg-disabled">
@@ -430,17 +431,17 @@ export function TemplateEditor({
               ) : recentEvents.length === 0 ? (
                 <span className="text-fg-subtle">no events yet</span>
               ) : (
-                <select
+                <NativeSelect
                   value={recentEventId}
                   onChange={(e) => setRecentEventId(e.target.value)}
-                  className="max-w-[60%] border border-line-soft bg-surface-1 px-1.5 py-0.5 text-[10px] text-fg-muted focus-visible:border-signal focus-visible:outline-none"
+                  className="max-w-[60%] text-[10px]"
                 >
                   {recentEvents.map((ev) => (
                     <option key={ev.event_id} value={ev.event_id}>
                       {formatRecentEventLabel(ev)}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               )}
             </label>
           )}
