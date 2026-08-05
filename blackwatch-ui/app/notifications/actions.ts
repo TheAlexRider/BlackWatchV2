@@ -187,6 +187,7 @@ export async function saveRuleAction(fd: FormData): Promise<void> {
   const id = String(fd.get("id") ?? "");
   const match = buildMatchFromSimpleForm(fd);
   const channels = (fd.getAll("channel") as string[]).filter(Boolean);
+  const messageTemplate = String(fd.get("message_template") ?? "").trim();
   const payload = {
     id: id || undefined,
     name: String(fd.get("name") ?? "").trim(),
@@ -195,6 +196,7 @@ export async function saveRuleAction(fd: FormData): Promise<void> {
     channels,
     throttle_seconds: Number(fd.get("throttle_seconds") ?? 0),
     priority: Number(fd.get("priority") ?? 100),
+    message_template: messageTemplate || null,
   };
   const res = await postJson("/api/notifications/rules/save", payload);
   if (!res.ok) throw new Error(`saveRule failed: ${res.status} ${await res.text()}`);

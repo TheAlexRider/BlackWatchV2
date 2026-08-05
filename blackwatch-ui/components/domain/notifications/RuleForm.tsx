@@ -246,6 +246,16 @@ export function RuleForm({
         />
       </FormRow>
 
+      <FormRow label="Message" hint="Jinja · overrides channel default when set">
+        <textarea
+          name="message_template"
+          rows={8}
+          defaultValue={existing?.message_template ?? ""}
+          placeholder={"*Something happened on {{ event.extra.display_name | default(event.target.id) }}*\nSeverity: {{ event.severity }}\nCheck: ..."}
+          className="w-full border border-line bg-surface-1 px-2.5 py-2 font-mono text-xs text-fg placeholder:text-fg-disabled focus-visible:border-signal focus-visible:outline-none"
+        />
+      </FormRow>
+
       {/* Advanced JSON override */}
       <details
         className="border-t border-line-soft px-4 py-3"

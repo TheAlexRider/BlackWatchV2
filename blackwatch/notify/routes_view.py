@@ -54,6 +54,8 @@ _ACTION_PREFIX_TO_MODULE: list[tuple[str, str]] = [
     ("vpn.",            "vpn.openvpn"),
     ("ecs.probe.",      "ecs.probe"),
     ("ecs.",            "ecs.probe"),
+    ("service.",        "ecs.probe"),  # service.down / service.up / service.degraded
+    ("probe.",          "ecs.probe"),  # probe.agent.stale / recovered / first_seen
     ("cert.",           "cert"),
     ("host.",           "ec2.host"),
 ]

@@ -426,6 +426,7 @@ export interface NotificationRule {
   priority: number;
   silence_until: string | null;
   silenced: boolean;
+  message_template: string | null;
 }
 
 export interface NotificationRulesResponse {
