@@ -10,13 +10,13 @@ export function SectionLabel({
   className?: string;
 }) {
   return (
-    <div
+    <h2
       className={clsx(
         "text-[11px] uppercase tracking-[0.08em] text-fg-subtle",
         className,
       )}
     >
       {children}
-    </div>
+    </h2>
   );
 }

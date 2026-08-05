@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { StatusPill as SharedStatusPill } from "@/components/ui/StatusPill";
 import {
@@ -189,9 +190,13 @@ function Actions({ connector: c }: { connector: Connector }) {
 
       <form action={deleteConnectorAction} className="inline">
         <input type="hidden" name="connector_id" value={c.id} />
-        <Button type="submit" size="sm" variant="danger">
+        <ConfirmSubmitButton
+          size="sm"
+          variant="danger"
+          confirmMessage={`Delete connector “${c.name}”? This cannot be undone.`}
+        >
           Delete
-        </Button>
+        </ConfirmSubmitButton>
       </form>
     </div>
   );

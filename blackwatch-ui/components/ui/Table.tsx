@@ -51,6 +51,7 @@ export function Table({
   children,
   className,
   ariaLabel,
+  responsive = true,
 }: {
   /** Optional. Omit to auto-derive an id from the header labels. Pass an
    *  explicit id only when two tables share the same headers but should
@@ -59,11 +60,13 @@ export function Table({
   children: React.ReactNode;
   className?: string;
   ariaLabel?: string;
+  responsive?: boolean;
 }) {
   return (
     <ResizableTable tableId={tableId}>
       <table
         className={clsx("bw-table text-sm", className)}
+        data-responsive={responsive ? "cards" : "scroll"}
         aria-label={ariaLabel}
       >
         {children}
