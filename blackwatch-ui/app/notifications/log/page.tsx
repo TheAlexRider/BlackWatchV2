@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { BackLink } from "@/components/ui/BackLink";
-import { StatusDot, type Severity } from "@/components/ui/StatusDot";
+import { StatusPill as SharedStatusPill } from "@/components/ui/StatusPill";
+import type { Severity } from "@/components/ui/StatusDot";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
@@ -165,10 +166,5 @@ function StatusPill({ status }: { status: string }) {
     digested: "low",
     acked: "neutral",
   };
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={sevMap[status] ?? "neutral"} />
-      <span className="text-fg-muted">{status}</span>
-    </span>
-  );
+  return <SharedStatusPill label={status} severity={sevMap[status] ?? "neutral"} />;
 }

@@ -27,6 +27,7 @@ import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { PendingButton } from "@/components/ui/PendingButton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   addAllowlistUserAction,
   removeAllowlistUserAction,
@@ -735,12 +736,4 @@ function formatDuration(secs: number): string {
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   }
   return `${Math.floor(secs / 60)}m`;
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
-  );
 }

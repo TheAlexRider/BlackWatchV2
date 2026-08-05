@@ -14,6 +14,7 @@ import {
   severityBorderBg,
 } from "@/components/domain/SeverityBadge";
 import { SeverityCounterGrid } from "@/components/domain/SeverityCounterGrid";
+import { EmptyState as SharedEmptyState } from "@/components/ui/EmptyState";
 
 export default async function AwsPosturePage() {
   const { count, findings, have_connector } = await fetchPostureFindings();
@@ -125,8 +126,8 @@ function FindingRow({ finding }: { finding: PostureFinding }) {
 
 function EmptyState({ haveConnector }: { haveConnector: boolean }) {
   return (
-    <DataPanel className="mt-6 px-6 py-16 text-center">
-      <p className="text-sm text-fg-muted">
+    <DataPanel className="mt-6">
+      <SharedEmptyState size="lg">
         {haveConnector ? (
           <>
             No open findings. Either nothing&apos;s wrong, or the connector
@@ -142,7 +143,7 @@ function EmptyState({ haveConnector }: { haveConnector: boolean }) {
             >Settings</Link> to start scanning.
           </>
         )}
-      </p>
+      </SharedEmptyState>
     </DataPanel>
   );
 }
