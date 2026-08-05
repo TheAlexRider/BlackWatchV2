@@ -31,6 +31,7 @@ import { FlashToast } from "@/components/ui/FlashToast";
 import { Table } from "@/components/ui/Table";
 import { SeverityChip } from "@/components/ui/SeverityChip";
 import { StatusDot, type Severity } from "@/components/ui/StatusDot";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 
@@ -672,12 +673,7 @@ function ActivityStatusPill({ status }: { status: string }) {
     digested: "low",
     acked: "neutral",
   };
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={sevMap[status] ?? "neutral"} />
-      <span className="text-fg-muted">{status}</span>
-    </span>
-  );
+  return <StatusPill label={status} severity={sevMap[status] ?? "neutral"} />;
 }
 
 // =========================================================================
@@ -738,12 +734,7 @@ function ChannelsFirstHint() {
 }
 
 function EnabledPill({ enabled }: { enabled: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={enabled ? "resolved" : "neutral"} />
-      <span className="text-fg-muted">{enabled ? "enabled" : "disabled"}</span>
-    </span>
-  );
+  return <StatusPill label={enabled ? "enabled" : "disabled"} severity={enabled ? "resolved" : "neutral"} />;
 }
 
 function ChannelStatusPill({
@@ -755,12 +746,7 @@ function ChannelStatusPill({
 }) {
   const sev: Severity = status === "ok" ? "resolved" : status ? "critical" : "neutral";
   const label = status ?? "never";
-  return (
-    <span title={error ?? undefined} className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={sev} />
-      <span className={status ? "text-fg-muted" : "text-fg-subtle"}>{label}</span>
-    </span>
-  );
+  return <StatusPill label={label} severity={sev} title={error ?? undefined} />;
 }
 
 function countSince(

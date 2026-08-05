@@ -12,6 +12,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { StatusDot } from "@/components/ui/StatusDot";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default async function BucketsPage() {
   const { count, buckets, counts } = await fetchBuckets();
@@ -29,7 +30,18 @@ export default async function BucketsPage() {
         <SectionLabel>all buckets</SectionLabel>
         <DataPanel className="overflow-hidden">
           {buckets.length === 0 ? (
-            <EmptyState />
+            <EmptyState>
+              <p>
+                No buckets tracked yet. Either run the bootstrap script
+                (<code className="text-fg">scripts/s3_bucket_inventory.py</code>) to seed
+                the inventory once, or set up an{" "}
+                <strong className="text-fg">S3 drift connector</strong> in{" "}
+                <Link href="/settings" className="text-signal hover:underline">
+                  Settings
+                </Link>{" "}
+                for ongoing scans.
+              </p>
+            </EmptyState>
           ) : (
             <BucketsTable buckets={buckets} />
           )}
@@ -292,23 +304,6 @@ function BpaCell({ bpa }: { bpa: BlockPublicAccess | null }) {
       <div className="font-mono text-[10px] text-fg-subtle">
         acls={String(bpa.block_public_acls)} · ig={String(bpa.ignore_public_acls)} · pol={String(bpa.block_public_policy)} · rs={String(bpa.restrict_public_buckets)}
       </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="px-6 py-12 text-center text-sm text-fg-muted">
-      <p>
-        No buckets tracked yet. Either run the bootstrap script
-        (<code className="text-fg">scripts/s3_bucket_inventory.py</code>) to seed
-        the inventory once, or set up an{" "}
-        <strong className="text-fg">S3 drift connector</strong> in{" "}
-        <Link href="/settings" className="text-signal hover:underline">
-          Settings
-        </Link>{" "}
-        for ongoing scans.
-      </p>
     </div>
   );
 }

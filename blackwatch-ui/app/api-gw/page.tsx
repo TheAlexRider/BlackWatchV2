@@ -21,6 +21,7 @@ import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default async function ApiGwPage() {
   const [summary, apis, sources, alerts, failures] = await Promise.all([
@@ -427,13 +428,5 @@ function FailuresTable({ failures }: { failures: ApiGwFailure[] }) {
         ))}
       </tbody>
     </Table>
-  );
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
   );
 }

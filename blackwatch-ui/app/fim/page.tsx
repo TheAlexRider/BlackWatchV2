@@ -12,6 +12,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default async function FimPage() {
   const { count, hosts, recent_changes } = await fetchFimView();
@@ -331,12 +332,4 @@ function humanAge(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-12 text-center text-sm text-fg-muted">
-      {children}
-    </div>
-  );
 }

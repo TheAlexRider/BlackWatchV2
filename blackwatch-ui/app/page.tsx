@@ -9,6 +9,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   SeverityBadge,
   severityBorderBg,
@@ -259,14 +260,6 @@ function CompactEventsTable({ events }: { events: EventEnvelope[] }) {
         ))}
       </tbody>
     </Table>
-  );
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
   );
 }
 

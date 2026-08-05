@@ -13,6 +13,7 @@ import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default async function ServicesPage() {
   const { agents, grouped, counts, archived, archive_threshold_days } =
@@ -413,11 +414,3 @@ function formatDownDuration(downSince: string | null): string {
 // =========================================================================
 // empty state
 // =========================================================================
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
-  );
-}

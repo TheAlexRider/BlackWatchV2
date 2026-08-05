@@ -9,6 +9,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { StatusPill as SharedStatusPill } from "@/components/ui/StatusPill";
 import {
   testConnectorAction,
   runConnectorAction,
@@ -103,9 +104,9 @@ function ConnectorRow({ connector: c }: { connector: Connector }) {
         </td>
         <td className="px-4 py-2.5">
           {c.verified ? (
-            <Pill color="resolved" label="verified" />
+            <SharedStatusPill severity="resolved" label="verified" />
           ) : (
-            <Pill color="neutral" label="not tested" />
+            <SharedStatusPill severity="neutral" label="not tested" />
           )}
         </td>
         <td className="px-4 py-2.5 font-mono text-xs">
@@ -245,29 +246,6 @@ function ConnectorDetails({ connector: c }: { connector: Connector }) {
 
 // --- pills ----------------------------------------------------------------
 
-function Pill({
-  color,
-  label,
-}: {
-  color: "resolved" | "neutral" | "critical" | "medium";
-  label: string;
-}) {
-  const dot =
-    color === "resolved"
-      ? "bg-sev-resolved"
-      : color === "critical"
-        ? "bg-sev-critical"
-        : color === "medium"
-          ? "bg-sev-medium"
-          : "bg-fg-subtle";
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", dot)} />
-      <span className="text-fg-muted">{label}</span>
-    </span>
-  );
-}
-
 function StatusPill({
   status,
   error,
@@ -275,13 +253,13 @@ function StatusPill({
   status: string | null;
   error: string | null;
 }) {
-  if (status === "ok") return <Pill color="resolved" label="ok" />;
+  if (status === "ok") return <SharedStatusPill severity="resolved" label="ok" />;
   if (status === "error") {
     return (
       <span title={error ?? ""}>
-        <Pill color="critical" label="error" />
+        <SharedStatusPill severity="critical" label="error" />
       </span>
     );
   }
-  return <Pill color="neutral" label="never" />;
+  return <SharedStatusPill severity="neutral" label="never" />;
 }

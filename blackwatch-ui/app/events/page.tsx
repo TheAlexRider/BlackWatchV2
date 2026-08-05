@@ -10,6 +10,7 @@ import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NativeSelect } from "@/components/ui/NativeSelect";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import {
   SeverityBadge,
@@ -50,7 +51,7 @@ export default async function EventsPage({
 
       <DataPanel className="mt-4 overflow-hidden">
         {events.length === 0 ? (
-          <EmptyState />
+          <EmptyState size="lg">No events match the current filters.</EmptyState>
         ) : (
           <EventsTable events={events} />
         )}
@@ -184,13 +185,5 @@ function EventRow({ event }: { event: EventEnvelope }) {
         {target}
       </td>
     </tr>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="px-6 py-16 text-center text-sm text-fg-muted">
-      No events match the current filters.
-    </div>
   );
 }
