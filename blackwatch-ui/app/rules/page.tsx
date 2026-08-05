@@ -3,6 +3,7 @@ import type { MutedEvent } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { Table } from "@/components/ui/Table";
+import { SectionLabel } from "@/components/layout/SectionLabel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { muteAction, unmuteAction } from "./actions";
@@ -28,25 +29,14 @@ export default async function RulesPage({
       {msg && <MessageBar message={msg} />}
 
       <section className="space-y-2">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-medium tracking-wide text-fg">Rule catalog</h2>
-            <p className="mt-0.5 text-xs text-fg-muted">
-              Search, filter, and adjust runtime rule behavior.
-            </p>
-          </div>
-          <span className="font-mono text-[11px] text-fg-subtle">{count} loaded</span>
-        </div>
+        <SectionLabel>rules</SectionLabel>
         <DataPanel className="overflow-hidden">
           <RulesTable rules={rules} />
         </DataPanel>
       </section>
 
       <section className="mt-6 space-y-2">
-        <div>
-          <h2 className="text-sm font-medium tracking-wide text-fg">Muted event filters</h2>
-          <p className="mt-0.5 text-xs text-fg-muted">Dropped at ingest before events are stored.</p>
-        </div>
+        <SectionLabel>muted events · dropped at ingest</SectionLabel>
         <DataPanel className="p-4">
           <p className="text-xs text-fg-muted">
             Muted events are discarded before storage. Leave the filter

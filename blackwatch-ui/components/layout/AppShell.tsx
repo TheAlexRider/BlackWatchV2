@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <TopNav onMenuClick={() => setNavOpen((v) => !v)} menuOpen={navOpen} />
       <div className="flex flex-1 overflow-hidden">
         <SideNav mobileOpen={navOpen} onCloseMobile={() => setNavOpen(false)} />
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
+        <main className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
           <div data-impeccable-variants="e6f6884f" data-impeccable-variant-count="3" style={{ display: "contents" }}>
             {/* impeccable-variants-start e6f6884f */}
             {/* Original */}

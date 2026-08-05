@@ -24,7 +24,6 @@ export function TopNav({
         onClick={onMenuClick}
         aria-label={menuOpen ? "Close menu" : "Open menu"}
         aria-expanded={menuOpen}
-        aria-controls="mobile-navigation"
         className="mr-2 flex h-9 w-9 items-center justify-center text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal md:hidden"
       >
         {menuOpen ? <X size={16} /> : <Menu size={16} />}
@@ -66,7 +65,6 @@ function Logo() {
 function AccountMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -76,25 +74,7 @@ function AccountMenu() {
       }
     }
     function onKey(e: KeyboardEvent) {
-      const items = Array.from(
-        ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
-      );
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const current = items.indexOf(document.activeElement as HTMLElement);
-        const offset = e.key === "ArrowDown" ? 1 : -1;
-        items[(current + offset + items.length) % items.length]?.focus();
-      } else if (e.key === "Home") {
-        e.preventDefault();
-        items[0]?.focus();
-      } else if (e.key === "End") {
-        e.preventDefault();
-        items[items.length - 1]?.focus();
-      }
+      if (e.key === "Escape") setOpen(false);
     }
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
@@ -104,17 +84,9 @@ function AccountMenu() {
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    requestAnimationFrame(() => {
-      ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    });
-  }, [open]);
-
   return (
     <div className="relative" ref={ref}>
       <button
-        ref={triggerRef}
         type="button"
         aria-label="Account"
         aria-haspopup="menu"
@@ -132,18 +104,18 @@ function AccountMenu() {
           <Link
             href="/settings"
             role="menuitem"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
             onClick={() => setOpen(false)}
           >
-            <SettingsIcon size={12} aria-hidden="true" /> Settings
+            <SettingsIcon size={12} /> Settings
           </Link>
           <form action={logoutAction} className="block">
             <button
               type="submit"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
             >
-              <LogOut size={12} aria-hidden="true" /> Sign out
+              <LogOut size={12} /> Sign out
             </button>
           </form>
         </div>

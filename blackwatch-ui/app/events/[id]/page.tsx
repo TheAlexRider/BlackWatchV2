@@ -61,7 +61,7 @@ export default async function EventDetailPage({
       <div className="mt-6 space-y-2">
         <SectionLabel>envelope</SectionLabel>
         <DataPanel className="overflow-auto p-4">
-          <pre className="max-w-full overflow-auto break-words whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
+          <pre className="text-xs leading-relaxed text-fg-muted">
             {envelopeJson}
           </pre>
         </DataPanel>
@@ -71,7 +71,7 @@ export default async function EventDetailPage({
         <div className="mt-6 space-y-2">
           <SectionLabel>raw</SectionLabel>
           <DataPanel className="overflow-auto p-4">
-            <pre className="max-w-full overflow-auto break-words whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
+            <pre className="text-xs leading-relaxed text-fg-muted">
               {rawJson}
             </pre>
           </DataPanel>
