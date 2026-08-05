@@ -65,29 +65,10 @@
   body {
     background: var(--color-canvas);
     color: var(--color-fg);
-    color-scheme: dark;
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  button, a, input, select, textarea {
-    touch-action: manipulation;
-  }
-
-  :focus-visible {
-    outline: 2px solid var(--color-signal);
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      scroll-behavior: auto !important;
-      transition-duration: 0.01ms !important;
-    }
   }
 
   /* Default mono everywhere a developer would expect it */
@@ -126,26 +107,10 @@
      The pseudo-element strategy gives us a 6-px hit target (the div) with a
      visible 1-px line centered on it. That's the "column line" — same
      hairline as the divider between columns, but signal-colored on hover. */
-  .bw-table-shell {
-    max-width: 100%;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-gutter: stable;
-  }
-
   .bw-col-resize-handle {
-    position: absolute;
-    top: 0;
-    right: -5px;
-    z-index: 10;
-    width: 10px;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    cursor: col-resize;
-    border: 0;
     background: transparent;
     transition: background 120ms ease;
+    position: relative;
   }
   .bw-col-resize-handle::after {
     content: "";
@@ -158,7 +123,6 @@
     transition: background 120ms ease;
   }
   .bw-col-resize-handle:hover::after,
-  .bw-col-resize-handle:focus-visible::after,
   .bw-col-resize-handle:active::after {
     background: var(--color-signal);
   }
@@ -174,20 +138,18 @@
 
   .bw-table {
     width: 100%;
-    min-width: 0;
+    /* max-content wins in overflow-x-auto so wide tables scroll horizontally
+       inside the outer scroll container, matching the pattern from the
+       DataPanel wrapper. */
+    min-width: max-content;
     border-collapse: separate;
     border-spacing: 0;
     font-variant-numeric: tabular-nums;
-    /* Let content and available width negotiate column sizes. The resize
-       handles provide minimum hints, while auto layout lets neighboring
-       columns adapt when a cell expands. */
-    table-layout: auto;
-  }
-
-  .bw-table th,
-  .bw-table td {
-    min-width: 0;
-    overflow-wrap: anywhere;
+    /* Fixed layout: columns respect the widths set on <th>. That's what
+       makes drag-to-resize behave predictably — otherwise the browser
+       auto-computes widths from content and every text change reflows the
+       table. */
+    table-layout: fixed;
   }
 
   /* --- Header (sticky) -------------------------------------------------- */
@@ -237,8 +199,7 @@
   }
 
   /* --- Cells ------------------------------------------------------------ */
-  .bw-table tbody td,
-  .bw-table tbody th {
+  .bw-table tbody td {
     padding: 0.5rem 0.75rem;
     font-size: 13px;
     line-height: 1.4;
@@ -308,87 +269,83 @@
     overflow-wrap: anywhere;
   }
 
-  /* Mobile tables become readable cards instead of forcing users to drag a
-     scrollbar to reach row actions. Labels are populated from the header by
-     ResizableTable, keeping server-rendered table markup semantic. */
-  @media (max-width: 767px) {
-    .bw-table[data-responsive="cards"] {
-      display: block;
-      width: 100%;
-    }
-
-    .bw-table[data-responsive="cards"] thead {
-      display: none;
-    }
-
-    .bw-table[data-responsive="cards"] tbody,
-    .bw-table[data-responsive="cards"] tr {
-      display: block;
-      width: 100%;
-    }
-
-    .bw-table[data-responsive="cards"] tbody tr {
-      margin: 0.5rem;
-      width: calc(100% - 1rem);
-      border: 1px solid var(--color-line-soft);
-      background: var(--color-surface-1);
-    }
-
-    .bw-table[data-responsive="cards"] tbody tr:first-child {
-      margin-top: 0.75rem;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td,
-    .bw-table[data-responsive="cards"] tbody th {
-      display: grid;
-      grid-template-columns: minmax(6.5rem, 34%) minmax(0, 1fr);
-      gap: 0.75rem;
-      align-items: start;
-      width: 100%;
-      min-height: 2.5rem;
-      padding: 0.65rem 0.75rem;
-      border-left: 0 !important;
-      border-bottom: 1px solid var(--color-line-soft);
-      text-align: left;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td::before,
-    .bw-table[data-responsive="cards"] tbody th::before {
-      content: attr(data-label);
-      color: var(--color-fg-subtle);
-      font-size: 10px;
-      font-weight: 400;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td[data-actions] {
-      display: flex;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      padding: 0.75rem;
-      border-bottom: 0;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td[data-actions]::before {
-      content: "Actions";
-      margin-right: auto;
-      align-self: center;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td:last-child,
-    .bw-table[data-responsive="cards"] tbody th:last-child {
-      border-bottom: 0;
-    }
-
-    .bw-table[data-responsive="cards"] tbody td.bw-empty {
-      display: block;
-      margin: 0;
-      width: 100%;
-      border: 0 !important;
-      text-align: center;
-    }
+  /* Tables inside a horizontally-scrollable container should keep their
+     natural min-width. DataPanel now wraps its children in overflow-x-auto,
+     but `w-full table-fixed` would otherwise force the table to shrink
+     to container width — squishing columns on mobile. This preserves the
+     fixed column widths and lets the outer wrapper scroll instead. */
+  .overflow-x-auto > table {
+    min-width: max-content;
   }
 
+  /* =========================================================================
+     Mobile Adaptation (Stacked Cards for tables)
+     ========================================================================= */
+  @media (max-width: 767px) {
+    /* Override horizontal scrolling to allow stacked cards */
+    .overflow-x-auto > table.bw-table {
+      min-width: 100%;
+    }
+    
+    .bw-table, .bw-table tbody, .bw-table tr, .bw-table td {
+      display: block;
+      width: 100%;
+    }
+    
+    /* Hide headers visually but keep for screen readers if necessary */
+    .bw-table thead {
+      display: none;
+    }
+    
+    .bw-table tbody tr {
+      border: 1px solid var(--color-line-soft);
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      background: var(--color-surface-1);
+    }
+    
+    .bw-table tbody td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border-left: none !important;
+      border-bottom: 1px solid var(--color-line-soft);
+      text-align: right;
+    }
+    
+    .bw-table tbody td:last-child {
+      border-bottom: none;
+    }
+    
+    /* Insert data-label before the content */
+    .bw-table tbody td::before {
+      content: attr(data-label);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-fg-subtle);
+      text-align: left;
+      padding-right: 1rem;
+    }
+    
+    .bw-table [data-actions] {
+      justify-content: flex-end;
+    }
+    
+    .bw-table [data-actions]::before {
+      display: none;
+    }
+    
+    .bw-table tbody td.bw-empty {
+      display: block;
+      text-align: center;
+      padding: 3rem 1rem;
+      border: none !important;
+    }
+    
+    .bw-table tbody td.bw-empty::before {
+      display: none;
+    }
+  }
 }

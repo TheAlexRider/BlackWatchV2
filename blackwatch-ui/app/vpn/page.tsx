@@ -17,7 +17,6 @@ import { RefreshButton } from "@/components/layout/RefreshButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { IpCell } from "@/components/domain/IpCell";
 import { Button } from "@/components/ui/Button";
-import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { deleteVpnServerAction } from "./actions";
 
 export default async function VpnPage() {
@@ -88,15 +87,15 @@ function ServerPanel({ server: s }: { server: VpnServer }) {
             {s.stale && (
               <form action={deleteVpnServerAction} className="inline">
                 <input type="hidden" name="server" value={s.server} />
-                <ConfirmSubmitButton
+                <Button
+                  type="submit"
                   variant="ghost"
                   size="sm"
-                  confirmMessage={`Remove ${s.server} from the VPN read model? It will reappear if the agent reports again.`}
                   title={`Remove ${s.server} from the read model. Will reappear if an agent reports under this name again.`}
                   className="text-fg-subtle hover:text-sev-critical"
                 >
                   remove
-                </ConfirmSubmitButton>
+                </Button>
               </form>
             )}
           </div>

@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 // Self-hosted via @fontsource — no network calls at build time. Switching
 // away from next/font/google because Lightsail build env can't reach
 // fonts.googleapis.com reliably and the build would fail.
@@ -16,11 +16,6 @@ export const metadata: Metadata = {
   description: "Security telemetry",
 };
 
-export const viewport: Viewport = {
-  colorScheme: "dark",
-  themeColor: "#0A0B0F",
-};
-
 export default function RootLayout({
   children,
 }: {
@@ -29,12 +24,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <a
-          href="#main-content"
-          className="sr-only z-50 rounded bg-signal px-3 py-2 text-sm text-canvas focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
-        >
-          Skip to main content
-        </a>
         <AppShell>{children}</AppShell>
       </body>
     </html>

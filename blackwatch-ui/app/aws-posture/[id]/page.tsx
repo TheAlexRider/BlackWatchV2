@@ -88,7 +88,7 @@ export default async function PostureFindingDetailPage({
       <div className="mt-6 space-y-2">
         <SectionLabel>evidence (raw)</SectionLabel>
         <DataPanel className="overflow-auto p-4">
-          <pre className="max-w-full overflow-auto break-words whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
+          <pre className="text-xs leading-relaxed text-fg-muted">
             {evidenceJson}
           </pre>
         </DataPanel>

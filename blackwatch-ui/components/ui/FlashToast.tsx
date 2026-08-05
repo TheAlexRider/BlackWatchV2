@@ -106,7 +106,7 @@ export function FlashToast({
       <button
         type="button"
         onClick={() => setVisible(false)}
-        className="shrink-0 text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+        className="shrink-0 text-fg-subtle transition-colors hover:text-fg"
         aria-label="Dismiss"
       >
         <X size={14} />

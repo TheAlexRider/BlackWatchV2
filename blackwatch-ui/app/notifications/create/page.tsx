@@ -61,7 +61,7 @@ function ChoiceCard({
   examples: string[];
 }) {
   return (
-    <Link href={href} className="group block focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal">
+    <Link href={href} className="group block focus:outline-none">
       <div className="relative flex h-full flex-col border border-line-soft bg-surface-1 transition-colors group-hover:border-signal group-focus-visible:border-signal">
         <div className="h-px bg-gradient-to-r from-transparent via-signal/30 to-transparent transition-opacity group-hover:via-signal/70" />
 
@@ -72,7 +72,7 @@ function ChoiceCard({
             </div>
             <ArrowRight
               size={14}
-              className="text-fg-subtle transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-signal"
+              className="text-fg-subtle transition-all group-hover:translate-x-0.5 group-hover:text-signal"
             />
           </div>
 

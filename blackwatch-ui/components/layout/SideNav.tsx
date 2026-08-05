@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -67,7 +67,6 @@ export function SideNav({
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const stored =
@@ -81,37 +80,6 @@ export function SideNav({
     if (mobileOpen) onCloseMobile?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const nav = navRef.current;
-    if (!nav) return;
-    const focusable = () =>
-      Array.from(nav.querySelectorAll<HTMLElement>("a, button")).filter(
-        (el) => !el.hasAttribute("disabled"),
-      );
-    focusable()[0]?.focus();
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onCloseMobile?.();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    nav.addEventListener("keydown", onKeyDown);
-    return () => nav.removeEventListener("keydown", onKeyDown);
-  }, [mobileOpen, onCloseMobile]);
 
   function toggle() {
     setCollapsed((prev) => {
@@ -138,10 +106,7 @@ export function SideNav({
       )}
 
       <nav
-        ref={navRef}
-        id="mobile-navigation"
         aria-label="Primary"
-        aria-modal={mobileOpen ? true : undefined}
         className={clsx(
           "flex shrink-0 flex-col border-r border-line-soft bg-canvas transition-[width,transform] duration-200 ease-out",
           // Desktop
