@@ -5,6 +5,8 @@ import clsx from "clsx";
 import * as Select from "@radix-ui/react-select";
 import type { Rule } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
+import { Table } from "@/components/ui/Table";
+import { TablePagination } from "@/components/ui/Pagination";
 import { SeverityBadge, severityBorderBg } from "@/components/domain/SeverityBadge";
 import { toggleRuleAction, setSeverityAction } from "./actions";
 
@@ -95,6 +97,8 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   const [notifyTiers, setNotifyTiers] = useState<Set<NotifyTier>>(new Set());
   const [sources, setSources] = useState<Set<string>>(new Set());
   const [showFacets, setShowFacets] = useState(true);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -179,6 +183,17 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
     sources.size > 0;
   const activeFacetCount =
     severities.size + notifyTiers.size + sources.size + (stateFilter === "all" ? 0 : 1);
+
+  // Keep the current page valid when a filter removes rows or the page size
+  // changes. This is intentionally derived from filtered, not the full list.
+  useEffect(() => {
+    setPage(0);
+  }, [q, stateFilter, pageSize, severities, notifyTiers, sources]);
+
+  const visibleRules = useMemo(
+    () => filtered.slice(page * pageSize, (page + 1) * pageSize),
+    [filtered, page, pageSize],
+  );
 
   function clearAll() {
     setQ("");
@@ -314,8 +329,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
       </section>
 
       {/* ------- Table --------------------------------------------------- */}
-      <div className="min-w-0 overflow-x-auto">
-        <table className="bw-table w-full text-left" data-responsive="cards">
+      <Table tableId="rules-list" ariaLabel="Rules">
           <thead>
             <tr className="border-b border-line-soft text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
               <th scope="col" className="w-1 p-0" aria-label="Severity indicator" />
@@ -327,7 +341,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {visibleRules.map((r) => (
               <RuleRow key={r.id} rule={r} />
             ))}
             {filtered.length === 0 && (
@@ -338,8 +352,17 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
               </tr>
             )}
           </tbody>
-        </table>
-      </div>
+      </Table>
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        total={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+      />
     </div>
   );
 }
