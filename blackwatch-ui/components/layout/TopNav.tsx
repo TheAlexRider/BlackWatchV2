@@ -6,6 +6,7 @@ import { LogOut, Menu, Settings as SettingsIcon, X } from "lucide-react";
 
 import { LiveCounter } from "./LiveCounter";
 import { logoutAction } from "@/app/login/actions";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 // Top navigation. On mobile the hamburger toggles the SideNav drawer; on
 // desktop it's hidden. The account pill opens a small popover with a
@@ -66,6 +67,9 @@ function Logo() {
 function AccountMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { user, role, loading } = useAuth();
+  const initials = (user ?? "??").slice(0, 2).toUpperCase();
+  const isViewer = !loading && role === "viewer";
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -112,7 +116,15 @@ function AccountMenu() {
   }, [open]);
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative flex items-center gap-2" ref={ref}>
+      {isViewer && (
+        <span
+          className="hidden border border-line-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-subtle sm:inline"
+          title="Read-only role — mutations disabled"
+        >
+          viewer
+        </span>
+      )}
       <button
         ref={triggerRef}
         type="button"
@@ -122,13 +134,17 @@ function AccountMenu() {
         onClick={() => setOpen((v) => !v)}
         className="flex h-6 w-6 items-center justify-center border border-line font-mono text-[10px] uppercase tracking-wider text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
       >
-        TA
+        {initials}
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-9 z-50 min-w-[180px] border border-line bg-canvas py-1 shadow-lg"
+          className="absolute right-0 top-9 z-50 min-w-[200px] border border-line bg-canvas py-1 shadow-lg"
         >
+          <div className="border-b border-line-soft px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-subtle">
+            <div className="truncate normal-case tracking-normal text-fg">{user ?? "unknown"}</div>
+            <div className="font-mono">{loading ? "…" : role}</div>
+          </div>
           <Link
             href="/settings"
             role="menuitem"

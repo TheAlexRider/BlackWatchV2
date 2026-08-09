@@ -49,3 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth(): AuthState {
   return useContext(AuthContext);
 }
+
+export function useIsAdmin(): boolean {
+  const { role, loading } = useContext(AuthContext);
+  return !loading && role === "admin";
+}
