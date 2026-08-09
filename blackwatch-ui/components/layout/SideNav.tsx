@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -17,8 +17,10 @@ import {
   Settings as SettingsIcon,
   Lock,
   Wrench,
+  ClipboardList,
   Key,
   Globe,
+  UserSearch,
   FileLock2,
   ChevronsLeft,
   ChevronsRight,
@@ -43,6 +45,7 @@ const primaryNav: NavEntry[] = [
   { href: "/api-gw", label: "API Gateway", icon: Globe },
   { href: "/rules", label: "Rules", icon: ScrollText },
   { href: "/aws-posture", label: "AWS posture", icon: Shield },
+  { href: "/ueba", label: "UEBA", icon: UserSearch },
   { href: "/buckets", label: "Buckets", icon: Database },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
@@ -50,6 +53,7 @@ const primaryNav: NavEntry[] = [
 const secondaryNav: NavEntry[] = [
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/connectors", label: "Connectors", icon: Plug },
+  { href: "/audit", label: "Audit log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -67,6 +71,7 @@ export function SideNav({
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const stored =
@@ -80,6 +85,37 @@ export function SideNav({
     if (mobileOpen) onCloseMobile?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const nav = navRef.current;
+    if (!nav) return;
+    const focusable = () =>
+      Array.from(nav.querySelectorAll<HTMLElement>("a, button")).filter(
+        (el) => !el.hasAttribute("disabled"),
+      );
+    focusable()[0]?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onCloseMobile?.();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    nav.addEventListener("keydown", onKeyDown);
+    return () => nav.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen, onCloseMobile]);
 
   function toggle() {
     setCollapsed((prev) => {
@@ -106,7 +142,10 @@ export function SideNav({
       )}
 
       <nav
+        ref={navRef}
+        id="mobile-navigation"
         aria-label="Primary"
+        aria-modal={mobileOpen ? true : undefined}
         className={clsx(
           "flex shrink-0 flex-col border-r border-line-soft bg-canvas transition-[width,transform] duration-200 ease-out",
           // Desktop

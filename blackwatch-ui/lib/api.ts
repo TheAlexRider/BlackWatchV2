@@ -659,6 +659,58 @@ export async function fetchConnectors(): Promise<ConnectorsListResponse> {
   return (await res.json()) as ConnectorsListResponse;
 }
 
+// --- UEBA ----------------------------------------------------------------
+
+export interface UebaBaselineRow {
+  principal_type: string;
+  principal_id: string;
+  dimension: string;
+  value: string;
+  first_seen: number;
+  last_seen: number;
+  count: number;
+}
+
+export interface UebaBaselinesResponse {
+  count: number;
+  baselines: UebaBaselineRow[];
+}
+
+export interface UebaAnomaliesResponse {
+  count: number;
+  anomalies: EventEnvelope[];
+}
+
+export async function fetchUebaBaselines(query: {
+  principal_type?: string;
+  principal_id?: string;
+  dimension?: string;
+  limit?: number;
+} = {}): Promise<UebaBaselinesResponse> {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null || v === "") continue;
+    search.set(k, String(v));
+  }
+  const res = await bwFetch(`/api/ueba/baselines?${search.toString()}`);
+  if (!res.ok) throw new Error(`fetchUebaBaselines failed: ${res.status}`);
+  return (await res.json()) as UebaBaselinesResponse;
+}
+
+export async function fetchUebaAnomalies(query: {
+  principal?: string;
+  limit?: number;
+} = {}): Promise<UebaAnomaliesResponse> {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null || v === "") continue;
+    search.set(k, String(v));
+  }
+  const res = await bwFetch(`/api/ueba/anomalies?${search.toString()}`);
+  if (!res.ok) throw new Error(`fetchUebaAnomalies failed: ${res.status}`);
+  return (await res.json()) as UebaAnomaliesResponse;
+}
+
 export async function fetchConnector(id: string): Promise<Connector | null> {
   const res = await bwFetch(
     `/api/connectors/${encodeURIComponent(id)}`,

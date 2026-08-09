@@ -1959,34 +1959,131 @@ def list_rds_db_instances() -> list[dict[str, Any]]:
 def list_users() -> list[dict[str, Any]]:
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT username, created_at, updated_at FROM auth_users ORDER BY username"
+            "SELECT username, role, created_at, updated_at FROM auth_users ORDER BY username"
         ).fetchall()
     return [
-        {"username": r[0], "created_at": r[1], "updated_at": r[2]} for r in rows
+        {"username": r[0], "role": r[1], "created_at": r[2], "updated_at": r[3]}
+        for r in rows
     ]
 
 
 def get_user(username: str) -> dict[str, Any] | None:
     with get_pool().connection() as conn:
         row = conn.execute(
-            "SELECT username, password_hash FROM auth_users WHERE username = %s",
+            "SELECT username, password_hash, role FROM auth_users WHERE username = %s",
             (username,),
         ).fetchone()
-    return {"username": row[0], "password_hash": row[1]} if row else None
+    return (
+        {"username": row[0], "password_hash": row[1], "role": row[2]}
+        if row else None
+    )
 
 
-def upsert_user(username: str, password_hash: str) -> None:
+def get_user_role(username: str) -> str:
+    """Return the role of `username`, or 'viewer' if unknown (fail closed)."""
+    if not username:
+        return "viewer"
+    try:
+        with get_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT role FROM auth_users WHERE username = %s", (username,),
+            ).fetchone()
+        return row[0] if row and row[0] else "viewer"
+    except Exception:
+        return "viewer"
+
+
+def upsert_user(username: str, password_hash: str, role: str | None = None) -> None:
+    with get_pool().connection() as conn:
+        if role is None:
+            conn.execute(
+                """
+                INSERT INTO auth_users (username, password_hash)
+                     VALUES (%s, %s)
+                ON CONFLICT (username) DO UPDATE
+                  SET password_hash = EXCLUDED.password_hash,
+                      updated_at    = now()
+                """,
+                (username, password_hash),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO auth_users (username, password_hash, role)
+                     VALUES (%s, %s, %s)
+                ON CONFLICT (username) DO UPDATE
+                  SET password_hash = EXCLUDED.password_hash,
+                      role          = EXCLUDED.role,
+                      updated_at    = now()
+                """,
+                (username, password_hash, role),
+            )
+
+
+def set_user_role(username: str, role: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE auth_users SET role = %s, updated_at = now() WHERE username = %s",
+            (role, username),
+        )
+
+
+# --- Audit log (append-only) --------------------------------------------------
+
+def insert_audit(
+    *,
+    actor: str | None,
+    actor_role: str | None,
+    ip: str | None,
+    method: str,
+    path: str,
+    status: int,
+    body_summary: str | None,
+) -> None:
     with get_pool().connection() as conn:
         conn.execute(
             """
-            INSERT INTO auth_users (username, password_hash)
-                 VALUES (%s, %s)
-            ON CONFLICT (username) DO UPDATE
-              SET password_hash = EXCLUDED.password_hash,
-                  updated_at    = now()
+            INSERT INTO audit (actor, actor_role, ip, method, path, status, body_summary)
+                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            (username, password_hash),
+            (actor, actor_role, ip, method, path, status, body_summary),
         )
+
+
+def list_audit(
+    *,
+    limit: int = 200,
+    actor: str | None = None,
+    since: datetime | None = None,
+    path_like: str | None = None,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if actor:
+        clauses.append("actor = %s")
+        params.append(actor)
+    if since:
+        clauses.append("ts >= %s")
+        params.append(since)
+    if path_like:
+        clauses.append("path ILIKE %s")
+        params.append(f"%{path_like}%")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = (
+        "SELECT id, ts, actor, actor_role, ip, method, path, status, body_summary "
+        f"FROM audit {where} ORDER BY ts DESC LIMIT %s"
+    )
+    params.append(min(max(int(limit), 1), 1000))
+    with get_pool().connection() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [
+        {
+            "id": r[0], "ts": r[1], "actor": r[2], "actor_role": r[3],
+            "ip": r[4], "method": r[5], "path": r[6], "status": r[7],
+            "body_summary": r[8],
+        }
+        for r in rows
+    ]
 
 
 def insert_session(

@@ -1,0 +1,31 @@
+# UEBA-lite baseline / first-seen anomaly config.
+#
+# For each identifiable principal (IAM user, VPN user, DB user, SSH user, etc.)
+# we maintain rolling baselines of a small fixed set of dimensions. After the
+# per-principal warm-up window, any never-before-seen value fires a synthetic
+# event of the form <category>.anomaly.first_seen_<dimension>.
+#
+# To silence one dimension entirely, set enabled: false. To shorten warm-up on
+# a noisy dimension, override its warm_up_days.
+
+default_warm_up_days: 7
+
+dimensions:
+  source_ip:
+    enabled: true
+  source_country:
+    enabled: true
+  source_asn:
+    enabled: true
+  hour_of_day:
+    enabled: true
+  action:
+    enabled: true
+  user_agent_family:
+    enabled: true
+
+# Optional principal-type filters. Empty lists mean "no filter".
+#   principal_type_allow: [user, role]
+#   principal_type_deny: [service]
+principal_type_allow: []
+principal_type_deny: []

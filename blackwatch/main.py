@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -98,7 +101,78 @@ async def _auth_middleware(request: Request, call_next):
             )
         # Stash for downstream handlers that want the caller identity.
         request.state.user = result[0]
+        try:
+            request.state.role = storage.get_user_role(result[0])
+        except Exception:
+            request.state.role = auth.ROLE_VIEWER
     return await call_next(request)
+
+
+# ---- Audit middleware -----------------------------------------------------
+# Every non-GET request the app receives lands in the append-only `audit`
+# table. Body is truncated + scrubbed. Failures here are swallowed so
+# audit-log breakage can't break the actual request.
+
+_AUDIT_LOGGER = logging.getLogger("blackwatch.audit")
+_AUDIT_SKIP_METHODS = {"GET", "HEAD", "OPTIONS"}
+_AUDIT_SKIP_PATHS = {"/healthz", "/", "/api/whoami", "/api/auth/me", "/auth/me"}
+_SECRET_KEYS_RE = re.compile(
+    r'("(?:password|passwd|token|secret|api[_-]?key|authorization|slack_webhook|'
+    r'access[_-]?key|secret[_-]?key)"\s*:\s*)"[^"]*"',
+    re.IGNORECASE,
+)
+_AWS_KEY_RE = re.compile(r"AKIA[0-9A-Z]{16}")
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")
+
+
+def _scrub_body(raw: bytes | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        text = raw.decode("utf-8", errors="replace")
+    except Exception:
+        return "<binary>"
+    text = text[:2000]
+    text = _SECRET_KEYS_RE.sub(r'\1"***REDACTED***"', text)
+    text = _AWS_KEY_RE.sub("***REDACTED***", text)
+    text = _JWT_RE.sub("***REDACTED***", text)
+    return text[:500]
+
+
+@app.middleware("http")
+async def _audit_middleware(request: Request, call_next):
+    method = request.method
+    path = request.url.path
+    body_bytes: bytes | None = None
+    if (
+        method not in _AUDIT_SKIP_METHODS
+        and path not in _AUDIT_SKIP_PATHS
+    ):
+        try:
+            body_bytes = await request.body()
+        except Exception:
+            body_bytes = None
+    response = await call_next(request)
+    if (
+        method not in _AUDIT_SKIP_METHODS
+        and path not in _AUDIT_SKIP_PATHS
+    ):
+        try:
+            actor = getattr(request.state, "user", None)
+            actor_role = getattr(request.state, "role", None)
+            ip = request.client.host if request.client else None
+            storage.insert_audit(
+                actor=actor,
+                actor_role=actor_role,
+                ip=ip,
+                method=method,
+                path=path,
+                status=response.status_code,
+                body_summary=_scrub_body(body_bytes),
+            )
+        except Exception:
+            _AUDIT_LOGGER.exception("audit insert failed")
+    return response
 
 
 app.include_router(api.router)

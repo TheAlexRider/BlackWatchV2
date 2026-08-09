@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from .. import storage
 from ..hosts import staleness as host_staleness
+from ..intel import refresher as intel_refresher
 from ..rds import staleness as rds_staleness
 from ..services import staleness as probe_staleness
 from .runner import run_connector
@@ -46,6 +47,9 @@ def _loop() -> None:
         probe_staleness.check()
         # Long-idle RDS sessions (leaked creds / forgotten psql windows).
         rds_staleness.check()
+        # Threat-intel refresh (feeds + MMDBs) once per day; the helper
+        # short-circuits when the last successful pass is < 24h old.
+        intel_refresher._run_async()
 
 
 def start() -> None:

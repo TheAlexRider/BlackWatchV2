@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from . import correlation, noise, storage
+from .intel import enrich as intel_enrich
+from .ueba import check as ueba_check
 from .api_gateway import projection as api_gw_projection
 from .event import Event
 from .hosts import projection as host_projection
@@ -94,6 +96,13 @@ def _process(event: Event) -> dict[str, Any]:
             notified = notifier.dispatch(event)
         except Exception as exc:  # never let notification failure break ingest
             notified = [{"status": "error", "detail": str(exc)}]
+        # UEBA baseline update + first-seen anomaly emission. Runs strictly
+        # AFTER persist so the anomaly event is causally ordered behind its
+        # trigger. Failure here must never break ingest.
+        try:
+            ueba_check.check_event(event, process_event)
+        except Exception:
+            pass
     return {
         "event_id": event.event_id,
         "action": event.action,
@@ -129,6 +138,10 @@ def ingest_payload(
     muted = 0
     transient = 0
     for event in events:
+        try:
+            intel_enrich.enrich_event(event)
+        except Exception:  # enrichment must never drop events
+            pass
         if noise.is_muted(event):  # dropped at ingest (dashboard noise control)
             muted += 1
             continue

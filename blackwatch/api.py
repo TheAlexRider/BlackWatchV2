@@ -7,10 +7,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Cookie, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, Header, HTTPException, Query, Request, Response
+
+from .auth import require_role
 from pydantic import BaseModel
 
 from . import auth, noise, storage
+from .intel import db as intel_db
 from .connectors import runner as connector_runner
 from .config import settings
 from .notify import router as notify_router
@@ -70,7 +73,49 @@ def auth_me(request: Request) -> dict[str, Any]:
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
-    return {"username": user}
+    role = getattr(request.state, "role", None) or storage.get_user_role(user)
+    return {"username": user, "role": role}
+
+
+@router.get("/whoami")
+def whoami(request: Request) -> dict[str, Any]:
+    """UI-friendly alias for /auth/me. Returns {user, role}."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    role = getattr(request.state, "role", None) or storage.get_user_role(user)
+    return {"user": user, "role": role}
+
+
+@router.get("/audit")
+def audit_list(
+    request: Request,
+    _: tuple[str, str] = Depends(require_role("admin")),
+    limit: int = Query(200, ge=1, le=1000),
+    actor: str | None = Query(default=None),
+    since: str | None = Query(default=None),
+    path: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Paginated audit log. Admin-only."""
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid since")
+    rows = storage.list_audit(
+        limit=limit, actor=actor, since=since_dt, path_like=path,
+    )
+    return {
+        "rows": [
+            {
+                **r,
+                "ts": r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else r["ts"],
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+    }
 
 
 @router.post("/auth/change-password")
@@ -225,7 +270,7 @@ def list_rules() -> dict[str, Any]:
     }
 
 
-@router.post("/rules/{rule_id}/toggle")
+@router.post("/rules/{rule_id}/toggle", dependencies=[Depends(require_role("admin"))])
 def rule_toggle(rule_id: str, enabled: bool = Body(..., embed=True)) -> dict[str, Any]:
     """Toggle a single rule on or off. Persists the override and updates the
     live engine in-process."""
@@ -237,7 +282,7 @@ def rule_toggle(rule_id: str, enabled: bool = Body(..., embed=True)) -> dict[str
 _ALLOWED_SEVERITIES = {"informational", "low", "medium", "high", "critical"}
 
 
-@router.post("/rules/{rule_id}/severity")
+@router.post("/rules/{rule_id}/severity", dependencies=[Depends(require_role("admin"))])
 def rule_severity(
     rule_id: str,
     severity: str | None = Body(None, embed=True),
@@ -264,7 +309,7 @@ class _MuteAdd(BaseModel):
     note: str | None = None
 
 
-@router.post("/noise/mute")
+@router.post("/noise/mute", dependencies=[Depends(require_role("admin"))])
 def noise_mute(body: _MuteAdd) -> dict[str, Any]:
     """Add a mute rule. Only `action` is required; source_type / username /
     reason narrow the mute to a specific combo (all optional, NULL matches
@@ -289,7 +334,7 @@ def noise_mute(body: _MuteAdd) -> dict[str, Any]:
     return {"id": mute_id, "action": action, "muted": True}
 
 
-@router.post("/noise/unmute")
+@router.post("/noise/unmute", dependencies=[Depends(require_role("admin"))])
 def noise_unmute(id: int = Body(..., embed=True)) -> dict[str, Any]:
     storage.remove_muted_event(id)
     noise.refresh()
@@ -304,7 +349,7 @@ class ModulesRefreshBody(BaseModel):
     connector_types: list[str]
 
 
-@router.post("/modules/refresh")
+@router.post("/modules/refresh", dependencies=[Depends(require_role("admin"))])
 def modules_refresh(body: ModulesRefreshBody) -> dict[str, Any]:
     """Trigger a one-shot run of every enabled connector whose type is in
     the request. Returns per-connector outcome plus the aggregate
@@ -422,7 +467,7 @@ def vpn_view(stale_after_seconds: int = 180) -> dict[str, Any]:
     return {"servers": servers, "auth": auth}
 
 
-@router.delete("/vpn/servers/{server}")
+@router.delete("/vpn/servers/{server}", dependencies=[Depends(require_role("admin"))])
 def vpn_server_delete(server: str) -> dict[str, Any]:
     """Drop a stale/renamed VPN server row from the read model. The next
     heartbeat from any agent under that name (if anyone's still pointing
@@ -571,7 +616,7 @@ def host_metrics_hourly(
     }
 
 
-@router.put("/hosts/{instance_id}/display-name")
+@router.put("/hosts/{instance_id}/display-name", dependencies=[Depends(require_role("admin"))])
 def host_set_display_name(
     instance_id: str, payload: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
@@ -761,7 +806,7 @@ def _perf_scope_fields(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.post("/perf-alerts")
+@router.post("/perf-alerts", dependencies=[Depends(require_role("admin"))])
 def perf_alerts_create(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Create a new perf alert rule. Validation is permissive on display
     fields (name, severity), strict on semantic fields (metric, scope)."""
@@ -790,7 +835,7 @@ def perf_alerts_create(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"id": rule_id}
 
 
-@router.put("/perf-alerts/{rule_id}")
+@router.put("/perf-alerts/{rule_id}", dependencies=[Depends(require_role("admin"))])
 def perf_alerts_update(
     rule_id: str, payload: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
@@ -820,7 +865,7 @@ def perf_alerts_update(
     return {"id": rule_id}
 
 
-@router.delete("/perf-alerts/{rule_id}")
+@router.delete("/perf-alerts/{rule_id}", dependencies=[Depends(require_role("admin"))])
 def perf_alerts_delete(rule_id: str) -> dict[str, Any]:
     storage.delete_perf_alert_rule(rule_id)
     return {"ok": True}
@@ -890,7 +935,7 @@ def perf_alerts_quick_list() -> dict[str, Any]:
     return {"cards": cards, "channels": channels, "instances": instances}
 
 
-@router.post("/notifications/perf-alerts/quick")
+@router.post("/notifications/perf-alerts/quick", dependencies=[Depends(require_role("admin"))])
 def perf_alerts_quick_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Upsert a single quick perf-alert card.
 
@@ -1496,7 +1541,7 @@ def list_routes() -> dict[str, Any]:
     }
 
 
-@router.post("/notifications/test")
+@router.post("/notifications/test", dependencies=[Depends(require_role("admin"))])
 def test_notification(channel: str) -> dict[str, Any]:
     return notify_router.get_notifier().send_test(channel)
 
@@ -1741,7 +1786,7 @@ def _render_preview(payload: dict[str, Any]) -> tuple[str, str | None]:
         return "", f"{exc.__class__.__name__}: {exc} — {tb_last}"
 
 
-@router.post("/notifications/templates/preview")
+@router.post("/notifications/templates/preview", dependencies=[Depends(require_role("admin"))])
 def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Render a Jinja template against a synthetic sample event so the UI can
     show the operator what their message will look like before they save.
@@ -1764,7 +1809,7 @@ def notif_template_preview(payload: dict[str, Any] = Body(...)) -> dict[str, Any
     return {"rendered": rendered, "error": error}
 
 
-@router.post("/notifications/templates/test-send")
+@router.post("/notifications/templates/test-send", dependencies=[Depends(require_role("admin"))])
 def notif_template_test_send(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Render the current template against sample data and deliver it via the
     named channel. Powers the "Send test" button in the alert wizards so the
@@ -2081,7 +2126,7 @@ def notif_channel_get(channel_id: str) -> dict[str, Any]:
 _CHANNEL_TYPES = {"slack", "webhook", "email", "pagerduty", "teams", "discord"}
 
 
-@router.post("/notifications/channels/save")
+@router.post("/notifications/channels/save", dependencies=[Depends(require_role("admin"))])
 def notif_channel_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     import uuid as _uuid
     name = str(payload.get("name", "")).strip()
@@ -2111,7 +2156,7 @@ def notif_channel_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"id": cid, "saved": True}
 
 
-@router.post("/notifications/channels/{channel_id}/toggle")
+@router.post("/notifications/channels/{channel_id}/toggle", dependencies=[Depends(require_role("admin"))])
 def notif_channel_toggle_json(
     channel_id: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2121,7 +2166,7 @@ def notif_channel_toggle_json(
     return {"id": channel_id, "enabled": enabled}
 
 
-@router.post("/notifications/channels/{channel_id}/test")
+@router.post("/notifications/channels/{channel_id}/test", dependencies=[Depends(require_role("admin"))])
 def notif_channel_test_json(channel_id: str) -> dict[str, Any]:
     row = storage.get_notification_channel(channel_id)
     if row is None:
@@ -2129,7 +2174,7 @@ def notif_channel_test_json(channel_id: str) -> dict[str, Any]:
     return notify_router.get_notifier().send_test(row["name"])
 
 
-@router.delete("/notifications/channels/{channel_id}")
+@router.delete("/notifications/channels/{channel_id}", dependencies=[Depends(require_role("admin"))])
 def notif_channel_delete(channel_id: str) -> dict[str, Any]:
     storage.delete_notification_channel(channel_id)
     notify_router.get_notifier().reload_channels()
@@ -2170,7 +2215,7 @@ def notif_rule_get(rule_id: str) -> dict[str, Any]:
     return row
 
 
-@router.post("/notifications/rules/save")
+@router.post("/notifications/rules/save", dependencies=[Depends(require_role("admin"))])
 def notif_rule_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     import uuid as _uuid
     name = str(payload.get("name", "")).strip()
@@ -2203,7 +2248,7 @@ def notif_rule_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"id": rid, "saved": True}
 
 
-@router.post("/notifications/rules/{rule_id}/toggle")
+@router.post("/notifications/rules/{rule_id}/toggle", dependencies=[Depends(require_role("admin"))])
 def notif_rule_toggle_json(
     rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2213,7 +2258,7 @@ def notif_rule_toggle_json(
     return {"id": rule_id, "enabled": enabled}
 
 
-@router.post("/notifications/rules/{rule_id}/silence")
+@router.post("/notifications/rules/{rule_id}/silence", dependencies=[Depends(require_role("admin"))])
 def notif_rule_silence_json(
     rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2228,7 +2273,7 @@ def notif_rule_silence_json(
     return {"id": rule_id, "silence_until": until.isoformat() if until else None}
 
 
-@router.delete("/notifications/rules/{rule_id}")
+@router.delete("/notifications/rules/{rule_id}", dependencies=[Depends(require_role("admin"))])
 def notif_rule_delete(rule_id: str) -> dict[str, Any]:
     storage.delete_notification_rule(rule_id)
     notify_router.get_notifier().reload_rules()
@@ -2272,7 +2317,7 @@ def notif_routes_view() -> dict[str, Any]:
     return {**view, "channels": channels}
 
 
-@router.post("/notifications/routes/save")
+@router.post("/notifications/routes/save", dependencies=[Depends(require_role("admin"))])
 def notif_route_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Create-or-update a simple route from the wizard. Payload:
       { id?, module, severities:[..], channel, enabled?, message_template? }
@@ -2306,7 +2351,7 @@ def notif_route_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"id": rid, "saved": True}
 
 
-@router.post("/notifications/routes/{rule_id}/toggle")
+@router.post("/notifications/routes/{rule_id}/toggle", dependencies=[Depends(require_role("admin"))])
 def notif_route_toggle(
     rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2320,7 +2365,7 @@ def notif_route_toggle(
     return {"id": rule_id, "enabled": enabled}
 
 
-@router.post("/notifications/routes/{rule_id}/silence")
+@router.post("/notifications/routes/{rule_id}/silence", dependencies=[Depends(require_role("admin"))])
 def notif_route_silence(
     rule_id: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2339,7 +2384,7 @@ def notif_route_silence(
     return {"id": rule_id, "silence_until": until.isoformat() if until else None}
 
 
-@router.delete("/notifications/routes/{rule_id}")
+@router.delete("/notifications/routes/{rule_id}", dependencies=[Depends(require_role("admin"))])
 def notif_route_delete(rule_id: str) -> dict[str, Any]:
     storage.delete_notification_rule(rule_id)
     from .notify import router as notify_router_module
@@ -2350,7 +2395,7 @@ def notif_route_delete(rule_id: str) -> dict[str, Any]:
     return {"id": rule_id, "deleted": True}
 
 
-@router.post("/notifications/cards/{module}/save")
+@router.post("/notifications/cards/{module}/save", dependencies=[Depends(require_role("admin"))])
 def notif_card_save(
     module: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2370,7 +2415,7 @@ def notif_card_save(
     return {"saved": True, "card": card}
 
 
-@router.post("/notifications/cards/{module}/silence")
+@router.post("/notifications/cards/{module}/silence", dependencies=[Depends(require_role("admin"))])
 def notif_card_silence(
     module: str, payload: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
@@ -2383,7 +2428,7 @@ def notif_card_silence(
     return {"card": card}
 
 
-@router.post("/notifications/cards/{module}/test")
+@router.post("/notifications/cards/{module}/test", dependencies=[Depends(require_role("admin"))])
 def notif_card_test(module: str) -> dict[str, Any]:
     from .notify import routing_matrix
     return routing_matrix.test_card(module)
@@ -2429,7 +2474,7 @@ def notif_acks_list() -> dict[str, Any]:
     return {"count": len(out), "acks": out}
 
 
-@router.post("/notifications/acks")
+@router.post("/notifications/acks", dependencies=[Depends(require_role("admin"))])
 def notif_ack_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     fingerprint = str(payload.get("fingerprint", "")).strip()
     if not fingerprint:
@@ -2445,7 +2490,7 @@ def notif_ack_add(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"fingerprint": fingerprint, "ack_until": until.isoformat()}
 
 
-@router.delete("/notifications/acks/{fingerprint}")
+@router.delete("/notifications/acks/{fingerprint}", dependencies=[Depends(require_role("admin"))])
 def notif_ack_delete(fingerprint: str) -> dict[str, Any]:
     storage.remove_notification_ack(fingerprint)
     return {"fingerprint": fingerprint, "cleared": True}
@@ -2631,13 +2676,13 @@ class _AllowlistAdd(BaseModel):
     note: str | None = None
 
 
-@router.post("/rds/allowlist")
+@router.post("/rds/allowlist", dependencies=[Depends(require_role("admin"))])
 def rds_allowlist_add(body: _AllowlistAdd) -> dict[str, Any]:
     storage.add_rds_user_allowlist(body.username, body.kind, body.note)
     return {"status": "ok", "username": body.username, "kind": body.kind}
 
 
-@router.delete("/rds/allowlist/{username}")
+@router.delete("/rds/allowlist/{username}", dependencies=[Depends(require_role("admin"))])
 def rds_allowlist_remove(username: str) -> dict[str, Any]:
     storage.remove_rds_user_allowlist(username)
     return {"status": "ok", "username": username}
@@ -2785,3 +2830,43 @@ def api_gw_failures(
     return {"count": len(out[:limit]), "hours": hours, "failures": out[:limit]}
 
 
+
+
+@router.get("/intel/status")
+def intel_status() -> dict[str, Any]:
+    return {"feeds": intel_db.feed_meta()}
+
+
+# ---------- UEBA (baselines + first-seen anomalies) --------------------------
+
+@router.get("/ueba/baselines")
+def ueba_baselines(
+    principal_type: str | None = None,
+    principal_id: str | None = None,
+    dimension: str | None = None,
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> dict[str, Any]:
+    from .ueba import db as ueba_db
+    rows = ueba_db.query_baselines(
+        principal_type=principal_type,
+        principal_id=principal_id,
+        dimension=dimension,
+        limit=limit,
+    )
+    return {"count": len(rows), "baselines": rows}
+
+
+@router.get("/ueba/anomalies")
+def ueba_anomalies(
+    limit: int = Query(default=200, ge=1, le=1000),
+    principal: str | None = None,
+) -> dict[str, Any]:
+    # first-seen anomaly events live in the main events table with an action
+    # that contains ".anomaly.first_seen_". query_events has no LIKE filter,
+    # so over-fetch then filter in Python.
+    rows = storage.query_events(
+        actor_principal=principal,
+        limit=max(limit * 4, 200),
+    )
+    out = [r for r in rows if ".anomaly.first_seen_" in (r.get("action") or "")]
+    return {"count": len(out[:limit]), "anomalies": out[:limit]}

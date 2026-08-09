@@ -8,6 +8,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
+import { IntelBadge, type IntelData } from "@/components/domain/IntelBadge";
 
 export default async function EventDetailPage({
   params,
@@ -22,6 +23,7 @@ export default async function EventDetailPage({
   // independently — they are often large and noisy.
   const { raw, ...envelopeForDisplay } = (event ?? {}) as Record<string, unknown>;
   const envelopeJson = JSON.stringify(envelopeForDisplay, null, 2);
+  const intel = ((event as { extra?: { intel?: IntelData } })?.extra?.intel) ?? null;
   const rawJson = raw === undefined ? null : JSON.stringify(raw, null, 2);
 
   return (
@@ -58,10 +60,17 @@ export default async function EventDetailPage({
         </DataPanel>
       </div>
 
+      {intel && (
+        <div className="mt-6 space-y-2">
+          <SectionLabel>intel</SectionLabel>
+          <IntelBadge intel={intel} />
+        </div>
+      )}
+
       <div className="mt-6 space-y-2">
         <SectionLabel>envelope</SectionLabel>
         <DataPanel className="overflow-auto p-4">
-          <pre className="text-xs leading-relaxed text-fg-muted">
+          <pre className="max-w-full overflow-auto break-words whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
             {envelopeJson}
           </pre>
         </DataPanel>
@@ -71,7 +80,7 @@ export default async function EventDetailPage({
         <div className="mt-6 space-y-2">
           <SectionLabel>raw</SectionLabel>
           <DataPanel className="overflow-auto p-4">
-            <pre className="text-xs leading-relaxed text-fg-muted">
+            <pre className="max-w-full overflow-auto break-words whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
               {rawJson}
             </pre>
           </DataPanel>

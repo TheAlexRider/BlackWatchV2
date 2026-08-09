@@ -25,7 +25,15 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, Request
+
 from . import storage
+
+# Role hierarchy: admin > viewer. Any mutation requires admin. Unknown
+# principals collapse to viewer (fail closed).
+ROLE_ADMIN = "admin"
+ROLE_VIEWER = "viewer"
+_ROLE_RANK = {ROLE_VIEWER: 0, ROLE_ADMIN: 1}
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +104,9 @@ def seed_admin_if_empty() -> None:
         return
     if users:
         return
-    storage.upsert_user(DEFAULT_USERNAME, hash_password(DEFAULT_PASSWORD))
+    storage.upsert_user(
+        DEFAULT_USERNAME, hash_password(DEFAULT_PASSWORD), role=ROLE_ADMIN,
+    )
     logger.warning(
         "Auth: seeded default user %r with password %r — change it from "
         "Settings ASAP.",
@@ -175,3 +185,48 @@ def change_password(username: str, current: str, new: str) -> tuple[bool, str]:
         logger.exception("auth: upsert_user failed")
         return False, "could not save new password"
     return True, "password changed"
+
+
+# --- RBAC dependencies -----------------------------------------------------
+
+def _role_from_request(request: Request) -> tuple[str | None, str]:
+    """Return `(username_or_None, role)` for the current request. Role is
+    resolved from request.state (populated by the auth middleware) with a
+    DB lookup fallback. Missing/unknown users collapse to viewer."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        return None, ROLE_VIEWER
+    role = getattr(request.state, "role", None)
+    if not role:
+        try:
+            role = storage.get_user_role(user)
+        except Exception:
+            role = ROLE_VIEWER
+    return user, role or ROLE_VIEWER
+
+
+def get_current_user_with_role(request: Request) -> tuple[str, str]:
+    """FastAPI dependency. Returns (user, role); 401 if unauthenticated."""
+    user, role = _role_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return user, role
+
+
+def require_role(role: str):
+    """Dependency factory. Raises 403 if the caller's role is below `role`."""
+    needed = _ROLE_RANK.get(role, 99)
+
+    def _dep(request: Request) -> tuple[str, str]:
+        user, actual = get_current_user_with_role(request)
+        if _ROLE_RANK.get(actual, -1) < needed:
+            raise HTTPException(status_code=403, detail="admin role required")
+        return user, actual
+
+    return _dep
+
+
+def is_admin(request: Request) -> bool:
+    """Non-raising helper for templates / conditional UI reads."""
+    _, role = _role_from_request(request)
+    return role == ROLE_ADMIN
