@@ -15,6 +15,7 @@ import {
   severityBorderBg,
 } from "@/components/domain/SeverityBadge";
 import { IpCell } from "@/components/domain/IpCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default async function IamPage() {
   const data = await fetchIam();
@@ -666,25 +667,5 @@ function OutcomePill({ outcome }: { outcome: string | undefined }) {
         {ok ? "success" : "FAILED"}
       </span>
     </span>
-  );
-}
-
-function EmptyState({
-  children,
-  tone = "neutral",
-}: {
-  children: React.ReactNode;
-  tone?: "neutral" | "ok";
-}) {
-  return (
-    <div className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-fg-muted">
-      {tone === "ok" && (
-        <span
-          aria-hidden
-          className="h-1.5 w-1.5 rounded-full bg-sev-resolved"
-        />
-      )}
-      <span>{children}</span>
-    </div>
   );
 }

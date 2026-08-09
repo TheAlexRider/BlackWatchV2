@@ -101,10 +101,10 @@ export function RefreshButton({
         }
         className={clsx(
           "inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sig-teal",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal",
           active
             ? "cursor-wait border-line-soft text-fg-subtle"
-            : "border-line-soft text-fg-muted hover:border-sig-teal hover:text-sig-teal",
+            : "border-line-soft text-fg-muted hover:border-signal hover:text-signal",
         )}
       >
         <RefreshCw
@@ -120,7 +120,7 @@ export function RefreshButton({
           aria-live="polite"
           className={clsx(
             "font-mono text-[11px] transition-opacity",
-            flash.kind === "ok" ? "text-sig-teal" : "text-sev-critical",
+            flash.kind === "ok" ? "text-signal" : "text-sev-critical",
           )}
         >
           {flash.message}

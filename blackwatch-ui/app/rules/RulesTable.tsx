@@ -5,6 +5,8 @@ import clsx from "clsx";
 import * as Select from "@radix-ui/react-select";
 import type { Rule } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
+import { Table } from "@/components/ui/Table";
+import { TablePagination } from "@/components/ui/Pagination";
 import { SeverityBadge, severityBorderBg } from "@/components/domain/SeverityBadge";
 import { toggleRuleAction, setSeverityAction } from "./actions";
 
@@ -94,6 +96,9 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [notifyTiers, setNotifyTiers] = useState<Set<NotifyTier>>(new Set());
   const [sources, setSources] = useState<Set<string>>(new Set());
+  const [showFacets, setShowFacets] = useState(true);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -176,6 +181,19 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
     stateFilter !== "all" ||
     notifyTiers.size > 0 ||
     sources.size > 0;
+  const activeFacetCount =
+    severities.size + notifyTiers.size + sources.size + (stateFilter === "all" ? 0 : 1);
+
+  // Keep the current page valid when a filter removes rows or the page size
+  // changes. This is intentionally derived from filtered, not the full list.
+  useEffect(() => {
+    setPage(0);
+  }, [q, stateFilter, pageSize, severities, notifyTiers, sources]);
+
+  const visibleRules = useMemo(
+    () => filtered.slice(page * pageSize, (page + 1) * pageSize),
+    [filtered, page, pageSize],
+  );
 
   function clearAll() {
     setQ("");
@@ -188,8 +206,12 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   return (
     <div className="flex flex-col">
       {/* ------- Filter toolbar ------------------------------------------- */}
-      <div className="flex flex-col gap-2.5 border-b border-line-soft bg-surface-1 px-3 py-2.5">
-        <div className="flex items-center gap-2">
+      <section aria-label="Rule filters" className="flex flex-col gap-2.5 border-b border-line-soft bg-surface-1 px-3 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="mr-1 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.1em] text-fg">
+            <span className="h-1.5 w-1.5 rounded-full bg-signal" aria-hidden="true" />
+            Filters
+          </div>
           <SearchIcon />
           <input
             ref={inputRef}
@@ -198,7 +220,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter by id, title, event action, tag…"
             aria-label="Filter rules"
-            className="min-w-0 flex-1 bg-transparent text-xs text-fg placeholder:text-fg-disabled focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent text-xs text-fg placeholder:text-fg-disabled focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
           />
           <kbd className="hidden select-none rounded border border-line-soft bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-fg-subtle sm:inline">
             /
@@ -206,7 +228,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
           <span
             className={clsx(
               "font-mono text-[11px]",
-              anyFilterActive ? "text-sig-teal" : "text-fg-subtle",
+              anyFilterActive ? "text-signal" : "text-fg-subtle",
             )}
           >
             {filtered.length}
@@ -217,11 +239,20 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
               </>
             )}
           </span>
+          <button
+            type="button"
+            onClick={() => setShowFacets((open) => !open)}
+            aria-expanded={showFacets}
+            className="rounded border border-line-soft px-2 py-1 text-[10px] uppercase tracking-wider text-fg-subtle transition-colors hover:border-signal hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+          >
+            {showFacets ? "Hide filters" : "More filters"}
+            {activeFacetCount > 0 ? ` · ${activeFacetCount}` : ""}
+          </button>
           {anyFilterActive && (
             <button
               type="button"
               onClick={clearAll}
-              className="rounded border border-line-soft px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-fg-subtle transition-colors hover:border-sig-teal hover:text-sig-teal"
+              className="rounded border border-line-soft px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-fg-subtle transition-colors hover:border-signal hover:text-signal"
               aria-label="Clear all filters"
             >
               Clear
@@ -230,7 +261,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
         </div>
 
         {/* Facet rows — one label + inline chips per facet */}
-        <div className="grid grid-cols-1 gap-1.5 text-[11px] xl:grid-cols-2">
+        {showFacets && <div className="grid grid-cols-1 gap-2 border-t border-line-soft pt-2 text-[11px] xl:grid-cols-2">
           <FacetRow label="severity">
             {facets.severities.map(([sev, count]) => (
               <SeverityChip
@@ -294,24 +325,23 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
               />
             ))}
           </FacetRow>
-        </div>
-      </div>
+        </div>}
+      </section>
 
       {/* ------- Table --------------------------------------------------- */}
-      <div className="min-w-0 overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-left">
+      <Table tableId="rules-list" ariaLabel="Rules">
           <thead>
             <tr className="border-b border-line-soft text-[10px] uppercase tracking-[0.08em] text-fg-subtle">
-              <th className="w-1 p-0" aria-hidden />
-              <th className="w-[38%] px-4 py-2 font-normal">Rule</th>
-              <th className="w-[28%] px-4 py-2 font-normal">Event action(s)</th>
-              <th className="w-[20%] px-4 py-2 font-normal">Tags &amp; notify</th>
-              <th className="w-40 px-3 py-2 font-normal">Severity</th>
-              <th className="w-24 px-3 py-2 text-right font-normal" />
+              <th scope="col" className="w-1 p-0" aria-label="Severity indicator" />
+              <th scope="col" className="w-[32%] px-4 py-2 font-normal">Rule</th>
+              <th scope="col" className="w-[25%] px-4 py-2 font-normal">Event actions</th>
+              <th scope="col" className="w-[20%] px-4 py-2 font-normal">Tags &amp; notify</th>
+              <th scope="col" className="w-40 px-3 py-2 font-normal">Severity</th>
+              <th scope="col" className="w-28 px-3 py-2 text-right font-normal">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {visibleRules.map((r) => (
               <RuleRow key={r.id} rule={r} />
             ))}
             {filtered.length === 0 && (
@@ -322,8 +352,17 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
               </tr>
             )}
           </tbody>
-        </table>
-      </div>
+      </Table>
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        total={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+      />
     </div>
   );
 }
@@ -347,32 +386,30 @@ function RuleRow({ rule: r }: { rule: Rule }) {
     >
       {/* Left severity strip — always 3px wide, coloured by severity so the
           operator can scan severity down the whole column instantly. */}
-      <td className="w-1 p-0">
+      <td data-label="Severity" className="w-1 p-0">
         <div className={clsx("h-full w-[3px]", severityBorderBg(sev))} />
       </td>
 
       {/* Rule ID + title stacked */}
-      <th scope="row" className="px-4 py-3 text-left font-normal">
+      <th scope="row" data-label="Rule" className="px-4 py-3 text-left font-normal">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <SourceBadge src={src} />
-            <span className="min-w-0 truncate font-mono text-[12.5px] text-fg">
-              {r.id}
-            </span>
             {r.rule_action === "suppress" && (
               <span className="rounded border border-line-soft px-1 py-px text-[9px] uppercase tracking-wider text-fg-subtle">
                 suppress
               </span>
             )}
           </div>
-          <div className="pr-2 text-[12px] leading-snug text-fg-muted">
+          <div className="pr-2 text-[13px] font-medium leading-snug text-fg">
             {r.title}
           </div>
+          <div className="font-mono text-[10px] text-fg-subtle">{r.id}</div>
         </div>
       </th>
 
       {/* Event actions as compact code chips, wrapped */}
-      <td className="px-4 py-3">
+      <td data-label="Event actions" className="px-4 py-3">
         {r.matched_actions && r.matched_actions.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {r.matched_actions.map((a) => (
@@ -392,7 +429,7 @@ function RuleRow({ rule: r }: { rule: Rule }) {
       </td>
 
       {/* Notify tier as its own colored pill + remaining tags as subtle chips */}
-      <td className="px-4 py-3">
+      <td data-label="Tags & notify" className="px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <NotifyPill tier={tier} />
           {otherTags.map((t) => (
@@ -407,12 +444,12 @@ function RuleRow({ rule: r }: { rule: Rule }) {
       </td>
 
       {/* Severity picker */}
-      <td className="px-3 py-3">
+      <td data-label="Severity" className="px-3 py-3">
         <SeverityPicker ruleId={r.id} current={sev} />
       </td>
 
       {/* Toggle */}
-      <td className="px-3 py-3 text-right">
+      <td data-label="Actions" data-actions className="px-3 py-3 text-right">
         <form action={toggleRuleAction} className="inline">
           <input type="hidden" name="rule_id" value={r.id} />
           <input
@@ -457,9 +494,9 @@ function FacetRow({
 function baseChipClass(active: boolean) {
   return clsx(
     "inline-flex select-none items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] transition-colors",
-    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sig-teal",
+    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal",
     active
-      ? "border-sig-teal bg-surface-2 text-fg"
+      ? "border-signal bg-surface-2 text-fg"
       : "border-line-soft text-fg-subtle hover:border-fg-subtle hover:text-fg",
   );
 }
@@ -635,7 +672,7 @@ function EmptyState({
         <button
           type="button"
           onClick={onClear}
-          className="rounded border border-line-soft px-2 py-1 text-[11px] uppercase tracking-wider text-fg-subtle transition-colors hover:border-sig-teal hover:text-sig-teal"
+          className="rounded border border-line-soft px-2 py-1 text-[11px] uppercase tracking-wider text-fg-subtle transition-colors hover:border-signal hover:text-signal"
         >
           Clear filters
         </button>
@@ -699,7 +736,7 @@ function SeverityPicker({
           aria-label={`Set severity for ${ruleId}`}
           className={clsx(
             "inline-flex cursor-pointer items-center gap-1.5 rounded border border-line-soft bg-surface-1 px-1.5 py-1 text-[11px] text-fg-muted transition-colors",
-            "focus-visible:border-sig-teal focus-visible:outline-none",
+            "focus-visible:border-signal focus-visible:outline-none",
             "hover:bg-surface-2 hover:text-fg",
           )}
         >

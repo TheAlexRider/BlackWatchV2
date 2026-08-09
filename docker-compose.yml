@@ -29,7 +29,7 @@ services:
       # Mount your AWS credentials (read-only) for the SQS connectors (CloudTrail /
       # EC2 host agent / OpenVPN agent — all three drain via target_module=…).
       # Reference the profile name in Settings → Connectors. Uncomment & adjust:
-      - C:\Users\TheAl\.aws\blackwatch-credentials:/root/.aws/credentials:ro
+      - ${HOME}/.aws/blackwatch-credentials:/root/.aws/credentials:ro
     extra_hosts:
       # Lets the containerized app reach services on your host (e.g. the webhook
       # listener) via http://host.docker.internal:<port>.

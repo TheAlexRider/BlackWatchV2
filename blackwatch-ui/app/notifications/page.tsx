@@ -29,8 +29,10 @@ import { PendingButton } from "@/components/ui/PendingButton";
 import { NativeSelect } from "@/components/ui/NativeSelect";
 import { FlashToast } from "@/components/ui/FlashToast";
 import { Table } from "@/components/ui/Table";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { SeverityChip } from "@/components/ui/SeverityChip";
 import { StatusDot, type Severity } from "@/components/ui/StatusDot";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 
@@ -96,14 +98,14 @@ export default async function NotificationsPage({
 
       {/* CHANNELS */}
       <SectionHeader
-        label="channels"
+        label="Channels"
         action={{ href: "/notifications/channels/new", label: "add channel" }}
       />
       <ChannelsTable channels={channelsData.channels} />
 
       {/* ALERT ROUTES */}
       <div className="mt-8 mb-2 flex items-baseline justify-between">
-        <SectionHeaderLabel>alert routes</SectionHeaderLabel>
+        <SectionHeaderLabel>Alert routes</SectionHeaderLabel>
         <Button asChild variant="primary" size="sm">
           <Link href="/notifications/create">
             <Plus size={12} /> Create alert
@@ -114,14 +116,14 @@ export default async function NotificationsPage({
 
       {/* METRIC ROUTES */}
       <SectionHeader
-        label="metric routes"
+        label="Metric routes"
         action={{ href: "/notifications/perf-alerts/new", label: "add metric" }}
       />
       <MetricRoutesTable rules={perfData.rules} instances={perfData.instances} />
 
       {/* ACTIVITY */}
       <div className="mt-8 mb-2 flex items-baseline justify-between">
-        <SectionHeaderLabel>activity · last 50</SectionHeaderLabel>
+        <SectionHeaderLabel>Recent activity · last 50</SectionHeaderLabel>
         <Link
           href="/notifications/log"
           className="text-[11px] text-fg-subtle hover:text-fg"
@@ -146,7 +148,7 @@ function SectionHeader({
   action?: { href: string; label: string };
 }) {
   return (
-    <div className="mt-8 mb-2 flex items-baseline justify-between">
+    <div className="mt-8 mb-2 flex items-end justify-between gap-3">
       <SectionHeaderLabel>{label}</SectionHeaderLabel>
       {action && (
         <Button asChild variant="ghost" size="sm">
@@ -161,9 +163,10 @@ function SectionHeader({
 
 function SectionHeaderLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[11px] uppercase tracking-[0.14em] text-fg-subtle">
+    <h2 className="flex items-center gap-2 text-sm font-medium tracking-wide text-fg">
+      <span className="h-1.5 w-1.5 rounded-full bg-signal" aria-hidden="true" />
       {children}
-    </span>
+    </h2>
   );
 }
 
@@ -188,12 +191,12 @@ function ChannelsTable({ channels }: { channels: NotificationChannel[] }) {
         <Table tableId="notifications-channels" ariaLabel="Channels">
           <thead>
             <tr>
-              <th style={{ width: 240 }}>Name</th>
-              <th style={{ width: 120 }}>Type</th>
-              <th style={{ width: 120 }}>State</th>
-              <th style={{ width: 140 }}>Last status</th>
-              <th style={{ width: 180 }}>Last sent</th>
-              <th data-actions style={{ width: 320 }} />
+              <th scope="col" style={{ width: 240 }}>Name</th>
+              <th scope="col" style={{ width: 120 }}>Type</th>
+              <th scope="col" style={{ width: 120 }}>State</th>
+              <th scope="col" style={{ width: 140 }}>Last status</th>
+              <th scope="col" style={{ width: 180 }}>Last sent</th>
+              <th scope="col" data-actions style={{ width: 300 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -254,9 +257,13 @@ function ChannelRow({ channel: c }: { channel: NotificationChannel }) {
           </Button>
           <form action={deleteChannelAction} className="inline">
             <input type="hidden" name="id" value={c.id} />
-            <Button type="submit" size="sm" variant="danger">
+            <ConfirmSubmitButton
+              size="sm"
+              variant="danger"
+              confirmMessage={`Delete channel “${c.name}”? This cannot be undone.`}
+            >
               Delete
-            </Button>
+            </ConfirmSubmitButton>
           </form>
         </div>
       </td>
@@ -336,11 +343,11 @@ function RoutesTable({
           <Table tableId={`notifications-alert-routes-${g.key}`} ariaLabel={`Alert routes for ${g.label}`}>
             <thead>
               <tr>
-                <th style={{ width: 200 }}>Source</th>
-                <th style={{ width: 220 }}>Trigger</th>
-                <th style={{ width: 200 }}>Channel</th>
-                <th style={{ width: 90 }}>State</th>
-                <th data-actions style={{ width: 480 }} />
+                <th scope="col" style={{ width: 200 }}>Source</th>
+                <th scope="col" style={{ width: 220 }}>Trigger</th>
+                <th scope="col" style={{ width: 200 }}>Channel</th>
+                <th scope="col" style={{ width: 90 }}>State</th>
+                <th data-actions style={{ width: 360 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -360,7 +367,7 @@ function RouteRow({ route: r }: { route: Route }) {
   const state = computeRouteState(r);
   return (
     <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
-      <td className="truncate px-4 py-2 align-middle">
+      <td data-label="Source" className="truncate px-4 py-2 align-middle">
         <div className="text-sm text-fg">
           {r.kind === "custom" && r.name ? r.name : r.module_label}
         </div>
@@ -370,7 +377,7 @@ function RouteRow({ route: r }: { route: Route }) {
           </div>
         )}
       </td>
-      <td className="px-4 py-2 align-middle">
+      <td data-label="Trigger" className="px-4 py-2 align-middle">
         {r.severities.length === 0 ? (
           <span className="text-xs text-fg-muted">custom condition</span>
         ) : (
@@ -381,7 +388,7 @@ function RouteRow({ route: r }: { route: Route }) {
           </div>
         )}
       </td>
-      <td className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
+      <td data-label="Channel" className="truncate px-4 py-2 align-middle font-mono text-xs text-fg-muted">
         {r.channels && r.channels.length > 0 ? (
           <>
             <span className="text-fg-subtle">→ </span>
@@ -396,10 +403,10 @@ function RouteRow({ route: r }: { route: Route }) {
           "—"
         )}
       </td>
-      <td className="px-4 py-2 align-middle">
+      <td data-label="State" className="px-4 py-2 align-middle">
         <span className={clsx("text-xs", state.className)}>{state.label}</span>
       </td>
-      <td className="whitespace-nowrap px-4 py-2 align-middle text-right">
+      <td data-label="Actions" data-actions className="whitespace-nowrap px-4 py-2 align-middle text-right">
         <div className="inline-flex items-center gap-1.5">
           <form action={testRouteAction} className="inline">
             <input type="hidden" name="channel" value={r.channel ?? ""} />
@@ -443,9 +450,14 @@ function RouteRow({ route: r }: { route: Route }) {
           </Button>
           <form action={deleteRouteAction} className="inline">
             <input type="hidden" name="id" value={r.id} />
-            <PendingButton size="sm" variant="danger" pendingLabel="…">
+            <ConfirmSubmitButton
+              size="sm"
+              variant="danger"
+              pendingLabel="Deleting…"
+              confirmMessage={`Delete route “${r.name}”? This cannot be undone.`}
+            >
               <Trash2 size={11} /> Delete
-            </PendingButton>
+            </ConfirmSubmitButton>
           </form>
         </div>
       </td>
@@ -497,11 +509,11 @@ function MetricRoutesTable({
         <Table tableId="notifications-metric-routes" ariaLabel="Metric routes">
           <thead>
             <tr>
-              <th style={{ width: 180 }}>Metric</th>
-              <th style={{ width: 240 }}>Trigger</th>
-              <th style={{ width: 200 }}>Channel</th>
-              <th style={{ width: 90 }}>State</th>
-              <th data-actions style={{ width: 320 }} />
+              <th scope="col" style={{ width: 180 }}>Metric</th>
+              <th scope="col" style={{ width: 240 }}>Trigger</th>
+              <th scope="col" style={{ width: 200 }}>Channel</th>
+              <th scope="col" style={{ width: 90 }}>State</th>
+              <th data-actions style={{ width: 300 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -586,9 +598,14 @@ function MetricRow({
           <form action={deletePerfAlertAction} className="inline">
             <input type="hidden" name="id" value={r.id} />
             <input type="hidden" name="name" value={r.name} />
-            <PendingButton size="sm" variant="danger" pendingLabel="…">
+            <ConfirmSubmitButton
+              size="sm"
+              variant="danger"
+              pendingLabel="Deleting…"
+              confirmMessage={`Delete performance alert “${r.name}”? This cannot be undone.`}
+            >
               <Trash2 size={11} /> Delete
-            </PendingButton>
+            </ConfirmSubmitButton>
           </form>
         </div>
       </td>
@@ -611,11 +628,11 @@ function ActivityTable({ entries }: { entries: NotificationLogEntry[] }) {
         <Table tableId="notifications-activity" ariaLabel="Recent notification activity">
           <thead>
             <tr>
-              <th style={{ width: 160 }}>Time</th>
-              <th style={{ width: 120 }}>Status</th>
-              <th style={{ width: 180 }}>Channel</th>
-              <th style={{ width: 220 }}>Rule</th>
-              <th style={{ width: 480 }}>Event</th>
+              <th scope="col" style={{ width: 160 }}>Time</th>
+              <th scope="col" style={{ width: 120 }}>Status</th>
+              <th scope="col" style={{ width: 180 }}>Channel</th>
+              <th scope="col" style={{ width: 220 }}>Rule</th>
+              <th scope="col" style={{ width: 480 }}>Event</th>
             </tr>
           </thead>
           <tbody>
@@ -672,12 +689,7 @@ function ActivityStatusPill({ status }: { status: string }) {
     digested: "low",
     acked: "neutral",
   };
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={sevMap[status] ?? "neutral"} />
-      <span className="text-fg-muted">{status}</span>
-    </span>
-  );
+  return <StatusPill label={status} severity={sevMap[status] ?? "neutral"} />;
 }
 
 // =========================================================================
@@ -738,12 +750,7 @@ function ChannelsFirstHint() {
 }
 
 function EnabledPill({ enabled }: { enabled: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={enabled ? "resolved" : "neutral"} />
-      <span className="text-fg-muted">{enabled ? "enabled" : "disabled"}</span>
-    </span>
-  );
+  return <StatusPill label={enabled ? "enabled" : "disabled"} severity={enabled ? "resolved" : "neutral"} />;
 }
 
 function ChannelStatusPill({
@@ -755,12 +762,7 @@ function ChannelStatusPill({
 }) {
   const sev: Severity = status === "ok" ? "resolved" : status ? "critical" : "neutral";
   const label = status ?? "never";
-  return (
-    <span title={error ?? undefined} className="inline-flex items-center gap-1.5 text-xs">
-      <StatusDot severity={sev} />
-      <span className={status ? "text-fg-muted" : "text-fg-subtle"}>{label}</span>
-    </span>
-  );
+  return <StatusPill label={label} severity={sev} title={error ?? undefined} />;
 }
 
 function countSince(

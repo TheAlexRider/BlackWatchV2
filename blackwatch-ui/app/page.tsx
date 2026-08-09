@@ -9,6 +9,7 @@ import { Table } from "@/components/ui/Table";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { TimestampCell } from "@/components/domain/TimestampCell";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   SeverityBadge,
   severityBorderBg,
@@ -75,12 +76,25 @@ export default async function Home() {
             see all →
           </Link>
         </div>
-        <DataPanel className="grid grid-cols-2 divide-x divide-line-soft md:grid-cols-5">
-          <PostureCell label="Critical" count={data.posture.by_severity.critical} accent="critical" />
-          <PostureCell label="High" count={data.posture.by_severity.high} accent="high" />
-          <PostureCell label="Medium" count={data.posture.by_severity.medium} accent="medium" />
-          <PostureCell label="Low" count={data.posture.by_severity.low} accent="low" />
-          <PostureCell label="Info" count={data.posture.by_severity.informational} accent="low" />
+        <DataPanel className="grid gap-4 p-4 md:grid-cols-[minmax(170px,0.7fr)_minmax(0,2fr)] md:items-center">
+          <div className="border-b border-line-soft pb-4 md:border-b-0 md:border-r md:pb-0 md:pr-5">
+            <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+              Total open findings
+            </div>
+            <div className="mt-1 font-mono text-4xl tabular-nums text-fg">
+              {data.posture.total_open}
+            </div>
+            <p className="mt-1 text-xs text-fg-muted">
+              Prioritized by severity for the next response step.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <PostureCell label="Critical" count={data.posture.by_severity.critical} accent="critical" total={data.posture.total_open} />
+            <PostureCell label="High" count={data.posture.by_severity.high} accent="high" total={data.posture.total_open} />
+            <PostureCell label="Medium" count={data.posture.by_severity.medium} accent="medium" total={data.posture.total_open} />
+            <PostureCell label="Low" count={data.posture.by_severity.low} accent="low" total={data.posture.total_open} />
+            <PostureCell label="Info" count={data.posture.by_severity.informational} accent="low" total={data.posture.total_open} />
+          </div>
         </DataPanel>
       </section>
 
@@ -176,10 +190,12 @@ function PostureCell({
   label,
   count,
   accent,
+  total,
 }: {
   label: string;
   count: number;
   accent: "critical" | "high" | "medium" | "low";
+  total: number;
 }) {
   const empty = count === 0;
   const dot = empty
@@ -191,10 +207,12 @@ function PostureCell({
         : accent === "medium"
           ? "bg-sev-medium"
           : "bg-sev-low";
+  const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
-    <div className="px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+    <div className="border border-line-soft bg-canvas/30 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
         {label}
+        <span className="font-mono text-[10px] text-fg-disabled">{percentage}%</span>
       </div>
       <div className="mt-1.5 flex items-baseline gap-2">
         <span
@@ -209,6 +227,9 @@ function PostureCell({
         >
           {count}
         </span>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden bg-surface-2" aria-hidden="true">
+        <div className={clsx("h-full", dot)} style={{ width: `${percentage}%` }} />
       </div>
     </div>
   );
@@ -259,14 +280,6 @@ function CompactEventsTable({ events }: { events: EventEnvelope[] }) {
         ))}
       </tbody>
     </Table>
-  );
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-10 text-center text-sm text-fg-muted">
-      {children}
-    </div>
   );
 }
 

@@ -2,40 +2,22 @@
 
 import { useEffect, useRef } from "react";
 
+const DEFAULT_MIN_COLUMN_WIDTH = 72;
+
 /**
- * ResizableTable — drop-in wrapper that makes ANY child `<table>`'s columns
- * drag-resizable, with widths persisted to localStorage keyed by `tableId`.
+ * Adds stable, accessible column resizing to a semantic table.
  *
- * Most callers should use the higher-level `<Table>` wrapper in Table.tsx
- * instead — it applies the shared `.bw-table` CSS AND the resize handles.
- * ResizableTable is only used directly by tables that need custom shell
- * markup around the <table> element.
- *
- * `tableId` is optional: when omitted, an id is auto-derived from the
- * sequence of header labels — stable across renders and unique per header
- * layout. Provide an explicit id only when two tables share the same
- * headers but should NOT share saved widths.
- *
- * Design choices:
- *  - DOM-side rather than React-side. We attach handles to <th> elements via
- *    refs + native events. This lets existing server-rendered tables stay as
- *    they are — no need to convert every table to a client component.
- *  - Inline `style.width` wins over Tailwind width classes (`w-44` etc), so
- *    saved widths take precedence after first paint.
- *  - 6px hit area for the handle, visible only on hover (subtle until needed).
- *  - Min width 40px to prevent users from accidentally hiding a column.
- *  - Drag updates DOM directly for smoothness; we persist on mouseup.
+ * Widths are applied to a <colgroup>, rather than only to <th> elements. That
+ * is important: the browser then has one source of truth for the entire
+ * column, so a long cell cannot unexpectedly move the resize handle or make
+ * neighbouring columns jump.
  */
 export function ResizableTable({
   tableId,
   children,
   className,
-  minColumnWidth = 40,
+  minColumnWidth = DEFAULT_MIN_COLUMN_WIDTH,
 }: {
-  /** Optional. If omitted, an id is auto-derived from the sequence of
-   *  header labels — stable across renders as long as the header changes
-   *  don't. Pass an explicit id when two tables in the same app share
-   *  headers but should NOT share widths. */
   tableId?: string;
   children: React.ReactNode;
   className?: string;
@@ -45,133 +27,170 @@ export function ResizableTable({
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    const table = wrapper.querySelector("table");
-    if (!table) return;
-    const ths = Array.from(
+    const table = wrapper?.querySelector<HTMLTableElement>("table");
+    if (!wrapper || !table) return;
+
+    const headers = Array.from(
       table.querySelectorAll<HTMLTableCellElement>("thead th"),
     );
-    if (ths.length === 0) return;
+    if (headers.length === 0) return;
 
-    // Derive a storage key from either the explicit prop or a hash of the
-    // header labels + column count. Header text is stable across renders,
-    // so widths persist correctly even when the caller didn't bother to
-    // hand-craft a `tableId`.
-    const derivedId = tableId
+    const storageId = tableId
       ? tableId
-      : `auto-${ths.length}-${_hashString(
-          ths.map((t) => (t.textContent || "").trim()).join("|"),
+      : `auto-${headers.length}-${hashString(
+          headers.map((header) => header.textContent?.trim() ?? "").join("|"),
         )}`;
+    const storageKey = `bw-cols-${storageId}`;
+    const saved = readWidths(storageKey, minColumnWidth);
+    const cleanups: Array<() => void> = [];
 
-    // Load saved widths (per-column, by zero-based index).
-    let saved: Record<number, number> = {};
-    try {
-      const raw = localStorage.getItem(`bw-cols-${derivedId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          saved = parsed;
+    // Create one <col> per header. Col widths are much more predictable than
+    // mutating header widths when table-layout is fixed.
+    const colgroup = document.createElement("colgroup");
+    const columns = headers.map(() => document.createElement("col"));
+    columns.forEach((column) => colgroup.appendChild(column));
+    table.insertBefore(colgroup, table.firstChild);
+    table.style.tableLayout = "fixed";
+
+    const labels = headers.map((header, index) =>
+      header.hasAttribute("data-actions")
+        ? "Actions"
+        : header.textContent?.trim() || `Column ${index + 1}`,
+    );
+
+    const initialWidths = headers.map((header, index) =>
+      clamp(
+        saved[index] ?? Math.round(header.getBoundingClientRect().width),
+        minColumnWidth,
+      ),
+    );
+
+    // Batch initial reads before writes to avoid layout thrashing.
+    initialWidths.forEach((width, index) => setColumnWidth(columns[index], width, minColumnWidth));
+
+    table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => {
+      Array.from(row.children).forEach((cell, index) => {
+        if (cell instanceof HTMLElement && !cell.dataset.label && labels[index]) {
+          cell.dataset.label = labels[index];
         }
-      }
-    } catch {
-      // ignore — corrupted entry, just use defaults
-    }
-
-    // Apply saved widths immediately so the first paint matches user's choice.
-    ths.forEach((th, i) => {
-      if (typeof saved[i] === "number" && saved[i] >= minColumnWidth) {
-        th.style.width = `${saved[i]}px`;
-      }
-      // Position relative so the handle can absolute-position to the right edge.
-      if (getComputedStyle(th).position === "static") {
-        th.style.position = "relative";
-      }
+      });
     });
 
-    // Attach a resize handle to each <th>. We skip the last column — resizing
-    // it would just trigger horizontal scroll inside the table, which is
-    // surprising; leaving it flexible looks more natural.
-    const handles: HTMLDivElement[] = [];
-    ths.forEach((th, index) => {
-      if (index === ths.length - 1) return;
+    const persist = () => {
+      const widths = columns.map((column) => Math.round(column.getBoundingClientRect().width));
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(widths));
+      } catch {
+        // Storage can be unavailable in private browsing.
+      }
+    };
 
-      const handle = document.createElement("div");
+    headers.forEach((header, index) => {
+      const handle = document.createElement("button");
+      handle.type = "button";
       handle.className = "bw-col-resize-handle";
-      handle.setAttribute("aria-hidden", "true");
-      handle.style.position = "absolute";
-      handle.style.right = "-3px";
-      handle.style.top = "0";
-      handle.style.width = "6px";
-      handle.style.height = "100%";
-      handle.style.cursor = "col-resize";
-      handle.style.zIndex = "10";
-      handle.style.userSelect = "none";
+      handle.setAttribute("aria-label", `Resize ${labels[index]} column`);
+      handle.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
+      handle.title = "Drag to resize. Use arrow keys for precision.";
 
-      const onMouseDown = (e: MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const startX = e.clientX;
-        const startWidth = th.offsetWidth;
+      let startX = 0;
+      let startWidth = 0;
+      let activePointerId: number | null = null;
 
-        const onMove = (ev: MouseEvent) => {
-          const delta = ev.clientX - startX;
-          const next = Math.max(minColumnWidth, startWidth + delta);
-          th.style.width = `${next}px`;
-        };
-        const onUp = () => {
-          // Persist all current widths so a multi-column drag session
-          // captures every change. Stored as {index: width}.
-          const out: Record<number, number> = { ...saved };
-          ths.forEach((cell, i) => {
-            out[i] = cell.offsetWidth;
-          });
-          try {
-            localStorage.setItem(`bw-cols-${derivedId}`, JSON.stringify(out));
-            saved = out;
-          } catch {
-            // ignore — quota or private mode
-          }
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-        };
-
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
+      const onPointerMove = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) return;
+        setColumnWidth(columns[index], startWidth + event.clientX - startX, minColumnWidth);
       };
 
-      handle.addEventListener("mousedown", onMouseDown);
-      th.appendChild(handle);
-      handles.push(handle);
+      const onPointerUp = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) return;
+        activePointerId = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        persist();
+      };
+
+      const onPointerDown = (event: PointerEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        activePointerId = event.pointerId;
+        startX = event.clientX;
+        startWidth = columns[index].getBoundingClientRect().width;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", onPointerUp);
+      };
+
+      const onKeyDown = (event: KeyboardEvent) => {
+        const step = event.shiftKey ? 32 : 8;
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const current = columns[index].getBoundingClientRect().width;
+        setColumnWidth(columns[index], current + (event.key === "ArrowRight" ? step : -step), minColumnWidth);
+        persist();
+      };
+
+      handle.addEventListener("pointerdown", onPointerDown);
+      handle.addEventListener("keydown", onKeyDown);
+      header.appendChild(handle);
+
+      cleanups.push(() => {
+        handle.removeEventListener("pointerdown", onPointerDown);
+        handle.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        handle.remove();
+      });
     });
 
     return () => {
-      handles.forEach((h) => h.remove());
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      cleanups.forEach((cleanup) => cleanup());
+      colgroup.remove();
+      table.style.tableLayout = "";
     };
-    // We re-run when tableId changes (different table = different storage key)
-    // and when minColumnWidth changes (rare, but should re-apply). Children
-    // shouldn't matter — the effect operates on the live DOM.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableId, minColumnWidth]);
 
   return (
-    <div ref={wrapperRef} className={className}>
+    <div ref={wrapperRef} className={`bw-table-shell ${className ?? ""}`}>
       {children}
     </div>
   );
 }
 
-// Tiny DJB2-ish string hash so the auto-tableId is short but stable. We
-// don't need cryptographic strength — this key only namespaces widths
-// inside a single browser's localStorage.
-function _hashString(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+function setColumnWidth(column: HTMLTableColElement, width: number, minWidth: number) {
+  const next = Math.max(minWidth, Math.round(width));
+  column.style.width = `${next}px`;
+  column.style.minWidth = `${next}px`;
+}
+
+function clamp(value: number, min: number) {
+  return Math.max(min, Number.isFinite(value) ? value : min);
+}
+
+function readWidths(key: string, minWidth: number): Record<number, number> {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      parsed
+        .map((value, index) => [index, value] as const)
+        .filter(([, value]) => typeof value === "number" && value >= minWidth),
+    );
+  } catch {
+    return {};
   }
-  // 32-bit unsigned → base36 for compactness.
-  return (h >>> 0).toString(36);
+}
+
+function hashString(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0).toString(36);
 }

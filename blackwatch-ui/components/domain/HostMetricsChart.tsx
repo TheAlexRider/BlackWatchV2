@@ -10,7 +10,6 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  type TooltipProps,
 } from "recharts";
 
 import { fetchHostMetrics } from "@/lib/api";
@@ -263,7 +262,11 @@ function MetricTooltip({
   active,
   payload,
   tz,
-}: TooltipProps<number, string> & { tz: TzKey }) {
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: ChartPoint }>;
+  tz: TzKey;
+}) {
   if (!active || !payload || payload.length === 0) return null;
   const p = payload[0]?.payload as ChartPoint | undefined;
   if (!p) return null;
