@@ -88,6 +88,33 @@ class AwsEcsHealthConfig(BaseModel):
     running_smoothing_minutes: int = 5
 
 
+class AwsS3AccessLogsConfig(BaseModel):
+    """Pulls S3 server access logs from a central log bucket, parses each line,
+    emits one `s3.object.access` event per request. Feeds intel + UEBA hooks
+    automatically. Cursor is time-based (LastModified > last_run_at - overlap)
+    so no schema changes needed; dedupe on insert via deterministic event_id.
+
+    IAM: the runtime credential must be scoped to list+get on `bucket` ONLY —
+    do NOT reuse a broad-S3 role. See docs/iam-policies/bw-s3-access-logs-reader.json."""
+
+    bucket: str
+    aws_region: str = "us-west-1"
+    aws_profile: str | None = None
+    # How often to poll for new log files.
+    interval_seconds: int = 300
+    # Overlap window to catch files whose LastModified straddled the last run.
+    # AWS delivers access logs with hours of delay, so a small overlap is fine —
+    # dedupe covers the rest.
+    overlap_seconds: int = 900
+    # Safety cap per run — the log bucket can burst under heavy source traffic.
+    # Anything not processed this run comes through on the next tick (time
+    # cursor still advances only on success).
+    max_files_per_run: int = 200
+    # Optional key prefix filter. Empty = every prefix (all source buckets).
+    # If you only want to process a subset, set e.g. "logs/prod-lh-".
+    prefix: str = ""
+
+
 class AwsS3DriftConfig(BaseModel):
     """S3 bucket-inventory drift scan. Periodically iterates every bucket in
     the account, reads its current security posture (public access, encryption,

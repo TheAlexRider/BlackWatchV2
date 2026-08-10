@@ -24,6 +24,15 @@ ALTER TABLE perf_alert_rules
     ADD CONSTRAINT perf_alert_rules_metric_ck
     CHECK (metric IN ('memory_pct', 'cpu_utilization_pct', 'disk_pct_max'));
 
-TRUNCATE TABLE host_metrics_hourly;
+-- One-shot cleanup: wipe rows that stored queue-depth (>100) in the cpu_*
+-- columns. Guarded so this doesn't nuke healthy data if the migration ever
+-- gets executed a second time (e.g. an operator restores an old DB without
+-- the schema_migrations tracker).
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM host_metrics_hourly WHERE cpu_avg > 100 LIMIT 1) THEN
+        TRUNCATE TABLE host_metrics_hourly;
+    END IF;
+END $$;
 
 COMMIT;

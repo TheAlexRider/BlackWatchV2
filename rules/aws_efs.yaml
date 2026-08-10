@@ -1,0 +1,87 @@
+# EFS (Elastic File System) detections.
+#
+# EFS holds patient-facing / shared filesystem data on ECS. The two threat
+# shapes worth catching from CloudTrail management events:
+#   1. Filesystem policy widened to a wildcard principal (public access).
+#   2. New mount target created OR mount-target SGs changed — a mount target
+#      is the ingress path (NFS/2049) into the filesystem. Adding one puts
+#      the FS inside another subnet; changing the SGs can broaden who reaches
+#      patient data over NFS.
+
+- id: aws-efs-filesystem-policy-public
+  title: EFS filesystem policy granted to wildcard principal
+  description: >
+    PutFileSystemPolicy contains an Allow statement with Principal="*" and no
+    Condition — the filesystem is effectively public to anyone with network
+    reachability. Direct exfil path.
+  severity: critical
+  tags: [efs, storage, public-exposure, data-leak, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: equals, value: efs.filesystem.policy.put}
+      - {field: extra.efs_policy_wildcard, op: equals, value: true}
+
+- id: aws-efs-filesystem-policy-deleted
+  title: EFS filesystem policy deleted
+  description: >
+    DeleteFileSystemPolicy removed the resource-level policy. Access reverts
+    to IAM identity-based only — could be legitimate cleanup or the pre-step
+    to a broader change.
+  severity: medium
+  tags: [efs, storage, configuration]
+  match:
+    field: action
+    op: equals
+    value: efs.filesystem.policy.delete
+
+- id: aws-efs-mount-target-created
+  title: EFS mount target created
+  description: >
+    CreateMountTarget adds a new NFS ingress point (a new IP in a subnet
+    that can now reach the filesystem). Every mount target is a new
+    attack path — legitimate ones happen at cluster provisioning, off-hours
+    or unknown-subnet ones need scrutiny.
+  severity: high
+  tags: [efs, storage, network, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: efs.mount_target.create
+
+- id: aws-efs-mount-target-deleted
+  title: EFS mount target deleted
+  description: >
+    DeleteMountTarget removed an NFS ingress point. Not inherently malicious
+    (could be legitimate teardown) but worth logging — attackers do this to
+    cover tracks after using a mount target for exfil.
+  severity: medium
+  tags: [efs, storage, network]
+  match:
+    field: action
+    op: equals
+    value: efs.mount_target.delete
+
+- id: aws-efs-mount-target-sg-modified
+  title: EFS mount target security groups changed
+  description: >
+    ModifyMountTargetSecurityGroups changed which SGs gate NFS access to the
+    mount target. If a broader SG is now attached, more clients can reach
+    patient data over 2049/tcp. Review the new SG list.
+  severity: high
+  tags: [efs, storage, network, sg, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: efs.mount_target.sg.modify
+
+- id: aws-efs-filesystem-deleted
+  title: EFS filesystem deleted
+  description: >
+    DeleteFileSystem removed the entire filesystem. Should be extremely rare —
+    when it happens outside a planned deprovision it is destructive.
+  severity: critical
+  tags: [efs, storage, destructive, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: efs.filesystem.delete

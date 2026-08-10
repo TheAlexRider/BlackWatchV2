@@ -145,8 +145,15 @@ def load_rules(path: str | Path) -> list[Rule]:
     if not base.exists():
         return rules
     for rule_file in sorted([*base.glob("*.yaml"), *base.glob("*.yml")]):
-        data = yaml.safe_load(rule_file.read_text(encoding="utf-8")) or []
+        data = yaml.safe_load(rule_file.read_text(encoding="utf-8"))
+        # Rule files are lists of dicts. Other yaml files (module config,
+        # e.g. ueba.yaml) also live in rules/ but their top-level is a mapping —
+        # skip them silently rather than crashing the whole engine on startup.
+        if not isinstance(data, list):
+            continue
         for item in data:
+            if not isinstance(item, dict):
+                continue
             rule = Rule(**item)
             if rule.id in seen:
                 raise ValueError(f"duplicate rule id {rule.id!r} in {rule_file.name}")

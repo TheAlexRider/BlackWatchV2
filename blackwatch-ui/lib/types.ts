@@ -1065,6 +1065,38 @@ export interface BucketsListResponse {
   };
 }
 
+// --- Storage overview ---------------------------------------------------
+
+export type StorageGroup = "s3" | "ebs" | "rds" | "efs" | "backup" | "secrets";
+
+export interface StorageGroupCounts {
+  total: number;
+  critical: number;
+  high: number;
+}
+
+export interface StorageCriticalEvent {
+  event_id: string | null;
+  event_time: string | null;
+  action: string;
+  group: StorageGroup;
+  severity: string;
+  message: string | null;
+  target_id: string | null;
+  principal: string | null;
+  source_ip: string | null;
+}
+
+export interface StorageSummary {
+  hours: number;
+  buckets: {
+    total: number;
+    public: number;
+  };
+  groups: Record<StorageGroup, StorageGroupCounts>;
+  recent_critical: StorageCriticalEvent[];
+}
+
 // --- Connectors -----------------------------------------------------------
 
 export type ConnectorType =

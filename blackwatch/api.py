@@ -2837,6 +2837,81 @@ def intel_status() -> dict[str, Any]:
     return {"feeds": intel_db.feed_meta()}
 
 
+# ---------- Storage overview (S3 / EBS / RDS / EFS / Backup / Secrets) -------
+
+# Action-prefix -> group name. Secrets Manager lives under `iam` category, not
+# `storage`, so we can't just filter by category — group by prefix instead.
+_STORAGE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("s3",      ("s3.",)),
+    ("ebs",     ("storage.snapshot.", "storage.volume.", "compute.ami.")),
+    ("rds",     ("rds.",)),
+    ("efs",     ("efs.",)),
+    ("backup",  ("backup.",)),
+    ("secrets", ("secrets.",)),
+)
+
+
+def _classify_storage(action: str) -> str | None:
+    for group, prefixes in _STORAGE_GROUPS:
+        for p in prefixes:
+            if action.startswith(p):
+                return group
+    return None
+
+
+@router.get("/storage/summary")
+def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, Any]:
+    """Unified counts across all storage domains + a small recent-critical list.
+    Used by the /ui/storage page. Cheap: two queries."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # Bucket inventory (existing).
+    buckets = storage.list_bucket_status()
+    public_count = sum(1 for b in buckets if b.get("public"))
+
+    # Storage-relevant events in the window. Over-fetch and filter in Python
+    # (query_events doesn't support prefix match). 5000 covers ~ any real load
+    # for the 24h default; escalate limit if hours is large.
+    events = storage.query_events(since=since, limit=5000)
+
+    per_group = {g: {"total": 0, "critical": 0, "high": 0} for g, _ in _STORAGE_GROUPS}
+    recent_critical: list[dict[str, Any]] = []
+    for ev in events:
+        action = ev.get("action") or ""
+        group = _classify_storage(action)
+        if group is None:
+            continue
+        per_group[group]["total"] += 1
+        sev = (ev.get("severity") or "").lower()
+        if sev in ("critical", "high"):
+            per_group[group][sev] += 1
+            if sev == "critical" and len(recent_critical) < 20:
+                extra = ev.get("extra") or {}
+                target = ev.get("target") or {}
+                actor = ev.get("actor") or {}
+                recent_critical.append({
+                    "event_id": ev.get("event_id"),
+                    "event_time": ev.get("event_time"),
+                    "action": action,
+                    "group": group,
+                    "severity": sev,
+                    "message": extra.get("message"),
+                    "target_id": target.get("id"),
+                    "principal": actor.get("principal"),
+                    "source_ip": actor.get("source_ip"),
+                })
+
+    return {
+        "hours": hours,
+        "buckets": {
+            "total": len(buckets),
+            "public": public_count,
+        },
+        "groups": per_group,
+        "recent_critical": recent_critical,
+    }
+
+
 # ---------- UEBA (baselines + first-seen anomalies) --------------------------
 
 @router.get("/ueba/baselines")

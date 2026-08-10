@@ -25,8 +25,11 @@ export function PendingButton({
   ...rest
 }: PendingButtonProps) {
   const { pending } = useFormStatus();
-  const { role, loading } = useAuth();
-  const readOnly = !loading && role !== "admin";
+  const { user, role, loading } = useAuth();
+  // Only gate authenticated viewers. Unauthenticated users (login page,
+  // /api/whoami returning 401) must be able to submit forms freely — the
+  // backend decides. Otherwise the login button itself would be disabled.
+  const readOnly = !loading && user !== null && role !== "admin";
   return (
     <Button
       type="submit"

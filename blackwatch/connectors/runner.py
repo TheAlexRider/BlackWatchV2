@@ -10,12 +10,12 @@ from typing import Any
 from .. import storage
 from . import (
     aws_api_gw_sqs, aws_ecs, aws_ecs_probe_sqs, aws_posture_drift,
-    aws_rds_sqs, aws_s3_drift, aws_sqs, cert_probe,
+    aws_rds_sqs, aws_s3_access_pull, aws_s3_drift, aws_sqs, cert_probe,
 )
 from .models import (
     AwsApiGwSqsConfig, AwsCloudtrailSqsConfig, AwsEcsHealthConfig,
     AwsEcsProbeSqsConfig, AwsPostureDriftConfig, AwsRdsSqsConfig,
-    AwsS3DriftConfig, CertProbeConfig,
+    AwsS3AccessLogsConfig, AwsS3DriftConfig, CertProbeConfig,
 )
 
 
@@ -53,6 +53,13 @@ def run_connector(connector_id: str) -> dict[str, Any]:
             outcome = {"ingested": stats["ingested"],
                        "buckets": stats["buckets"],
                        "scan_complete": stats["scan_complete"]}
+        elif ctype == "aws_s3_access_logs":
+            cfg = AwsS3AccessLogsConfig(**connector["config"])
+            stats = aws_s3_access_pull.poll(cfg)
+            outcome = {"ingested": stats["ingested"],
+                       "files_processed": stats["files_processed"],
+                       "errors": stats["errors"],
+                       "since": stats["since"]}
         elif ctype == "aws_posture_drift":
             cfg = AwsPostureDriftConfig(**connector["config"])
             stats = aws_posture_drift.poll(cfg)

@@ -88,6 +88,21 @@
       - {field: action, op: equals, value: storage.snapshot.modify}
       - {field: extra.snapshot_made_public, op: equals, value: true}
 
+- id: aws-ebs-snapshot-cross-account
+  title: EBS snapshot shared with foreign AWS account
+  description: |
+    ModifySnapshotAttribute added a specific AWS account (not 'all') to
+    createVolumePermission. That account can now restore the snapshot as its
+    own volume — silent exfil to an attacker-controlled account. Same threat
+    shape as the public share, but easier to miss because it doesn't require
+    the "all" flag.
+  severity: critical
+  tags: [aws, storage, data-exfil, cross-account, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: equals, value: storage.snapshot.modify}
+      - {field: extra.snapshot_cross_account_share, op: exists, value: true}
+
 - id: aws-ami-shared-public
   title: AMI made public
   description: |
@@ -99,6 +114,19 @@
     all:
       - {field: action, op: equals, value: compute.ami.modify}
       - {field: extra.ami_made_public, op: equals, value: true}
+
+- id: aws-ami-shared-cross-account
+  title: AMI shared with foreign AWS account
+  description: |
+    ModifyImageAttribute added a specific AWS account to launchPermission.
+    That account can now launch instances from your image — cross-account
+    exfil / persistence vector.
+  severity: high
+  tags: [aws, compute, cross-account, "notify:high"]
+  match:
+    all:
+      - {field: action, op: equals, value: compute.ami.modify}
+      - {field: extra.ami_cross_account_share, op: exists, value: true}
 
 - id: aws-kms-policy-wildcard
   title: KMS key policy granted to wildcard principal
@@ -163,6 +191,19 @@
     all:
       - {field: action, op: in, value: [rds.snapshot.modify, rds.cluster_snapshot.modify]}
       - {field: extra.rds_snapshot_made_public, op: equals, value: true}
+
+- id: aws-rds-snapshot-shared-cross-account
+  title: RDS snapshot shared with foreign AWS account
+  description: |
+    ModifyDBSnapshotAttribute added specific account IDs to the restore
+    permission list. That account can restore your DB (patient data included)
+    as its own instance — silent cross-account exfil.
+  severity: critical
+  tags: [aws, rds, data-exfil, cross-account, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: in, value: [rds.snapshot.modify, rds.cluster_snapshot.modify]}
+      - {field: extra.rds_snapshot_cross_account_share, op: exists, value: true}
 
 - id: aws-rds-backups-disabled
   title: RDS automated backups disabled

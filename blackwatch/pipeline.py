@@ -69,6 +69,12 @@ _PROJECTION_ONLY_ACTIONS = {
     # but don't store or notify — projections emit api.source.new,
     # api.auth.burst, api.error.burst, etc. which ARE stored.
     "api.request",
+    # Same shape for S3 server access logs — the connector emits one event per
+    # HTTP request against every logged bucket. Even on a private-only fleet
+    # this can be thousands/hour. Anonymous access (s3.object.access.anonymous)
+    # is NOT projection-only — that's a rare, high-signal event we always
+    # store and notify on.
+    "s3.object.access",
 }
 
 

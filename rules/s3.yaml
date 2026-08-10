@@ -157,3 +157,51 @@
   severity: high
   tags: [s3, inventory, integrity, "notify:high"]
   match: {field: action, op: equals, value: s3.bucket.disappeared}
+
+# === S3 access log detections =================================================
+# The aws.s3.access adapter emits `s3.object.access` for every logged request
+# (projection-only — not stored by default) and `s3.object.access.anonymous`
+# for unauthenticated ones (always stored). UEBA + intel enrichment run on
+# every event via the pipeline hook, so first-seen-IP / first-seen-country /
+# threat-feed-hit anomalies fire as their own derived events.
+
+- id: s3-object-access-anonymous
+  title: S3 object accessed by an unauthenticated requester
+  description: |
+    A request landed in the access log with Requester="-" — no IAM identity,
+    no signed URL bearer, just an anonymous HTTP call. For a fleet where every
+    bucket is private this should be zero. Usually indicates a bucket policy
+    or presigned-URL misconfiguration.
+  severity: high
+  tags: [s3, access, anonymous, data-leak, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: s3.object.access.anonymous
+
+- id: s3-object-access-from-known-bad-ip
+  title: S3 access from a threat-intel-matched IP
+  description: |
+    An S3 object was accessed from a source IP that matched a threat-intel
+    feed (Spamhaus / FireHOL / Tor exit). Intel enrichment stamps every event
+    with an IP via extra.intel.feeds — this fires when at least one feed matched.
+  severity: high
+  tags: [s3, access, threat-intel, "notify:high"]
+  match:
+    all:
+      - {field: action, op: in, value: [s3.object.access, s3.object.access.anonymous]}
+      - {field: extra.intel.feeds, op: exists, value: true}
+
+- id: s3-object-access-from-tor
+  title: S3 access from a Tor exit node
+  description: |
+    An S3 object was accessed from a Tor exit IP. Legitimate patient workflows
+    don't route through Tor; this is almost certainly an attacker attempting
+    to blend in.
+  severity: critical
+  tags: [s3, access, tor, data-leak, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: in, value: [s3.object.access, s3.object.access.anonymous]}
+      - {field: extra.intel.is_tor, op: equals, value: true}
+

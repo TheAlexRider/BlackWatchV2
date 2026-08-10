@@ -15,6 +15,7 @@ import type {
   ServicesListResponse,
   RulesResponse,
   BucketsListResponse,
+  StorageSummary,
   Connector,
   ConnectorsListResponse,
   OverviewResponse,
@@ -292,6 +293,14 @@ export async function fetchBuckets(): Promise<BucketsListResponse> {
   const res = await bwFetch(`/api/buckets`);
   if (!res.ok) throw new Error(`fetchBuckets failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as BucketsListResponse;
+}
+
+// --- Storage overview ---------------------------------------------------
+
+export async function fetchStorageSummary(hours = 24): Promise<StorageSummary> {
+  const res = await bwFetch(`/api/storage/summary?hours=${hours}`);
+  if (!res.ok) throw new Error(`fetchStorageSummary failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as StorageSummary;
 }
 
 // --- Notifications -------------------------------------------------------

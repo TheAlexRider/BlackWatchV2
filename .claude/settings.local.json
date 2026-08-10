@@ -124,7 +124,12 @@
       "Bash(git -C .claude/worktrees/agent-a69545b94a1331f1a diff main -- blackwatch-ui/components/layout/SideNav.tsx)",
       "Bash(git -C .claude/worktrees/agent-a552adf01db864b47 diff main -- blackwatch-ui/components/layout/SideNav.tsx)",
       "Bash(git -C .claude/worktrees/agent-acbf9cc51644b01f2 diff main -- blackwatch/api.py)",
-      "Bash(git -C .claude/worktrees/agent-a69545b94a1331f1a diff main -- blackwatch/api.py)"
+      "Bash(git -C .claude/worktrees/agent-a69545b94a1331f1a diff main -- blackwatch/api.py)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0,'.'\\); from blackwatch.rules.engine import load_rules; rules = load_rules\\('rules'\\); print\\(f'loaded {len\\(rules\\)} rules'\\); newly = [r for r in rules if r.id in \\('aws-efs-filesystem-policy-public','aws-backup-recovery-point-deleted','aws-secret-deleted','aws-ebs-snapshot-cross-account','aws-rds-snapshot-shared-cross-account','aws-ami-shared-cross-account'\\)]; print\\(f'new-rule-ids present: {[r.id for r in newly]}'\\)\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0,'.'\\); from blackwatch.modules import aws_cloudtrail as ct; print\\('LAMBDA_ALLOWLIST size:', len\\(ct.LAMBDA_ALLOWLIST\\)\\); new = ['CreateFileSystem','DeleteFileSystem','PutFileSystemPolicy','DeleteFileSystemPolicy','CreateMountTarget','DeleteMountTarget','ModifyMountTargetSecurityGroups','CreateBackupVault','DeleteBackupVault','PutBackupVaultAccessPolicy','DeleteBackupVaultAccessPolicy','DeleteRecoveryPoint','StartCopyJob','CreateSecret','DeleteSecret','UpdateSecret','RestoreSecret','GetSecretValue']; missing = [n for n in new if n not in ct.LAMBDA_ALLOWLIST]; print\\('missing:', missing or '\\(all present\\)'\\)\")",
+      "Bash(python -m scripts.iam_lambda_allowlist --rules-split)",
+      "Bash(python -m scripts.iam_lambda_allowlist --rule-regional-infra)",
+      "Bash(python -m scripts.iam_lambda_allowlist --rule-regional-data)"
     ]
   }
 }

@@ -11,6 +11,7 @@ from .aws_cloudtrail import AwsCloudTrailAdapter
 from .aws_posture import AwsPostureAdapter
 from .aws_rds import AwsRdsAdapter
 from .aws_s3 import AwsS3Adapter
+from .aws_s3_access import AwsS3AccessAdapter
 from .base import Adapter
 from .cert_expiry import CertExpiryAdapter
 from .ec2_host import Ec2HostAdapter
@@ -45,5 +46,6 @@ def register_builtins() -> None:
     register(Ec2HostAdapter())
     register(EcsProbeAdapter())
     register(AwsS3Adapter())
+    register(AwsS3AccessAdapter())
     register(AwsPostureAdapter())
     register(CertExpiryAdapter())

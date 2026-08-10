@@ -1,7 +1,0 @@
-[
-  {
-    "Source": "aws.iam",
-    "DetailType": "AWS API Call via CloudTrail",
-    "Detail": "{\"eventSource\":\"iam.amazonaws.com\",\"eventName\":\"CreateUser\",\"userIdentity\":{\"type\":\"IAMUser\",\"userName\":\"synthetic-test\",\"arn\":\"arn:aws:iam::095899260107:user/synthetic-test\"},\"requestParameters\":{\"userName\":\"bw-synthetic-test\"},\"awsRegion\":\"us-east-1\",\"sourceIPAddress\":\"203.0.113.1\",\"eventTime\":\"2026-06-11T11:00:00Z\"}"
-  }
-]

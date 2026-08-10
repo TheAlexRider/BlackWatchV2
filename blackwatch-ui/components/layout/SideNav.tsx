@@ -22,6 +22,7 @@ import {
   Globe,
   UserSearch,
   FileLock2,
+  Archive,
   ChevronsLeft,
   ChevronsRight,
   type LucideIcon,
@@ -47,6 +48,7 @@ const primaryNav: NavEntry[] = [
   { href: "/aws-posture", label: "AWS posture", icon: Shield },
   { href: "/ueba", label: "UEBA", icon: UserSearch },
   { href: "/buckets", label: "Buckets", icon: Database },
+  { href: "/storage", label: "Storage", icon: Archive },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 

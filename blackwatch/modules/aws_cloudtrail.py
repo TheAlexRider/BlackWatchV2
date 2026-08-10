@@ -195,6 +195,35 @@ _ACTION_MAP: dict[str, tuple[str, Category]] = {
     "DeleteDBCluster":                      ("rds.cluster.delete", Category.storage),
     "ModifyDBCluster":                      ("rds.cluster.modify", Category.storage),
     "ModifyDBClusterSnapshotAttribute":     ("rds.cluster_snapshot.modify", Category.storage),
+    # --- EFS -------------------------------------------------------------
+    # Mount targets are the ingress path for NFS — a new one puts your
+    # filesystem inside another subnet. SG changes on a mount target can
+    # broaden who can reach patient data over 2049/tcp.
+    "CreateFileSystem":                     ("efs.filesystem.create", Category.storage),
+    "DeleteFileSystem":                     ("efs.filesystem.delete", Category.storage),
+    "PutFileSystemPolicy":                  ("efs.filesystem.policy.put", Category.storage),
+    "DeleteFileSystemPolicy":               ("efs.filesystem.policy.delete", Category.storage),
+    "CreateMountTarget":                    ("efs.mount_target.create", Category.storage),
+    "DeleteMountTarget":                    ("efs.mount_target.delete", Category.storage),
+    "ModifyMountTargetSecurityGroups":      ("efs.mount_target.sg.modify", Category.storage),
+    # --- AWS Backup -----------------------------------------------------
+    # Recovery-point/vault delete = destroying restore capability. Vault
+    # access policy widen or cross-account copy = exfil channel for backups.
+    "CreateBackupVault":                    ("backup.vault.create", Category.storage),
+    "DeleteBackupVault":                    ("backup.vault.delete", Category.storage),
+    "PutBackupVaultAccessPolicy":           ("backup.vault.policy.put", Category.storage),
+    "DeleteBackupVaultAccessPolicy":        ("backup.vault.policy.delete", Category.storage),
+    "DeleteRecoveryPoint":                  ("backup.recovery_point.delete", Category.storage),
+    "StartCopyJob":                         ("backup.copy_job.start", Category.storage),
+    # --- Secrets Manager -----------------------------------------------
+    # GetSecretValue is the raw access event — expected to be voluminous;
+    # UEBA catches the anomalies (first-seen principal / IP). The rest are
+    # low-volume management events worth flagging directly.
+    "CreateSecret":                         ("secrets.secret.create", Category.iam),
+    "DeleteSecret":                         ("secrets.secret.delete", Category.iam),
+    "UpdateSecret":                         ("secrets.secret.update", Category.iam),
+    "RestoreSecret":                        ("secrets.secret.restore", Category.iam),
+    "GetSecretValue":                       ("secrets.secret.get_value", Category.iam),
 }
 
 
@@ -450,6 +479,28 @@ def _snapshot_made_public(request_params: dict[str, Any]) -> bool:
     return False
 
 
+def _snapshot_cross_account_share(request_params: dict[str, Any]) -> list[str] | None:
+    """ModifySnapshotAttribute adding a specific AWS account (not 'all') to
+    createVolumePermission. That account can now restore the snapshot as its
+    own volume — silent exfil to an attacker-controlled account. Returns the
+    list of account IDs added, or None if not a cross-account share."""
+    perm = request_params.get("createVolumePermission") or {}
+    if not isinstance(perm, dict):
+        return None
+    accounts: list[str] = []
+    for op in ("add", "items"):
+        block = perm.get(op)
+        items = block.get("items") if isinstance(block, dict) else (
+            block if isinstance(block, list) else [])
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            uid = it.get("userId")
+            if uid and uid != "all":
+                accounts.append(str(uid))
+    return accounts or None
+
+
 def _ami_made_public(request_params: dict[str, Any]) -> bool:
     """ModifyImageAttribute adding 'all' to launch permissions = public AMI."""
     perm = request_params.get("launchPermission") or {}
@@ -463,10 +514,28 @@ def _ami_made_public(request_params: dict[str, Any]) -> bool:
     return False
 
 
-def _kms_policy_is_wildcard(request_params: dict[str, Any]) -> bool:
-    """PutKeyPolicy with Principal=* and no Condition. Same shape as the S3
-    bucket-policy public check."""
-    doc = request_params.get("policy")
+def _ami_cross_account_share(request_params: dict[str, Any]) -> list[str] | None:
+    """ModifyImageAttribute adding specific accounts to launchPermission. Same
+    exfil shape as EBS snapshot cross-account share but for AMIs."""
+    perm = request_params.get("launchPermission") or {}
+    if not isinstance(perm, dict):
+        return None
+    add = perm.get("add")
+    items = add.get("items") if isinstance(add, dict) else (add if isinstance(add, list) else [])
+    accounts: list[str] = []
+    for it in items or []:
+        if isinstance(it, dict):
+            uid = it.get("userId")
+            if uid:
+                accounts.append(str(uid))
+    return accounts or None
+
+
+def _policy_doc_is_wildcard(doc: Any) -> bool:
+    """Generic resource-policy wildcard check used by KMS/Backup vault/EFS
+    filesystem policies. Returns True if any Effect=Allow statement has
+    Principal="*" (or AWS="*") AND no Condition — the classic public-share
+    misconfiguration."""
     if not isinstance(doc, str):
         return False
     try:
@@ -486,6 +555,32 @@ def _kms_policy_is_wildcard(request_params: dict[str, Any]) -> bool:
         if is_wild and not s.get("Condition"):
             return True
     return False
+
+
+def _kms_policy_is_wildcard(request_params: dict[str, Any]) -> bool:
+    """PutKeyPolicy with Principal=* and no Condition."""
+    return _policy_doc_is_wildcard(request_params.get("policy"))
+
+
+def _backup_copy_cross_account(rp: dict[str, Any]) -> str | None:
+    """StartCopyJob with a destinationBackupVaultArn in a different account
+    than the source. Returns the destination account ID or None."""
+    dest_arn = rp.get("destinationBackupVaultArn")
+    if not isinstance(dest_arn, str):
+        return None
+    parts = dest_arn.split(":")
+    if len(parts) < 5:
+        return None
+    return parts[4] or None
+
+
+def _efs_mount_target_sg_added(rp: dict[str, Any]) -> list[str]:
+    """ModifyMountTargetSecurityGroups returns the SG list being applied.
+    Any change is worth flagging; correlation with SG rules happens elsewhere."""
+    sgs = rp.get("securityGroups") or []
+    if isinstance(sgs, list):
+        return [str(s) for s in sgs]
+    return []
 
 
 # ---- RDS signal detectors --------------------------------------------------
@@ -535,6 +630,18 @@ def _rds_snapshot_made_public(rp: dict[str, Any]) -> bool:
     if isinstance(add, list) and "all" in add:
         return True
     return False
+
+
+def _rds_snapshot_cross_account_share(rp: dict[str, Any]) -> list[str] | None:
+    """Cross-account (not public) share of an RDS snapshot — attacker-controlled
+    account can now restore your patient DB as its own instance."""
+    if rp.get("attributeName") != "restore":
+        return None
+    add = rp.get("valuesToAdd") or []
+    if not isinstance(add, list):
+        return None
+    accounts = [str(v) for v in add if v and v != "all"]
+    return accounts or None
 
 
 def _rds_iam_auth_disabled(rp: dict[str, Any]) -> bool:
@@ -640,8 +747,14 @@ def _friendly_message(action: str, extra: dict[str, Any], request_params: dict[s
     # --- Storage / compute exposure ----------------------------------------
     if action == "storage.snapshot.modify" and extra.get("snapshot_made_public"):
         return "EBS snapshot shared publicly"
+    if action == "storage.snapshot.modify" and extra.get("snapshot_cross_account_share"):
+        accts = extra["snapshot_cross_account_share"]
+        return f"EBS snapshot shared with account(s): {','.join(accts[:3])}"
     if action == "compute.ami.modify" and extra.get("ami_made_public"):
         return "AMI made public"
+    if action == "compute.ami.modify" and extra.get("ami_cross_account_share"):
+        accts = extra["ami_cross_account_share"]
+        return f"AMI shared with account(s): {','.join(accts[:3])}"
     if action == "compute.imds.modify" and extra.get("imdsv1_enabled"):
         return "IMDSv1 re-enabled (SSRF risk)"
 
@@ -658,6 +771,36 @@ def _friendly_message(action: str, extra: dict[str, Any], request_params: dict[s
             return "RDS master password rotated"
     if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify") and extra.get("rds_snapshot_made_public"):
         return "RDS snapshot shared publicly"
+    if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify") and extra.get("rds_snapshot_cross_account_share"):
+        accts = extra["rds_snapshot_cross_account_share"]
+        return f"RDS snapshot shared with account(s): {','.join(accts[:3])}"
+
+    # --- EFS ---------------------------------------------------------------
+    if action == "efs.filesystem.policy.put" and extra.get("efs_policy_wildcard"):
+        return "EFS filesystem policy granted to wildcard principal"
+    if action == "efs.mount_target.create":
+        return "EFS mount target created (new NFS ingress path)"
+    if action == "efs.mount_target.delete":
+        return "EFS mount target deleted"
+    if action == "efs.mount_target.sg.modify":
+        sgs = extra.get("efs_mount_target_sgs") or []
+        return f"EFS mount target SGs changed to {','.join(sgs[:3])}"
+
+    # --- AWS Backup --------------------------------------------------------
+    if action == "backup.recovery_point.delete":
+        return "Backup recovery point deleted"
+    if action == "backup.vault.delete":
+        return "Backup vault deleted"
+    if action == "backup.vault.policy.put" and extra.get("backup_vault_policy_wildcard"):
+        return "Backup vault policy granted to wildcard principal"
+    if action == "backup.copy_job.start" and extra.get("backup_copy_dest_account"):
+        return f"Backup copy started to account {extra['backup_copy_dest_account']}"
+
+    # --- Secrets Manager ---------------------------------------------------
+    if action == "secrets.secret.delete":
+        return "Secret scheduled for deletion"
+    if action == "secrets.secret.restore":
+        return "Secret restored (undelete)"
 
     # --- S3 ----------------------------------------------------------------
     if action == "s3.bucket.policy.put" and extra.get("public_policy"):
@@ -845,12 +988,34 @@ class AwsCloudTrailAdapter(Adapter):
             extra.update(_sg_ingress_signals(request_params))
         if action == "compute.imds.modify" and _imds_weakened(request_params):
             extra["imdsv1_enabled"] = True
-        if action == "storage.snapshot.modify" and _snapshot_made_public(request_params):
-            extra["snapshot_made_public"] = True
-        if action == "compute.ami.modify" and _ami_made_public(request_params):
-            extra["ami_made_public"] = True
+        if action == "storage.snapshot.modify":
+            if _snapshot_made_public(request_params):
+                extra["snapshot_made_public"] = True
+            xac = _snapshot_cross_account_share(request_params)
+            if xac:
+                extra["snapshot_cross_account_share"] = xac
+        if action == "compute.ami.modify":
+            if _ami_made_public(request_params):
+                extra["ami_made_public"] = True
+            xac = _ami_cross_account_share(request_params)
+            if xac:
+                extra["ami_cross_account_share"] = xac
         if action == "kms.policy.put" and _kms_policy_is_wildcard(request_params):
             extra["kms_wildcard_policy"] = True
+
+        # EFS / AWS Backup / Secrets Manager signals.
+        if action == "efs.filesystem.policy.put" and _policy_doc_is_wildcard(request_params.get("policy")):
+            extra["efs_policy_wildcard"] = True
+        if action == "efs.mount_target.sg.modify":
+            sgs = _efs_mount_target_sg_added(request_params)
+            if sgs:
+                extra["efs_mount_target_sgs"] = sgs
+        if action == "backup.vault.policy.put" and _policy_doc_is_wildcard(request_params.get("policy")):
+            extra["backup_vault_policy_wildcard"] = True
+        if action == "backup.copy_job.start":
+            dest_acct = _backup_copy_cross_account(request_params)
+            if dest_acct:
+                extra["backup_copy_dest_account"] = dest_acct
 
         # RDS signals — same pattern as S3/SG above. Pure data on requestParameters.
         # Instance create / modify share the "exposed?" flags; snapshot.modify
@@ -868,8 +1033,12 @@ class AwsCloudTrailAdapter(Adapter):
                 extra["rds_iam_auth_disabled"] = True
         if action in ("rds.instance.create", "rds.cluster.create") and _rds_unencrypted_at_creation(request_params):
             extra["rds_unencrypted_at_creation"] = True
-        if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify") and _rds_snapshot_made_public(request_params):
-            extra["rds_snapshot_made_public"] = True
+        if action in ("rds.snapshot.modify", "rds.cluster_snapshot.modify"):
+            if _rds_snapshot_made_public(request_params):
+                extra["rds_snapshot_made_public"] = True
+            xac = _rds_snapshot_cross_account_share(request_params)
+            if xac:
+                extra["rds_snapshot_cross_account_share"] = xac
         if action == "rds.parameter_group.modify":
             hits = _rds_param_changes_security(request_params)
             if hits:

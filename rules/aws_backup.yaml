@@ -1,0 +1,86 @@
+# AWS Backup detections.
+#
+# Backups are the restore capability. Losing them = permanent data loss.
+# Backups shared cross-account = data exfil channel. The four threat shapes:
+#   1. Recovery point deleted (attacker destroying restore ability).
+#   2. Vault deleted (destroys everything at once).
+#   3. Vault access policy widened (opens vault to another principal / world).
+#   4. Copy job started to a foreign account (silent exfil).
+
+- id: aws-backup-recovery-point-deleted
+  title: Backup recovery point deleted
+  description: >
+    DeleteRecoveryPoint removed a specific restore checkpoint. Ransomware and
+    insider-threat playbooks commonly delete recovery points before making
+    changes to primary data, so restores fail.
+  severity: high
+  tags: [backup, storage, anti-forensics, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: backup.recovery_point.delete
+
+- id: aws-backup-vault-deleted
+  title: Backup vault deleted
+  description: >
+    DeleteBackupVault removed an entire vault (and all its recovery points).
+    Extremely rare in normal operations — treat as an incident until proven
+    to be a scheduled deprovision.
+  severity: critical
+  tags: [backup, storage, destructive, "notify:critical"]
+  match:
+    field: action
+    op: equals
+    value: backup.vault.delete
+
+- id: aws-backup-vault-policy-wildcard
+  title: Backup vault access policy granted to wildcard principal
+  description: >
+    PutBackupVaultAccessPolicy contains an Allow statement with Principal="*"
+    and no Condition — anyone with the vault ARN can now access backups.
+    Direct exfil / tamper path.
+  severity: critical
+  tags: [backup, storage, public-exposure, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: equals, value: backup.vault.policy.put}
+      - {field: extra.backup_vault_policy_wildcard, op: equals, value: true}
+
+- id: aws-backup-vault-policy-changed
+  title: Backup vault access policy changed
+  description: >
+    PutBackupVaultAccessPolicy without the wildcard flag — policy was
+    modified but stayed scoped. Log for change-tracking; the wildcard variant
+    fires the critical rule instead.
+  severity: medium
+  tags: [backup, storage, configuration]
+  match:
+    all:
+      - {field: action, op: equals, value: backup.vault.policy.put}
+      - {field: extra.backup_vault_policy_wildcard, op: not_equals, value: true}
+
+- id: aws-backup-vault-policy-deleted
+  title: Backup vault access policy deleted
+  description: >
+    DeleteBackupVaultAccessPolicy removed the resource policy from a vault.
+    Access reverts to IAM identity-based only; could be legitimate cleanup
+    or a step in a broader access change.
+  severity: high
+  tags: [backup, storage, configuration, "notify:high"]
+  match:
+    field: action
+    op: equals
+    value: backup.vault.policy.delete
+
+- id: aws-backup-copy-cross-account
+  title: Backup copy job started to a foreign AWS account
+  description: >
+    StartCopyJob's destinationBackupVaultArn is in a different AWS account
+    than the source vault. This is the AWS-Backup equivalent of a cross-account
+    snapshot share — a silent exfil channel.
+  severity: critical
+  tags: [backup, storage, exfil, cross-account, "notify:critical"]
+  match:
+    all:
+      - {field: action, op: equals, value: backup.copy_job.start}
+      - {field: extra.backup_copy_dest_account, op: exists, value: true}
