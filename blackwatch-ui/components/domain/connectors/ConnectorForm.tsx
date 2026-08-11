@@ -9,6 +9,7 @@ import type {
   CloudTrailSqsConfig,
   EcsHealthConfig,
   S3DriftConfig,
+  S3AccessLogsConfig,
   PostureDriftConfig,
   CertProbeConfig,
   CertProbeTarget,
@@ -17,6 +18,7 @@ import {
   saveCloudTrailSqsAction,
   saveEcsHealthAction,
   saveS3DriftAction,
+  saveS3AccessLogsAction,
   savePostureDriftAction,
   saveCertProbeAction,
 } from "@/app/connectors/actions";
@@ -38,6 +40,8 @@ export function ConnectorForm({
       return <EcsHealthForm existing={existing} />;
     case "aws_s3_drift":
       return <S3DriftForm existing={existing} />;
+    case "aws_s3_access_logs":
+      return <S3AccessLogsForm existing={existing} />;
     case "aws_posture_drift":
       return <PostureDriftForm existing={existing} />;
     case "cert_probe":
@@ -261,6 +265,85 @@ function S3DriftForm({ existing }: { existing?: Connector }) {
         For the very first scan, you can also run{" "}
         <code className="text-fg">scripts/s3_bucket_inventory.py</code>{" "}
         directly from your local machine.
+      </FormNote>
+    </form>
+  );
+}
+
+// =========================================================================
+// 4. S3 server access-log reader
+// =========================================================================
+
+function S3AccessLogsForm({ existing }: { existing?: Connector }) {
+  const c = (existing?.config as S3AccessLogsConfig) ?? {};
+  return (
+    <form action={saveS3AccessLogsAction}>
+      <input type="hidden" name="connector_id" value={existing?.id ?? ""} />
+      <FormRow label="Name">
+        <Input
+          name="name"
+          required
+          defaultValue={existing?.name ?? ""}
+          placeholder="s3 access logs reader"
+        />
+      </FormRow>
+      <FormRow label="Log bucket" hint="central S3 server-access-log bucket">
+        <Input
+          name="bucket"
+          required
+          defaultValue={c.bucket ?? ""}
+          placeholder="my-central-access-logs"
+          mono
+        />
+      </FormRow>
+      <FormRow label="Key prefix" hint="optional; blank = all prefixes">
+        <Input
+          name="prefix"
+          defaultValue={c.prefix ?? ""}
+          placeholder="logs/prod-"
+          mono
+        />
+      </FormRow>
+      <FormRow label="AWS region">
+        <Input
+          name="aws_region"
+          defaultValue={c.aws_region ?? "us-west-1"}
+          className="w-48"
+        />
+      </FormRow>
+      <FormRow label="AWS profile" hint="in mounted ~/.aws">
+        <Input
+          name="aws_profile"
+          defaultValue={c.aws_profile ?? "blackwatch"}
+          className="w-48"
+        />
+      </FormRow>
+      <FormRow label="Poll interval" hint="seconds">
+        <Input
+          name="interval_seconds"
+          type="number"
+          min={30}
+          defaultValue={String(c.interval_seconds ?? 300)}
+          className="w-32"
+          mono
+        />
+      </FormRow>
+      <FormRow label="Files per run" hint="safety cap">
+        <Input
+          name="max_files_per_run"
+          type="number"
+          min={1}
+          defaultValue={String(c.max_files_per_run ?? 200)}
+          className="w-32"
+          mono
+        />
+      </FormRow>
+      <FormActions isEdit={!!existing} />
+      <FormNote>
+        Reads S3 server access-log objects from this bucket and emits one event
+        per request. Grant the runtime role only <code className="text-fg">s3:ListBucket</code>
+        and <code className="text-fg">s3:GetObject</code> on this log bucket;
+        access-log files are processed incrementally and deduplicated.
       </FormNote>
     </form>
   );

@@ -93,6 +93,12 @@ export async function saveS3DriftAction(formData: FormData): Promise<void> {
   connectorsRedirect("saved (test to verify, then enable)");
 }
 
+export async function saveS3AccessLogsAction(formData: FormData): Promise<void> {
+  await postForm("/ui/connectors/save_aws_s3_access", formToBody(formData));
+  revalidatePath("/connectors");
+  connectorsRedirect("saved (test to verify, then enable)");
+}
+
 export async function savePostureDriftAction(formData: FormData): Promise<void> {
   await postForm("/ui/connectors/save_aws_posture", formToBody(formData));
   revalidatePath("/connectors");

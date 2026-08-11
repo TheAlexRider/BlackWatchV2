@@ -1,51 +1,23 @@
-import clsx from "clsx";
-import { ResizableTable } from "./ResizableTable";
+"use client";
 
-/**
- * `<Table>` — the one canonical wrapper for every data table in the app.
- *
- * Consolidates three things every table should have:
- *   1. Consistent CSS via the global `.bw-table` class (headers, hairline
- *      column + row dividers, sticky headers, hover states, tabular nums).
- *   2. Drag-to-resize columns via ResizableTable (widths persist per
- *      `tableId` in localStorage).
- *   3. Horizontal scroll on narrow viewports via the surrounding
- *      DataPanel's `overflow-x-auto` — combined with `.bw-table`'s
- *      `min-width: max-content` this scrolls the columns without
- *      squishing them.
- *
- * Usage (server component — no `"use client"` required at the call site):
- *
- *   <Table tableId="hosts-list">
- *     <thead>
- *       <tr>
- *         <th style={{ width: 200 }}>Hostname</th>
- *         <th style={{ width: 140 }}>State</th>
- *         <th data-align="right" style={{ width: 140 }}>Last seen</th>
- *         <th data-actions />
- *       </tr>
- *     </thead>
- *     <tbody>
- *       {rows.map(r => (
- *         <tr key={r.id}>
- *           <td>{r.hostname}</td>
- *           <td>{r.state}</td>
- *           <td data-align="right">{r.lastSeen}</td>
- *           <td data-actions><Button size="sm">Edit</Button></td>
- *         </tr>
- *       ))}
- *     </tbody>
- *   </Table>
- *
- * Rules of thumb picked up from the four UI skills:
- *  - Give a stable, unique `tableId` — persists the resize state.
- *  - Set `width` via inline `style={{ width: N }}` on the <th> — that's
- *    what the ResizableTable seeds and what users adjust on drag.
- *  - Use `data-align="right"` for numeric columns to get tabular
- *    right-alignment without one-off classes.
- *  - Use `data-actions` for the trailing action column — the CSS shades
- *    it and adds a subtle left divider so the eye reads it as an anchor.
- */
+import clsx from "clsx";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { ResizableTable } from "./ResizableTable";
+import { TablePagination } from "./Pagination";
+
+const DEFAULT_PAGE_SIZE = 25;
+
+/** Canonical table wrapper. Every table gets the same responsive styling,
+ * stable resize behavior, and pagination (25 rows per page by default). */
 export function Table({
   tableId,
   children,
@@ -53,42 +25,98 @@ export function Table({
   ariaLabel,
   responsive = true,
 }: {
-  /** Optional. Omit to auto-derive an id from the header labels. Pass an
-   *  explicit id only when two tables share the same headers but should
-   *  NOT share saved widths. */
   tableId?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   ariaLabel?: string;
   responsive?: boolean;
 }) {
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const parts = Children.toArray(children);
+  const tbodyIndex = parts.findIndex(
+    (child) => isValidElement(child) && child.type === "tbody",
+  );
+  const tbody = tbodyIndex >= 0 ? parts[tbodyIndex] : null;
+  const tbodyElement = tbody && isValidElement(tbody)
+    ? (tbody as ReactElement<{ children?: ReactNode }>)
+    : null;
+  const rows = tbodyElement
+    ? Children.toArray(tbodyElement.props.children)
+    : [];
+  const dataRows = rows.filter((row) => isDataRow(row));
+  const pageCount = Math.max(1, Math.ceil(dataRows.length / pageSize));
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+
+  const visibleRows = useMemo(() => {
+    const visible = new Set(
+      dataRows.slice(page * pageSize, (page + 1) * pageSize),
+    );
+    return rows.filter((row) => {
+      if (!isDataRow(row)) return true;
+      const keep = visible.has(row);
+      return keep;
+    });
+  }, [dataRows, page, pageSize, rows]);
+
+  const paginatedParts = parts.slice();
+  if (tbodyElement) {
+    paginatedParts[tbodyIndex] = cloneElement(
+      tbodyElement,
+      undefined,
+      visibleRows,
+    );
+  }
+
   return (
-    <ResizableTable tableId={tableId}>
-      <table
-        className={clsx("bw-table text-sm", className)}
-        data-responsive={responsive ? "cards" : "scroll"}
-        aria-label={ariaLabel}
-      >
-        {children}
-      </table>
-    </ResizableTable>
+    <div className="min-w-0">
+      <ResizableTable tableId={tableId}>
+        <table
+          className={clsx("bw-table text-sm", className)}
+          data-responsive={responsive ? "cards" : "scroll"}
+          aria-label={ariaLabel}
+        >
+          {paginatedParts}
+        </table>
+      </ResizableTable>
+      <TablePagination
+        page={page}
+        pageSize={pageSize}
+        total={dataRows.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+      />
+    </div>
   );
 }
 
-/**
- * `<TableEmpty>` — the standard empty-state row for tables. Renders one
- * <tr> containing a single <td> that spans every column. Callers pass
- * the column count they used in <thead>.
- */
+function isDataRow(row: ReactNode): row is ReactElement {
+  if (!isValidElement(row) || row.type !== "tr") return false;
+  const children = Children.toArray(
+    (row as ReactElement<{ children?: ReactNode }>).props.children,
+  );
+  return !children.some(
+    (cell) =>
+      isValidElement(cell) &&
+      (cell as ReactElement<{ colSpan?: number }>).props.colSpan,
+  );
+}
+
 export function TableEmpty({
   columns,
   children,
 }: {
   columns: number;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <tr>
+    <tr data-empty="true">
       <td colSpan={columns} className="bw-empty">
         {children}
       </td>

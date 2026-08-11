@@ -1103,6 +1103,7 @@ export type ConnectorType =
   | "aws_cloudtrail_sqs"
   | "aws_ecs_health"
   | "aws_s3_drift"
+  | "aws_s3_access_logs"
   | "aws_posture_drift"
   | "cert_probe";
 
@@ -1143,6 +1144,16 @@ export interface EcsHealthConfig {
 export interface S3DriftConfig {
   aws_profile?: string;
   interval_seconds?: number;
+}
+
+export interface S3AccessLogsConfig {
+  bucket?: string;
+  aws_region?: string;
+  aws_profile?: string;
+  interval_seconds?: number;
+  overlap_seconds?: number;
+  max_files_per_run?: number;
+  prefix?: string;
 }
 
 export interface CertProbeTarget {

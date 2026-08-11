@@ -12,6 +12,7 @@ const KNOWN: ConnectorType[] = [
   "aws_cloudtrail_sqs",
   "aws_ecs_health",
   "aws_s3_drift",
+  "aws_s3_access_logs",
   "aws_posture_drift",
   "cert_probe",
 ];
