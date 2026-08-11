@@ -13,8 +13,12 @@ import {
 } from "react";
 import { ResizableTable } from "./ResizableTable";
 import { TablePagination } from "./Pagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_EVENT,
+  readTablePageSize,
+} from "./TablePreferences";
 
-const DEFAULT_PAGE_SIZE = 25;
 
 /** Canonical table wrapper. Every table gets the same responsive styling,
  * stable resize behavior, and pagination (25 rows per page by default). */
@@ -32,7 +36,7 @@ export function Table({
   responsive?: boolean;
 }) {
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const parts = Children.toArray(children);
   const tbodyIndex = parts.findIndex(
     (child) => isValidElement(child) && child.type === "tbody",
@@ -50,6 +54,16 @@ export function Table({
   useEffect(() => {
     setPage((current) => Math.min(current, pageCount - 1));
   }, [pageCount]);
+
+  useEffect(() => {
+    const applyDefault = () => {
+      setPageSize(readTablePageSize());
+      setPage(0);
+    };
+    applyDefault();
+    window.addEventListener(TABLE_PAGE_SIZE_EVENT, applyDefault);
+    return () => window.removeEventListener(TABLE_PAGE_SIZE_EVENT, applyDefault);
+  }, []);
 
   const visibleRows = useMemo(() => {
     const visible = new Set(

@@ -127,10 +127,13 @@
      visible 1-px line centered on it. That's the "column line" — same
      hairline as the divider between columns, but signal-colored on hover. */
   .bw-table-shell {
+    width: 100%;
     max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: stable both-edges;
+    -webkit-overflow-scrolling: touch;
+    isolation: isolate;
   }
 
   .bw-col-resize-handle {
@@ -145,6 +148,8 @@
     cursor: col-resize;
     border: 0;
     background: transparent;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
     transition: background 120ms ease;
   }
   .bw-col-resize-handle::after {
@@ -182,6 +187,9 @@
        handles provide minimum hints, while auto layout lets neighboring
        columns adapt when a cell expands. */
     table-layout: fixed;
+    /* The shell owns horizontal scrolling; the surrounding panel never
+       grows or moves when a column is widened. */
+    max-width: none;
   }
 
   .bw-table th,
