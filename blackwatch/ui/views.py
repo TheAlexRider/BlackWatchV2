@@ -594,7 +594,7 @@ def connector_save_aws_ecs(
     name: str = Form(...),
     vpc: str = Form(...),
     aws_region: str = Form("us-west-1"),
-    aws_profile: str = Form("blackwatch"),
+    aws_profile: str = Form(""),
     interval_seconds: int = Form(60),
     running_smoothing_minutes: int = Form(5),
 ) -> RedirectResponse:
@@ -848,7 +848,7 @@ def connector_save_aws_s3_access(
     bucket: str = Form(...),
     prefix: str = Form(""),
     aws_region: str = Form("us-west-1"),
-    aws_profile: str = Form("blackwatch"),
+    aws_profile: str = Form(""),
     interval_seconds: int = Form(300),
     max_files_per_run: int = Form(200),
 ) -> RedirectResponse:

@@ -311,10 +311,11 @@ function S3AccessLogsForm({ existing }: { existing?: Connector }) {
           className="w-48"
         />
       </FormRow>
-      <FormRow label="AWS profile" hint="in mounted ~/.aws">
+      <FormRow label="AWS profile" hint="optional; leave blank to use the EC2 IAM role">
         <Input
           name="aws_profile"
-          defaultValue={c.aws_profile ?? "blackwatch"}
+          defaultValue={c.aws_profile ?? ""}
+          placeholder="optional — EC2 role uses default credentials"
           className="w-48"
         />
       </FormRow>
