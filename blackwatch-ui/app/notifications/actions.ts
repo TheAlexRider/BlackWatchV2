@@ -32,8 +32,8 @@ function notifRedirect(msg: string): never {
 // =========================================================================
 
 // Translate the per-type form fields into the `config` dict that the backend
-// stores. Secrets are NEVER inlined — for email/pagerduty we capture only the
-// env-var name (e.g. `password_env`, `routing_key_env`).
+// stores. Secrets are NEVER inlined. SES API email uses the app's AWS IAM role;
+// SMTP remains an explicit compatibility fallback.
 function buildChannelConfig(type: ChannelType, fd: FormData): Record<string, unknown> {
   switch (type) {
     case "slack":
@@ -43,11 +43,9 @@ function buildChannelConfig(type: ChannelType, fd: FormData): Record<string, unk
       return { url: String(fd.get("url") ?? "").trim() };
     case "email":
       return {
-        smtp_host: String(fd.get("smtp_host") ?? "").trim(),
-        smtp_port: Number(fd.get("smtp_port") ?? 587),
-        use_tls: fd.get("use_tls") === "on",
-        smtp_user: String(fd.get("smtp_user") ?? "").trim(),
-        password_env: String(fd.get("password_env") ?? "").trim(),
+        provider: String(fd.get("provider") ?? "ses_api").trim() || "ses_api",
+        aws_region: String(fd.get("aws_region") ?? "us-west-1").trim(),
+        configuration_set: String(fd.get("configuration_set") ?? "").trim(),
         from_addr: String(fd.get("from_addr") ?? "").trim(),
         to_addrs: String(fd.get("to_addrs") ?? "")
           .split(",")

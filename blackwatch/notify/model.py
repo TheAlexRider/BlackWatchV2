@@ -23,9 +23,9 @@ class Channel(BaseModel):
     name: str
     type: ChannelType
     enabled: bool = True
-    # Type-specific config — URL for webhook/slack/teams/discord; SMTP details
-    # for email; routing_key_env for pagerduty; etc. Secrets are NEVER stored
-    # here — config holds the *name* of the env var (e.g. password_env).
+    # Type-specific config — URL for webhook/slack/teams/discord; SES API
+    # settings for email; routing_key_env for pagerduty; etc. Secrets are
+    # NEVER stored here.
     config: dict = Field(default_factory=dict)
     # Legacy `url` field — supported for YAML seed back-compat (mapped into config).
     url: str | None = None

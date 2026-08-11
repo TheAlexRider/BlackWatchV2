@@ -82,63 +82,41 @@ export function ChannelForm({
         <>
           <div className="border-b border-line-soft bg-surface-1 px-4 py-3">
             <HelpHint
-              text="SMTP-based email. For Gmail you need an App Password (not your real password). For AWS SES, use the SMTP credentials from the SES console — not your IAM access key."
+              text="Amazon SES API is the default and uses the app's AWS IAM role. No SMTP password or .env secret is required. An SMTP fallback is available for manually maintained non-SES configs."
               learnHref="/docs/notifications-setup"
               learnLabel="Setup guide"
             />
           </div>
-          <FormRow label="SMTP host">
+          <FormRow label="AWS region" hint="Region where your SES identity is verified">
             <Input
-              name="smtp_host"
+              name="aws_region"
               required
               mono
-              defaultValue={String(cfg.smtp_host ?? "")}
-              placeholder="smtp.gmail.com"
+              defaultValue={String(cfg.aws_region ?? "us-west-1")}
+              placeholder="us-west-1"
             />
           </FormRow>
-          <FormRow label="SMTP port">
+          <FormRow label="Configuration set" hint="Optional SES configuration set">
             <Input
-              name="smtp_port"
-              type="number"
+              name="configuration_set"
               mono
-              className="w-24"
-              defaultValue={String(cfg.smtp_port ?? 587)}
-            />
-          </FormRow>
-          <FormRow label="Use TLS">
-            <Checkbox
-              name="use_tls"
-              defaultChecked={cfg.use_tls !== false}
-              label="STARTTLS"
-            />
-          </FormRow>
-          <FormRow label="SMTP user">
-            <Input
-              name="smtp_user"
-              mono
-              defaultValue={String(cfg.smtp_user ?? "")}
-              placeholder="alerts@example.com"
-            />
-          </FormRow>
-          <FormRow label="Password env var" hint="env name only — never the value">
-            <Input
-              name="password_env"
-              mono
-              defaultValue={String(cfg.password_env ?? "")}
-              placeholder="SMTP_PASS"
+              defaultValue={String(cfg.configuration_set ?? "")}
+              placeholder="blackwatch-events"
             />
           </FormRow>
           <FormRow label="From">
             <Input
               name="from_addr"
+              required
               mono
               defaultValue={String(cfg.from_addr ?? "")}
-              placeholder="alerts@example.com"
+              placeholder="alerts@mail.example.com"
             />
           </FormRow>
           <FormRow label="To" hint="comma-separated">
             <Input
               name="to_addrs"
+              required
               mono
               defaultValue={
                 Array.isArray(cfg.to_addrs) ? (cfg.to_addrs as string[]).join(", ") : ""

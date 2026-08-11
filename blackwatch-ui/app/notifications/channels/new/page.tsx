@@ -38,7 +38,7 @@ const TYPE_CARDS: Array<{
   {
     type: "email",
     title: "Email",
-    blurb: "SMTP — host/port/from/to. Password via env var.",
+    blurb: "Amazon SES API via the AWS IAM role — no SMTP password.",
     icon: Mail,
   },
   {
