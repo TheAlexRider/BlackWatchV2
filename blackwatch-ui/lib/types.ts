@@ -1145,14 +1145,28 @@ export interface InvestigationNote {
 }
 
 export interface InvestigationResult {
-  event_id: string;
+  event_id: string | null;
   match_reason: string;
   event: EventEnvelope;
+  source_kind?: "event" | "projection";
+  source_label?: string;
+  category?: string;
+  observed_at?: string | null;
+}
+
+export interface InvestigationScan {
+  id: string;
+  status: "queued" | "running" | "complete" | "failed";
+  result_count: number;
+  error: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
 }
 
 export interface InvestigationDetail extends Investigation {
   notes: InvestigationNote[];
   results: InvestigationResult[];
+  scan?: InvestigationScan | null;
 }
 
 export interface InvestigationsResponse {

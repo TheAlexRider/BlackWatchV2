@@ -3,6 +3,7 @@ touch SQL. Everything else speaks in Event objects / plain dicts."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import Any
@@ -174,7 +175,9 @@ def list_investigations(*, owner: str, limit: int = 100) -> list[dict[str, Any]]
             SELECT i.id, i.title, i.status, i.priority, i.owner, i.time_start,
                    i.time_end, i.created_at, i.updated_at, i.completed_at,
                    COALESCE((SELECT count(*) FROM investigation_results r
-                             WHERE r.investigation_id = i.id), 0),
+                             WHERE r.investigation_id = i.id), 0)
+                   + COALESCE((SELECT count(*) FROM investigation_projection_results p
+                             WHERE p.investigation_id = i.id), 0),
                    COALESCE((SELECT string_agg(o.observable_type || ':' || o.observable_value, ', ')
                              FROM investigation_observables o
                              WHERE o.investigation_id = i.id), '')
@@ -195,7 +198,9 @@ def get_investigation(investigation_id: UUID) -> dict[str, Any] | None:
             SELECT i.id, i.title, i.status, i.priority, i.owner, i.time_start,
                    i.time_end, i.created_at, i.updated_at, i.completed_at,
                    COALESCE((SELECT count(*) FROM investigation_results r
-                             WHERE r.investigation_id = i.id), 0),
+                             WHERE r.investigation_id = i.id), 0)
+                   + COALESCE((SELECT count(*) FROM investigation_projection_results p
+                             WHERE p.investigation_id = i.id), 0),
                    COALESCE((SELECT string_agg(o.observable_type || ':' || o.observable_value, ', ')
                              FROM investigation_observables o
                              WHERE o.investigation_id = i.id), '')
@@ -226,6 +231,11 @@ def update_investigation_status(investigation_id: UUID, status: str) -> None:
             """,
             (status, status, investigation_id),
         )
+
+
+def update_investigation_range(investigation_id: UUID, time_start: datetime, time_end: datetime) -> None:
+    with get_pool().connection() as conn:
+        conn.execute("UPDATE investigations SET time_start = %s, time_end = %s, updated_at = now() WHERE id = %s", (time_start, time_end, investigation_id))
 
 
 def add_investigation_note(investigation_id: UUID, author: str, body: str) -> dict[str, Any]:
@@ -295,7 +305,124 @@ def list_investigation_results(investigation_id: UUID, limit: int = 5000) -> lis
             """,
             (investigation_id, min(max(limit, 1), 5000)),
         ).fetchall()
-    return [{"event_id": str(r[0]), "match_reason": r[1], "event": r[2]} for r in rows]
+    results = [{"event_id": str(r[0]), "match_reason": r[1], "event": r[2], "source_kind": "event", "source_label": "Normalized events"} for r in rows]
+    with get_pool().connection() as conn:
+        projection_rows = conn.execute(
+            """
+            SELECT source_table, source_key, module, category, observed_at,
+                   payload, match_reason
+            FROM investigation_projection_results
+            WHERE investigation_id = %s
+            ORDER BY observed_at DESC NULLS LAST, created_at DESC
+            LIMIT %s
+            """, (investigation_id, min(max(limit, 1), 5000)),
+        ).fetchall()
+    for source_table, source_key, module, category, observed_at, payload, reason in projection_rows:
+        results.append({
+            "event_id": None, "match_reason": reason, "source_kind": "projection",
+            "source_label": source_table, "category": category,
+            "observed_at": observed_at, "event": {
+                "event_time": observed_at, "source": {"module": module},
+                "action": "projection.match", "category": category,
+                "target": {"id": source_key}, "actor": {},
+                "severity": None, "tags": [], "raw": payload,
+            },
+        })
+    return results
+
+
+def create_investigation_scan(*, scan_id: UUID, investigation_id: UUID, requested_by: str) -> dict[str, Any]:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO investigation_scans (id, investigation_id, requested_by)
+            VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+            RETURNING id, status, result_count, error
+            """, (scan_id, investigation_id, requested_by),
+        ).fetchone()
+    if row is None:
+        with get_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT id, status, result_count, error FROM investigation_scans WHERE investigation_id = %s AND status IN ('queued','running')",
+                (investigation_id,),
+            ).fetchone()
+    return {"id": str(row[0]), "status": row[1], "result_count": row[2], "error": row[3]}
+
+
+def get_active_investigation_scan(investigation_id: UUID) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """SELECT id, status, result_count, error, started_at, finished_at
+               FROM investigation_scans WHERE investigation_id = %s
+               ORDER BY created_at DESC LIMIT 1""", (investigation_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": str(row[0]), "status": row[1], "result_count": row[2], "error": row[3], "started_at": row[4], "finished_at": row[5]}
+
+
+def claim_investigation_scan() -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE investigation_scans SET status = 'running', started_at = now()
+            WHERE id = (SELECT id FROM investigation_scans
+                        WHERE status = 'queued' ORDER BY created_at
+                        FOR UPDATE SKIP LOCKED LIMIT 1)
+            RETURNING id, investigation_id
+            """
+        ).fetchone()
+    return {"id": row[0], "investigation_id": row[1]} if row else None
+
+
+def finish_investigation_scan(scan_id: UUID, *, status: str, result_count: int = 0, error: str | None = None) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE investigation_scans SET status = %s, result_count = %s, error = %s, finished_at = now() WHERE id = %s",
+            (status, result_count, error, scan_id),
+        )
+
+
+def search_investigation_projections(*, investigation_id: UUID, observable_value: str, time_start: datetime, time_end: datetime, limit: int = 5000) -> int:
+    pattern = f"%{observable_value}%"
+    # Table names are fixed allowlisted SQL, never derived from the IP/input.
+    queries = [
+        ("api_sources", "api", "network", "source_ip", "source_ip, api_name, first_seen_at, last_seen_at, request_count, error_4xx_count, error_5xx_count", "last_seen_at"),
+        ("rds_proxy_sources", "rds", "database", "source_ip", "source_ip, first_seen_at, last_seen_at, connect_count", "last_seen_at"),
+        ("rds_user_source_history", "rds", "database", "source_ip", "username, source_ip, first_seen_at, last_seen_at, session_count", "last_seen_at"),
+        ("rds_active_sessions", "rds", "database", "source_ip", "session_id, db_instance, source_ip, db_user, db_name, connected_at, last_seen_at, extra", "last_seen_at"),
+        ("vpn_status", "vpn", "network", "clients::text", "server, updated_at, active, clients, certs", "updated_at"),
+        ("host_status", "host", "compute", "extra::text", "instance_id, hostname, account, region, updated_at, active, extra", "updated_at"),
+        ("bucket_status", "s3", "storage", "extra::text", "bucket_name, region, account, last_scan, public, public_reasons, encryption, tags, extra", "last_scan"),
+        ("posture_findings", "aws.posture", "posture", "evidence::text", "finding_id, resource_id, resource_type, finding_type, severity, region, account, evidence, last_seen", "last_seen"),
+        ("fim_history", "fim", "integrity", "(instance_id || ' ' || path)", "id, instance_id, path, changed_at, change_type, event_id", "changed_at"),
+    ]
+    count = 0
+    with get_pool().connection() as conn:
+        for table, module, category, match_column, columns, observed_column in queries:
+            rows = conn.execute(
+                f"SELECT {columns} FROM {table} WHERE {observed_column} >= %s AND {observed_column} <= %s AND {match_column} ILIKE %s ORDER BY {observed_column} DESC LIMIT %s",
+                (time_start, time_end, pattern, min(max(limit, 1), 5000)),
+            ).fetchall()
+            for row in rows:
+                payload = {name.strip(): value for name, value in zip(columns.split(","), row)}
+                payload = json.loads(json.dumps(payload, default=str))
+                key = str(payload.get("source_ip") or payload.get("id") or payload.get("finding_id") or payload.get("bucket_name") or payload.get("instance_id") or payload.get("server") or payload.get("path"))
+                observed = payload.get(observed_column)
+                conn.execute(
+                    """INSERT INTO investigation_projection_results
+                       (investigation_id, source_table, source_key, module, category, observed_at, payload, match_reason)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (investigation_id, source_table, source_key) DO UPDATE SET payload=EXCLUDED.payload, observed_at=EXCLUDED.observed_at, match_reason=EXCLUDED.match_reason""",
+                    (investigation_id, table, key, module, category, observed, Jsonb(payload), f"projection {table} contains the observable"),
+                )
+                count += 1
+    return count
+
+
+def run_investigation_scan(*, investigation_id: UUID, observable_value: str, time_start: datetime, time_end: datetime) -> int:
+    results = search_investigation_events(investigation_id=investigation_id, observable_value=observable_value, time_start=time_start, time_end=time_end, limit=5000)
+    return len(results) + search_investigation_projections(investigation_id=investigation_id, observable_value=observable_value, time_start=time_start, time_end=time_end, limit=5000)
 
 
 def severity_counts() -> dict[str, int]:

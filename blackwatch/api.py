@@ -299,33 +299,37 @@ def investigations_get(request: Request, investigation_id: str) -> dict[str, Any
         **row,
         "notes": storage.list_investigation_notes(parsed),
         "results": storage.list_investigation_results(parsed),
+        "scan": storage.get_active_investigation_scan(parsed),
     }
 
 
-@router.post("/investigations/{investigation_id}/scan")
+@router.post("/investigations/{investigation_id}/scan", status_code=202)
 def investigations_scan(request: Request, investigation_id: str) -> dict[str, Any]:
     parsed, row = _owned_investigation(request, investigation_id)
     if row["status"] == "closed":
         raise HTTPException(status_code=409, detail="closed investigations cannot be scanned")
-    storage.update_investigation_status(parsed, "investigating")
     observable = next((value.split(":", 1)[1] for value in row["observables"] if value.startswith("ip:")), None)
     if not observable:
         raise HTTPException(status_code=400, detail="investigation has no IP observable")
-    try:
-        results = storage.search_investigation_events(
-            investigation_id=parsed, observable_value=observable,
-            time_start=row["time_start"], time_end=row["time_end"], limit=5000,
-        )
-    except Exception:
-        # Do not leave an analyst with a falsely completed case after a DB
-        # failure. The request remains audited by the existing middleware.
-        storage.update_investigation_status(parsed, "inconclusive")
-        raise
-    storage.update_investigation_status(parsed, "ready")
-    return {
-        "status": "complete", "result_count": len(results),
-        "investigation": storage.get_investigation(parsed),
-    }
+    storage.update_investigation_status(parsed, "investigating")
+    scan = storage.create_investigation_scan(scan_id=uuid.uuid4(), investigation_id=parsed, requested_by=_current_user(request))
+    return {"status": scan["status"], "scan_id": scan["id"], "investigation": storage.get_investigation(parsed)}
+
+
+class InvestigationRangeUpdate(BaseModel):
+    time_start: datetime
+    time_end: datetime
+
+
+@router.patch("/investigations/{investigation_id}/range")
+def investigations_range(request: Request, investigation_id: str, payload: InvestigationRangeUpdate) -> dict[str, Any]:
+    parsed, _ = _owned_investigation(request, investigation_id)
+    start = payload.time_start
+    end = payload.time_end
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=400, detail="time range must be valid and no longer than 365 days")
+    storage.update_investigation_range(parsed, start, end)
+    return storage.get_investigation(parsed) or {}
 
 
 @router.post("/investigations/{investigation_id}/notes", status_code=201)
