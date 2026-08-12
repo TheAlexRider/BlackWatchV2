@@ -34,6 +34,9 @@ export function ResizableTable({
       table.querySelectorAll<HTMLTableCellElement>("thead th"),
     );
     if (headers.length === 0) return;
+    headers.forEach((header) => {
+      if (!header.hasAttribute("scope")) header.setAttribute("scope", "col");
+    });
 
     const schemaHash = hashString(
       headers.map((header) => header.textContent?.trim() ?? "").join("|"),
@@ -105,7 +108,7 @@ export function ResizableTable({
     headers.forEach((header, index) => {
       const handle = document.createElement("button");
       handle.type = "button";
-      handle.className = "bw-col-resize-handle";
+      handle.className = `bw-col-resize-handle${index === headers.length - 1 ? " bw-col-resize-handle-last" : ""}`;
       handle.setAttribute("role", "separator");
       handle.setAttribute("aria-orientation", "vertical");
       handle.setAttribute("aria-valuemin", String(minColumnWidth));

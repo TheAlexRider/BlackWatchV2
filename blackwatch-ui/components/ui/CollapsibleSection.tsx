@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 // Collapsible group wrapper. Persists open/closed per `storageKey` in
@@ -27,6 +27,7 @@ export function CollapsibleSection({
 }) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [hydrated, setHydrated] = useState(false);
+  const panelId = `collapsible-${useId().replace(/:/g, "")}`;
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
 
@@ -63,6 +64,7 @@ export function CollapsibleSection({
         onClick={toggle}
         className="flex w-full items-center gap-2 border-b border-line-soft px-3 py-2 text-left transition-colors hover:bg-surface-2"
         aria-expanded={open}
+        aria-controls={panelId}
       >
         {open ? (
           <ChevronDown size={12} className="text-fg-subtle" />
@@ -81,7 +83,9 @@ export function CollapsibleSection({
           <span className="ml-2 text-[11px] text-fg-subtle">{subtitle}</span>
         )}
       </button>
-      {open && <div>{children}</div>}
+      <div id={panelId} hidden={!open}>
+        {children}
+      </div>
     </div>
   );
 }

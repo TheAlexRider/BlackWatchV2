@@ -130,7 +130,9 @@
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    position: relative;
     overflow-x: auto;
+    overflow-y: visible;
     overscroll-behavior-x: contain;
     /* Do not reserve a phantom inline scrollbar gutter. That makes the final
        column look detached from the table/panel edge when no scrollbar is
@@ -155,6 +157,12 @@
     touch-action: none;
     -webkit-tap-highlight-color: transparent;
     transition: background 120ms ease;
+  }
+  /* The last handle must stay inside the table boundary. If it hangs outside
+     the final <th>, the shell gains an extra few pixels of scroll width and
+     the visible table edge no longer lines up with its panel. */
+  .bw-col-resize-handle-last {
+    right: 0;
   }
   .bw-col-resize-handle::after {
     content: "";
@@ -208,6 +216,7 @@
     position: -webkit-sticky;
     top: 0;
     z-index: 5;
+    box-sizing: border-box;
     /* Solid backdrop so scrolled rows don't bleed through. */
     background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface-1));
     padding: 0.7rem 0.8rem;

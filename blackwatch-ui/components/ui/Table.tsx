@@ -14,6 +14,7 @@ import {
 } from "react";
 import { ResizableTable } from "./ResizableTable";
 import { TablePagination } from "./Pagination";
+import { LiveRegion } from "./LiveRegion";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_EVENT,
@@ -42,6 +43,7 @@ export function Table({
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [liveMessage, setLiveMessage] = useState("");
   const parts = Children.toArray(children);
   const tbodyIndex = parts.findIndex(
     (child) => isValidElement(child) && child.type === "tbody",
@@ -57,13 +59,10 @@ export function Table({
   const sortedRows = useMemo(() => {
     if (!sortable || sortColumn === null) return dataRows;
     return [...dataRows].sort((left, right) => {
-      const a = cellText(left, sortColumn).toLocaleLowerCase();
-      const b = cellText(right, sortColumn).toLocaleLowerCase();
-      const numericA = Number(a.replace(/[^0-9.+-]/g, ""));
-      const numericB = Number(b.replace(/[^0-9.+-]/g, ""));
-      const comparison = Number.isFinite(numericA) && Number.isFinite(numericB) && a !== "" && b !== ""
-        ? numericA - numericB
-        : a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+      const comparison = compareCellValues(
+        cellText(left, sortColumn),
+        cellText(right, sortColumn),
+      );
       return sortDirection === "asc" ? comparison : -comparison;
     });
   }, [dataRows, sortColumn, sortDirection, sortable]);
@@ -100,10 +99,11 @@ export function Table({
     ? paginatedParts[theadIndex] as ReactElement<{ children?: ReactNode }>
     : null;
   if (sortable && thead) {
-    paginatedParts[theadIndex] = enhanceHead(thead, sortColumn, sortDirection, (index) => {
+    paginatedParts[theadIndex] = enhanceHead(thead, sortColumn, sortDirection, (index, label, direction) => {
       setPage(0);
-      if (sortColumn === index) setSortDirection((current) => current === "asc" ? "desc" : "asc");
-      else { setSortColumn(index); setSortDirection("asc"); }
+      setSortColumn(index);
+      setSortDirection(direction);
+      setLiveMessage(`${label} sorted ${direction === "asc" ? "ascending" : "descending"}.`);
     });
   }
   if (tbodyElement) {
@@ -116,6 +116,7 @@ export function Table({
 
   return (
     <div className="min-w-0">
+      <LiveRegion message={liveMessage} />
       <ResizableTable tableId={tableId}>
         <table
           className={clsx("bw-table text-sm", className)}
@@ -129,10 +130,14 @@ export function Table({
         page={page}
         pageSize={pageSize}
         total={dataRows.length}
-        onPageChange={setPage}
+        onPageChange={(nextPage) => {
+          setPage(nextPage);
+          setLiveMessage(`Showing page ${nextPage + 1} of ${pageCount}.`);
+        }}
         onPageSizeChange={(size) => {
           setPageSize(size);
           setPage(0);
+          setLiveMessage(`Showing ${size} rows per page.`);
         }}
       />
     </div>
@@ -183,7 +188,7 @@ function enhanceHead(
   thead: ReactElement<{ children?: ReactNode }>,
   sortColumn: number | null,
   sortDirection: "asc" | "desc",
-  onSort: (column: number) => void,
+  onSort: (column: number, label: string, direction: "asc" | "desc") => void,
 ) {
   const rows = Children.toArray(thead.props.children);
   const headRows = rows.map((row) => {
@@ -192,15 +197,39 @@ function enhanceHead(
     return cloneElement(row as ReactElement<{ children?: ReactNode }>, undefined, cells.map((cell, index) => {
       if (!isValidElement(cell) || cell.type !== "th") return cell;
       const label = nodeText((cell.props as { children?: ReactNode }).children).trim();
-      if (!label || hasInteractiveChild((cell.props as { children?: ReactNode }).children)) return cell;
+      const isActionsColumn = Boolean((cell.props as { "data-actions"?: boolean })["data-actions"]);
+      if (isActionsColumn || !label || hasInteractiveChild((cell.props as { children?: ReactNode }).children)) return cell;
       const active = sortColumn === index;
+      const nextDirection = active && sortDirection === "asc" ? "desc" : "asc";
       const SortIcon = active ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
       return cloneElement(cell as ReactElement<{ children?: ReactNode; "aria-sort"?: "none" | "ascending" | "descending" }>, {
         "aria-sort": active ? (sortDirection === "asc" ? "ascending" : "descending") : "none",
-      }, <button type="button" onClick={() => onSort(index)} title={`Sort by ${label}`} className="inline-flex w-full items-center justify-between gap-2 text-left text-inherit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"><span>{(cell.props as { children?: ReactNode }).children}</span><SortIcon size={13} aria-hidden="true" className={active ? "text-signal" : "text-fg-subtle"} /></button>);
+      }, <button type="button" onClick={() => onSort(index, label, nextDirection)} aria-label={`Sort ${label} ${active ? ` ${nextDirection}` : ""}`} title={`Sort by ${label}`} className="inline-flex w-full items-center justify-between gap-2 text-left text-inherit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"><span>{(cell.props as { children?: ReactNode }).children}</span><SortIcon size={13} aria-hidden="true" className={active ? "text-signal" : "text-fg-subtle"} /></button>);
     }));
   });
   return cloneElement(thead, undefined, headRows);
+}
+
+function compareCellValues(left: string, right: string): number {
+  const a = left.trim();
+  const b = right.trim();
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
+  const numericPattern = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:\s*(?:kb|mb|gb|tb|%))?$/i;
+  const numericA = numericPattern.test(a) ? Number.parseFloat(a) : Number.NaN;
+  const numericB = numericPattern.test(b) ? Number.parseFloat(b) : Number.NaN;
+  if (Number.isFinite(numericA) && Number.isFinite(numericB)) return numericA - numericB;
+
+  const dateA = Date.parse(a);
+  const dateB = Date.parse(b);
+  const looksLikeDate = /\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}/;
+  if (looksLikeDate.test(a) && looksLikeDate.test(b) && Number.isFinite(dateA) && Number.isFinite(dateB)) {
+    return dateA - dateB;
+  }
+
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function hasInteractiveChild(node: ReactNode): boolean {

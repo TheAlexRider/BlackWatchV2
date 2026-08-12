@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LiveRegion } from "@/components/ui/LiveRegion";
 
 // Calls router.refresh() on a fixed interval. Drop one of these into any
 // page that should auto-update. Server components re-fetch transparently;
@@ -16,6 +17,8 @@ import { useRouter } from "next/navigation";
 // no WebSocket, no nginx tweak needed.
 export function AutoRefresh({ intervalMs = 5000 }: { intervalMs?: number }) {
   const router = useRouter();
+  const [message, setMessage] = useState("Live updates enabled.");
+  const lastAnnouncement = useRef(0);
   useEffect(() => {
     if (typeof document === "undefined") return;
 
@@ -23,7 +26,17 @@ export function AutoRefresh({ intervalMs = 5000 }: { intervalMs?: number }) {
 
     const start = () => {
       if (timer !== null) return;
-      timer = setInterval(() => router.refresh(), intervalMs);
+      timer = setInterval(() => {
+        router.refresh();
+        // Do not make a screen reader repeat a five-second polling tick. A
+        // periodic confirmation is enough; the visible page still refreshes
+        // on every interval.
+        const now = Date.now();
+        if (now - lastAnnouncement.current >= 30_000) {
+          lastAnnouncement.current = now;
+          setMessage(`Live data refresh requested at ${new Date().toLocaleTimeString()}.`);
+        }
+      }, intervalMs);
     };
     const stop = () => {
       if (timer !== null) {
@@ -35,7 +48,10 @@ export function AutoRefresh({ intervalMs = 5000 }: { intervalMs?: number }) {
       // Pause polling when the tab is in the background — saves a bunch of
       // backend calls when the operator has the dashboard open in a tab.
       if (document.hidden) stop();
-      else start();
+      else {
+        start();
+        setMessage("Live updates resumed.");
+      }
     };
 
     start();
@@ -46,5 +62,5 @@ export function AutoRefresh({ intervalMs = 5000 }: { intervalMs?: number }) {
     };
   }, [router, intervalMs]);
 
-  return null;
+  return <LiveRegion message={message} />;
 }
