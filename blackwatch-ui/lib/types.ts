@@ -1087,6 +1087,10 @@ export interface StorageCriticalEvent {
   source_ip: string | null;
 }
 
+export interface StorageS3SecurityEvent extends StorageCriticalEvent {
+  signal: string;
+}
+
 export interface StorageSummary {
   hours: number;
   buckets: {
@@ -1094,6 +1098,7 @@ export interface StorageSummary {
     public: number;
   };
   groups: Record<StorageGroup, StorageGroupCounts>;
+  recent_s3_security: StorageS3SecurityEvent[];
   recent_critical: StorageCriticalEvent[];
 }
 

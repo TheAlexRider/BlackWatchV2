@@ -2859,6 +2859,25 @@ def _classify_storage(action: str) -> str | None:
     return None
 
 
+def _s3_security_signal(event: dict[str, Any]) -> str | None:
+    """Return a label for high-value S3 object activity.
+
+    Normal S3 request volume stays in the canonical Events stream. The
+    Storage page only surfaces requests that need investigation.
+    """
+    action = event.get("action") or ""
+    if action == "s3.object.access.anonymous":
+        return "Anonymous access"
+    if action != "s3.object.access":
+        return None
+    intel = (event.get("extra") or {}).get("intel") or {}
+    if intel.get("is_tor") is True:
+        return "Tor exit node"
+    if intel.get("feeds"):
+        return "Threat-intel match"
+    return None
+
+
 @router.get("/storage/summary")
 def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, Any]:
     """Unified counts across all storage domains + a small recent-critical list.
@@ -2876,6 +2895,7 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
 
     per_group = {g: {"total": 0, "critical": 0, "high": 0} for g, _ in _STORAGE_GROUPS}
     recent_critical: list[dict[str, Any]] = []
+    recent_s3_security: list[dict[str, Any]] = []
     for ev in events:
         action = ev.get("action") or ""
         group = _classify_storage(action)
@@ -2885,6 +2905,24 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
         sev = (ev.get("severity") or "").lower()
         if sev in ("critical", "high"):
             per_group[group][sev] += 1
+            if group == "s3" and len(recent_s3_security) < 50:
+                signal = _s3_security_signal(ev)
+                if signal:
+                    extra = ev.get("extra") or {}
+                    target = ev.get("target") or {}
+                    actor = ev.get("actor") or {}
+                    recent_s3_security.append({
+                        "event_id": ev.get("event_id"),
+                        "event_time": ev.get("event_time"),
+                        "action": action,
+                        "signal": signal,
+                        "group": group,
+                        "severity": sev,
+                        "message": extra.get("message"),
+                        "target_id": target.get("id"),
+                        "principal": actor.get("principal"),
+                        "source_ip": actor.get("source_ip"),
+                    })
             if sev == "critical" and len(recent_critical) < 20:
                 extra = ev.get("extra") or {}
                 target = ev.get("target") or {}
@@ -2908,6 +2946,7 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
             "public": public_count,
         },
         "groups": per_group,
+        "recent_s3_security": recent_s3_security,
         "recent_critical": recent_critical,
     }
 
