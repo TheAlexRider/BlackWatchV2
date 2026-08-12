@@ -65,7 +65,6 @@ export const NativeSelect = forwardRef<HTMLButtonElement, NativeSelectProps>(
         onValueChange={changeValue}
         disabled={disabled}
         required={required}
-        name={name}
       >
         <SelectPrimitive.Trigger
           ref={ref}

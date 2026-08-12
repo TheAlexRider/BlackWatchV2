@@ -109,15 +109,12 @@ function FilterBar({
         <option value="">All actions</option>
         {options.actions.map((value) => <option key={value} value={value}>{value}</option>)}
       </NativeSelect>
-      <Button type="submit" variant="primary" size="sm">
+      <Button type="submit" variant="primary" size="sm" className="w-1/2 justify-self-start">
         Apply filters
       </Button>
-      <Link
-        href="/events"
-        className="ml-1 text-xs text-fg-muted hover:text-fg"
-      >
-        Clear
-      </Link>
+      <Button asChild variant="secondary" size="sm" className="w-1/2 justify-self-start">
+        <Link href="/events">Clear</Link>
+      </Button>
     </form>
   );
 }
