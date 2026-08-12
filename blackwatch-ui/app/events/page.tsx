@@ -1,7 +1,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 
-import { fetchEvents } from "@/lib/api";
+import { fetchEventFilterOptions, fetchEvents } from "@/lib/api";
 import { SEVERITY_VALUES, type EventEnvelope } from "@/lib/types";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataPanel } from "@/components/layout/DataPanel";
@@ -31,13 +31,16 @@ export default async function EventsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const { count, events } = await fetchEvents({
-    q: params.q,
-    severity: params.severity,
-    category: params.category,
-    module: params.module,
-    action: params.action,
-  });
+  const [{ count, events }, options] = await Promise.all([
+    fetchEvents({
+      q: params.q,
+      severity: params.severity,
+      category: params.category,
+      module: params.module,
+      action: params.action,
+    }),
+    fetchEventFilterOptions(),
+  ]);
 
   return (
     <>
@@ -47,7 +50,7 @@ export default async function EventsPage({
         subtitle={`Showing ${count} event${count === 1 ? "" : "s"}.`}
       />
 
-      <FilterBar params={params} />
+      <FilterBar params={params} options={options} />
 
       <DataPanel className="mt-4 overflow-hidden">
         {events.length === 0 ? (
@@ -60,61 +63,60 @@ export default async function EventsPage({
   );
 }
 
-function FilterBar({ params }: { params: SearchParams }) {
+function FilterBar({
+  params,
+  options,
+}: {
+  params: SearchParams;
+  options: {
+    categories: string[];
+    modules: string[];
+    actions: string[];
+    severities: string[];
+  };
+}) {
   return (
     <form
       action="/events"
       method="GET"
-      className="flex flex-wrap items-center gap-2"
-    >
+    className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(16rem,2fr)_repeat(4,minmax(10rem,1fr))_auto_auto]"
+  >
       <Input
         name="q"
         aria-label="Search events"
         autoComplete="off"
         defaultValue={params.q ?? ""}
         placeholder="search…"
-        className="w-48"
+        className="w-full"
       />
-      <NativeSelect name="severity" aria-label="Severity" defaultValue={params.severity ?? ""}>
-        <option value="">any severity</option>
-        {SEVERITY_VALUES.map((s) => (
+      <NativeSelect name="severity" aria-label="Severity" defaultValue={params.severity ?? ""} className="w-full">
+        <option value="">All severities</option>
+        {(options.severities.length ? options.severities : SEVERITY_VALUES).map((s) => (
           <option key={s} value={s}>
             {s}
           </option>
         ))}
       </NativeSelect>
-      <Input
-        name="category"
-        aria-label="Category"
-        autoComplete="off"
-        defaultValue={params.category ?? ""}
-        placeholder="category…"
-        className="w-32"
-      />
-      <Input
-        name="module"
-        aria-label="Module"
-        autoComplete="off"
-        defaultValue={params.module ?? ""}
-        placeholder="module…"
-        className="w-32"
-      />
-      <Input
-        name="action"
-        aria-label="Action"
-        autoComplete="off"
-        defaultValue={params.action ?? ""}
-        placeholder="action…"
-        className="w-32"
-      />
+      <NativeSelect name="category" aria-label="Category" defaultValue={params.category ?? ""} className="w-full">
+        <option value="">All categories</option>
+        {options.categories.map((value) => <option key={value} value={value}>{value}</option>)}
+      </NativeSelect>
+      <NativeSelect name="module" aria-label="Source module" defaultValue={params.module ?? ""} className="w-full">
+        <option value="">All source modules</option>
+        {options.modules.map((value) => <option key={value} value={value}>{value}</option>)}
+      </NativeSelect>
+      <NativeSelect name="action" aria-label="Action" defaultValue={params.action ?? ""} className="w-full">
+        <option value="">All actions</option>
+        {options.actions.map((value) => <option key={value} value={value}>{value}</option>)}
+      </NativeSelect>
       <Button type="submit" variant="primary" size="sm">
-        Filter
+        Apply filters
       </Button>
       <Link
         href="/events"
         className="ml-1 text-xs text-fg-muted hover:text-fg"
       >
-        reset
+        Clear
       </Link>
     </form>
   );
@@ -131,6 +133,7 @@ function EventsTable({ events }: { events: EventEnvelope[] }) {
           <th className="px-4 py-2 text-left font-normal">Action</th>
           <th className="w-48 px-4 py-2 text-left font-normal">Actor</th>
           <th className="w-64 px-4 py-2 text-left font-normal">Target</th>
+          <th className="w-52 px-4 py-2 text-left font-normal">Tags</th>
         </tr>
       </thead>
       <tbody>
@@ -148,10 +151,13 @@ function EventRow({ event }: { event: EventEnvelope }) {
   // Prefer the role tag (set per-agent via BLACKWATCH_TAGS) so the column shows
   // "Dev-NAT" instead of "i-08ba075...". Falls back to hostname, then instance id.
   const extra = (event.extra as Record<string, unknown> | undefined) ?? {};
-  const tags = extra.tags as Record<string, string> | undefined;
+  const tags =
+    (event.tags as Record<string, string> | undefined) ??
+    (extra.tags as Record<string, string> | undefined);
   const target =
     tags?.role ?? event.target?.name ?? event.target?.id ?? "—";
   const moduleName = event.source?.module ?? "—";
+  const tagEntries = Object.entries(tags ?? {});
 
   return (
     <tr className="group relative border-b border-line-soft last:border-0 hover:bg-surface-2">
@@ -183,6 +189,23 @@ function EventRow({ event }: { event: EventEnvelope }) {
       <td data-label="Actor" className="truncate px-4 py-2.5 text-xs text-fg-muted">{actor}</td>
       <td data-label="Target" className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
         {target}
+      </td>
+      <td data-label="Tags" className="px-4 py-2.5">
+        {tagEntries.length === 0 ? (
+          <span className="text-xs text-fg-disabled">—</span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {tagEntries.map(([key, value]) => (
+              <span
+                key={key}
+                className="inline-flex max-w-full rounded border border-line-soft bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted"
+                title={`${key}: ${value}`}
+              >
+                {key}={value}
+              </span>
+            ))}
+          </div>
+        )}
       </td>
     </tr>
   );

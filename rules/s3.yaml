@@ -190,7 +190,9 @@
   match:
     all:
       - {field: action, op: in, value: [s3.object.access, s3.object.access.anonymous]}
-      - {field: extra.intel.feeds, op: exists, value: true}
+      # `exists` is true for an empty [] as well. Require a non-empty feed
+      # list so anonymous events are not mislabeled as threat-intel matches.
+      - {field: extra.intel.feeds, op: not_equals, value: []}
 
 - id: s3-object-access-from-tor
   title: S3 access from a Tor exit node
@@ -204,4 +206,3 @@
     all:
       - {field: action, op: in, value: [s3.object.access, s3.object.access.anonymous]}
       - {field: extra.intel.is_tor, op: equals, value: true}
-

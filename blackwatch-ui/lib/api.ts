@@ -7,6 +7,7 @@
 import type {
   EventEnvelope,
   EventsResponse,
+  EventFilterOptions,
   PostureFinding,
   PostureFindingsResponse,
   HostsListResponse,
@@ -117,6 +118,12 @@ export async function fetchEvents(query: EventsQuery = {}): Promise<EventsRespon
     throw new Error(`fetchEvents failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as EventsResponse;
+}
+
+export async function fetchEventFilterOptions(): Promise<EventFilterOptions> {
+  const res = await bwFetch(`/api/events/options`);
+  if (!res.ok) throw new Error(`fetchEventFilterOptions failed: ${res.status}`);
+  return (await res.json()) as EventFilterOptions;
 }
 
 export async function fetchEvent(eventId: string): Promise<EventEnvelope | null> {

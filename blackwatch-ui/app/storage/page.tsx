@@ -53,7 +53,7 @@ export default async function StoragePage() {
         <div className="flex items-end justify-between gap-4">
           <SectionLabel>S3 security activity</SectionLabel>
           <Link
-            href="/events?module=aws.s3"
+            href="/events?module=aws.s3.access"
             className="text-xs text-fg-muted hover:text-signal hover:underline"
           >
             view all S3 events →
@@ -125,7 +125,7 @@ function S3SecurityTable({ events }: { events: StorageS3SecurityEvent[] }) {
           <th className="px-4 py-2 text-left font-normal">Event</th>
           <th className="px-4 py-2 text-left font-normal">Signal</th>
           <th className="px-4 py-2 text-left font-normal">Bucket / object</th>
-          <th className="px-4 py-2 text-left font-normal">Requester</th>
+          <th className="px-4 py-2 text-left font-normal">Requester / evidence</th>
           <th className="px-4 py-2 text-left font-normal">When</th>
           <th className="px-4 py-2 text-right font-normal">Details</th>
         </tr>

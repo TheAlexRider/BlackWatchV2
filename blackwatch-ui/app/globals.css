@@ -129,9 +129,13 @@
   .bw-table-shell {
     width: 100%;
     max-width: 100%;
+    min-width: 0;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scrollbar-gutter: stable both-edges;
+    /* Reserve space only where the scrollbar actually sits. `both-edges`
+       creates a false inset on the left, making table borders look detached
+       from the panel. */
+    scrollbar-gutter: stable;
     -webkit-overflow-scrolling: touch;
     isolation: isolate;
   }
@@ -179,7 +183,7 @@
 
   .bw-table {
     width: 100%;
-    min-width: max(100%, 720px);
+    min-width: 720px;
     border-collapse: separate;
     border-spacing: 0;
     font-variant-numeric: tabular-nums;

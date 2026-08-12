@@ -52,6 +52,13 @@ export interface EventsResponse {
   events: EventEnvelope[];
 }
 
+export interface EventFilterOptions {
+  categories: string[];
+  modules: string[];
+  actions: string[];
+  severities: string[];
+}
+
 // --- Posture findings ------------------------------------------------------
 
 // --- IAM (AWS control-plane: logins, IAM, network, KMS, storage, CT) -----
@@ -1089,6 +1096,9 @@ export interface StorageCriticalEvent {
 
 export interface StorageS3SecurityEvent extends StorageCriticalEvent {
   signal: string;
+  reason: string;
+  source_ips: string[];
+  count: number;
 }
 
 export interface StorageSummary {

@@ -194,6 +194,35 @@ def list_events(
     return {"count": len(results), "events": results}
 
 
+@router.get("/events/options")
+def event_filter_options() -> dict[str, list[str]]:
+    """Return selectable values for the Events filter bar.
+
+    The values come from stored events, so the UI never invents provider
+    names. A bounded read keeps this endpoint cheap on large installations.
+    """
+    events = storage.query_events(limit=5000)
+    categories: set[str] = set()
+    modules: set[str] = set()
+    actions: set[str] = set()
+    severities: set[str] = set()
+    for event in events:
+        for value, bucket in (
+            (event.get("category"), categories),
+            ((event.get("source") or {}).get("module"), modules),
+            (event.get("action"), actions),
+            (event.get("severity"), severities),
+        ):
+            if value:
+                bucket.add(str(value))
+    return {
+        "categories": sorted(categories),
+        "modules": sorted(modules),
+        "actions": sorted(actions),
+        "severities": sorted(severities),
+    }
+
+
 @router.get("/events/{event_id}")
 def get_event(event_id: str) -> dict[str, Any]:
     event = storage.get_event(event_id)
@@ -2878,6 +2907,16 @@ def _s3_security_signal(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _s3_security_reason(event: dict[str, Any], signal: str) -> str:
+    if signal == "Anonymous access":
+        return "S3 access log Requester was '-' (no authenticated AWS requester)."
+    if signal == "Tor exit node":
+        return "The source IP was identified as a Tor exit node."
+    if signal == "Threat-intel match":
+        return "The source IP matched one or more configured threat-intelligence feeds."
+    return "S3 access matched a security signal."
+
+
 @router.get("/storage/summary")
 def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, Any]:
     """Unified counts across all storage domains + a small recent-critical list.
@@ -2895,7 +2934,7 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
 
     per_group = {g: {"total": 0, "critical": 0, "high": 0} for g, _ in _STORAGE_GROUPS}
     recent_critical: list[dict[str, Any]] = []
-    recent_s3_security: list[dict[str, Any]] = []
+    s3_security_groups: dict[tuple[str, str], dict[str, Any]] = {}
     for ev in events:
         action = ev.get("action") or ""
         group = _classify_storage(action)
@@ -2905,13 +2944,15 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
         sev = (ev.get("severity") or "").lower()
         if sev in ("critical", "high"):
             per_group[group][sev] += 1
-            if group == "s3" and len(recent_s3_security) < 50:
+            if group == "s3":
                 signal = _s3_security_signal(ev)
                 if signal:
                     extra = ev.get("extra") or {}
                     target = ev.get("target") or {}
                     actor = ev.get("actor") or {}
-                    recent_s3_security.append({
+                    target_id = str(target.get("id") or "unknown target")
+                    key = (signal, target_id)
+                    bucket = s3_security_groups.setdefault(key, {
                         "event_id": ev.get("event_id"),
                         "event_time": ev.get("event_time"),
                         "action": action,
@@ -2919,10 +2960,16 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
                         "group": group,
                         "severity": sev,
                         "message": extra.get("message"),
-                        "target_id": target.get("id"),
+                        "reason": _s3_security_reason(ev, signal),
+                        "target_id": target_id,
                         "principal": actor.get("principal"),
-                        "source_ip": actor.get("source_ip"),
+                        "source_ips": [],
+                        "count": 0,
                     })
+                    bucket["count"] += 1
+                    source_ip = actor.get("source_ip")
+                    if source_ip and source_ip not in bucket["source_ips"]:
+                        bucket["source_ips"].append(source_ip)
             if sev == "critical" and len(recent_critical) < 20:
                 extra = ev.get("extra") or {}
                 target = ev.get("target") or {}
@@ -2946,7 +2993,11 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
             "public": public_count,
         },
         "groups": per_group,
-        "recent_s3_security": recent_s3_security,
+        "recent_s3_security": sorted(
+            s3_security_groups.values(),
+            key=lambda item: item.get("event_time") or "",
+            reverse=True,
+        )[:50],
         "recent_critical": recent_critical,
     }
 
