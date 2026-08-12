@@ -1112,6 +1112,53 @@ export interface StorageSummary {
   recent_critical: StorageCriticalEvent[];
 }
 
+export type InvestigationStatus =
+  | "ready"
+  | "investigating"
+  | "contained"
+  | "confirmed_malicious"
+  | "confirmed_expected"
+  | "false_positive"
+  | "inconclusive"
+  | "closed";
+
+export interface Investigation {
+  id: string;
+  title: string;
+  status: InvestigationStatus;
+  priority: "low" | "medium" | "high" | "critical";
+  owner: string;
+  time_start: string;
+  time_end: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  result_count: number;
+  observables: string[];
+}
+
+export interface InvestigationNote {
+  id: number;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+export interface InvestigationResult {
+  event_id: string;
+  match_reason: string;
+  event: EventEnvelope;
+}
+
+export interface InvestigationDetail extends Investigation {
+  notes: InvestigationNote[];
+  results: InvestigationResult[];
+}
+
+export interface InvestigationsResponse {
+  investigations: Investigation[];
+}
+
 // --- Connectors -----------------------------------------------------------
 
 export type ConnectorType =

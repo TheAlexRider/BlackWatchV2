@@ -4,6 +4,7 @@ event meaning beyond authenticating the source and routing to its module."""
 from __future__ import annotations
 
 import uuid
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -22,6 +23,43 @@ from .rules import engine as rule_engine
 from .rules.model import Condition
 
 router = APIRouter()
+
+
+class InvestigationCreate(BaseModel):
+    ip: str
+    title: str | None = None
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    time_start: datetime | None = None
+    time_end: datetime | None = None
+
+
+class InvestigationNoteCreate(BaseModel):
+    body: str
+
+
+class InvestigationStatusUpdate(BaseModel):
+    status: Literal[
+        "ready", "investigating", "contained", "confirmed_malicious",
+        "confirmed_expected", "false_positive", "inconclusive", "closed",
+    ]
+
+
+def _current_user(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return str(user)
+
+
+def _owned_investigation(request: Request, investigation_id: str) -> tuple[uuid.UUID, dict[str, Any]]:
+    try:
+        parsed = uuid.UUID(investigation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid investigation id") from exc
+    row = storage.get_investigation(parsed)
+    if not row or row["owner"] != _current_user(request):
+        raise HTTPException(status_code=404, detail="investigation not found")
+    return parsed, row
 
 
 # ---------- Auth --------------------------------------------------------------
@@ -221,6 +259,93 @@ def event_filter_options() -> dict[str, list[str]]:
         "actions": sorted(actions),
         "severities": sorted(severities),
     }
+
+
+# ---------- Investigations --------------------------------------------------
+
+@router.get("/investigations")
+def investigations_list(request: Request) -> dict[str, Any]:
+    user = _current_user(request)
+    return {"investigations": storage.list_investigations(owner=user)}
+
+
+@router.post("/investigations", status_code=201)
+def investigations_create(request: Request, payload: InvestigationCreate) -> dict[str, Any]:
+    user = _current_user(request)
+    try:
+        ip = str(ipaddress.ip_address(payload.ip.strip()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ip must be a valid IPv4 or IPv6 address") from exc
+    now = datetime.now(timezone.utc)
+    start = payload.time_start or (now - timedelta(days=30))
+    end = payload.time_end or now
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=400, detail="time range must be valid and no longer than 365 days")
+    title = (payload.title or f"Investigate {ip}").strip()[:160]
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    row = storage.create_investigation(
+        investigation_id=uuid.uuid4(), title=title, owner=user,
+        time_start=start, time_end=end, priority=payload.priority,
+        observable_value=ip,
+    )
+    return row
+
+
+@router.get("/investigations/{investigation_id}")
+def investigations_get(request: Request, investigation_id: str) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    return {
+        **row,
+        "notes": storage.list_investigation_notes(parsed),
+        "results": storage.list_investigation_results(parsed),
+    }
+
+
+@router.post("/investigations/{investigation_id}/scan")
+def investigations_scan(request: Request, investigation_id: str) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    if row["status"] == "closed":
+        raise HTTPException(status_code=409, detail="closed investigations cannot be scanned")
+    storage.update_investigation_status(parsed, "investigating")
+    observable = next((value.split(":", 1)[1] for value in row["observables"] if value.startswith("ip:")), None)
+    if not observable:
+        raise HTTPException(status_code=400, detail="investigation has no IP observable")
+    try:
+        results = storage.search_investigation_events(
+            investigation_id=parsed, observable_value=observable,
+            time_start=row["time_start"], time_end=row["time_end"], limit=5000,
+        )
+    except Exception:
+        # Do not leave an analyst with a falsely completed case after a DB
+        # failure. The request remains audited by the existing middleware.
+        storage.update_investigation_status(parsed, "inconclusive")
+        raise
+    storage.update_investigation_status(parsed, "ready")
+    return {
+        "status": "complete", "result_count": len(results),
+        "investigation": storage.get_investigation(parsed),
+    }
+
+
+@router.post("/investigations/{investigation_id}/notes", status_code=201)
+def investigations_note(
+    request: Request, investigation_id: str, payload: InvestigationNoteCreate,
+) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    body = payload.body.strip()
+    if not body or len(body) > 10000:
+        raise HTTPException(status_code=400, detail="note must be between 1 and 10000 characters")
+    return storage.add_investigation_note(parsed, row["owner"], body)
+
+
+@router.patch("/investigations/{investigation_id}/status")
+def investigations_status(
+    request: Request, investigation_id: str, payload: InvestigationStatusUpdate,
+) -> dict[str, Any]:
+    parsed, _ = _owned_investigation(request, investigation_id)
+    storage.update_investigation_status(parsed, payload.status)
+    return storage.get_investigation(parsed) or {}
 
 
 @router.get("/events/{event_id}")

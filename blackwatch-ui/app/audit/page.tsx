@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/server-fetch";
 import { AuditRow, type AuditEntry } from "@/components/domain/AuditRow";
+import { Table } from "@/components/ui/Table";
 
 interface SearchParams {
   actor?: string;
@@ -74,24 +75,24 @@ export default async function AuditPage({
         </button>
       </form>
 
-      <div className="overflow-x-auto rounded border border-line-soft">
-        <table className="min-w-full">
+      <div className="overflow-hidden rounded border border-line-soft">
+        <Table tableId="audit-log" ariaLabel="Audit log">
           <thead className="bg-canvas-elev text-left text-xs text-fg-subtle">
             <tr>
-              <th className="px-2 py-1">Time</th>
-              <th className="px-2 py-1">Actor</th>
-              <th className="px-2 py-1">Role</th>
-              <th className="px-2 py-1">IP</th>
-              <th className="px-2 py-1">Method</th>
-              <th className="px-2 py-1">Path</th>
-              <th className="px-2 py-1">Status</th>
-              <th className="px-2 py-1">Body</th>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Role</th>
+              <th>IP</th>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Status</th>
+              <th>Body</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-2 py-4 text-center text-fg-subtle">
+                <td colSpan={8} className="px-3 py-6 text-center text-fg-subtle">
                   No audit rows (or not authorized).
                 </td>
               </tr>
@@ -99,7 +100,7 @@ export default async function AuditPage({
               rows.map((r) => <AuditRow key={r.id} row={r} />)
             )}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   );

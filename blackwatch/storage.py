@@ -4,6 +4,7 @@ touch SQL. Everything else speaks in Event objects / plain dicts."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import UUID
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -137,6 +138,164 @@ def get_event(event_id: str) -> dict[str, Any] | None:
             "SELECT envelope FROM events WHERE event_id = %s", (event_id,)
         ).fetchone()
     return row[0] if row else None
+
+
+# --- Investigations ----------------------------------------------------------
+
+def create_investigation(
+    *, investigation_id: UUID, title: str, owner: str,
+    time_start: datetime, time_end: datetime, priority: str = "medium",
+    observable_type: str = "ip", observable_value: str,
+) -> dict[str, Any]:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO investigations (id, title, owner, time_start, time_end, priority)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (investigation_id, title, owner, time_start, time_end, priority),
+        )
+        conn.execute(
+            """
+            INSERT INTO investigation_observables
+              (investigation_id, observable_type, observable_value)
+            VALUES (%s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (investigation_id, observable_type, observable_value),
+        )
+    return get_investigation(investigation_id) or {}
+
+
+def list_investigations(*, owner: str, limit: int = 100) -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT i.id, i.title, i.status, i.priority, i.owner, i.time_start,
+                   i.time_end, i.created_at, i.updated_at, i.completed_at,
+                   COALESCE((SELECT count(*) FROM investigation_results r
+                             WHERE r.investigation_id = i.id), 0),
+                   COALESCE((SELECT string_agg(o.observable_type || ':' || o.observable_value, ', ')
+                             FROM investigation_observables o
+                             WHERE o.investigation_id = i.id), '')
+            FROM investigations i
+            WHERE i.owner = %s
+            ORDER BY i.updated_at DESC
+            LIMIT %s
+            """,
+            (owner, min(max(limit, 1), 100)),
+        ).fetchall()
+    return [_investigation_row(row) for row in rows]
+
+
+def get_investigation(investigation_id: UUID) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT i.id, i.title, i.status, i.priority, i.owner, i.time_start,
+                   i.time_end, i.created_at, i.updated_at, i.completed_at,
+                   COALESCE((SELECT count(*) FROM investigation_results r
+                             WHERE r.investigation_id = i.id), 0),
+                   COALESCE((SELECT string_agg(o.observable_type || ':' || o.observable_value, ', ')
+                             FROM investigation_observables o
+                             WHERE o.investigation_id = i.id), '')
+            FROM investigations i WHERE i.id = %s
+            """,
+            (investigation_id,),
+        ).fetchone()
+    return _investigation_row(row) if row else None
+
+
+def _investigation_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": str(row[0]), "title": row[1], "status": row[2], "priority": row[3],
+        "owner": row[4], "time_start": row[5], "time_end": row[6],
+        "created_at": row[7], "updated_at": row[8], "completed_at": row[9],
+        "result_count": row[10], "observables": row[11].split(", ") if row[11] else [],
+    }
+
+
+def update_investigation_status(investigation_id: UUID, status: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            UPDATE investigations
+            SET status = %s, updated_at = now(),
+                completed_at = CASE WHEN %s IN ('confirmed_malicious', 'confirmed_expected', 'false_positive', 'inconclusive', 'closed') THEN now() ELSE NULL END
+            WHERE id = %s
+            """,
+            (status, status, investigation_id),
+        )
+
+
+def add_investigation_note(investigation_id: UUID, author: str, body: str) -> dict[str, Any]:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO investigation_notes (investigation_id, author, body)
+            VALUES (%s, %s, %s)
+            RETURNING id, author, body, created_at
+            """,
+            (investigation_id, author, body),
+        ).fetchone()
+        conn.execute("UPDATE investigations SET updated_at = now() WHERE id = %s", (investigation_id,))
+    return {"id": row[0], "author": row[1], "body": row[2], "created_at": row[3]}
+
+
+def list_investigation_notes(investigation_id: UUID) -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            "SELECT id, author, body, created_at FROM investigation_notes WHERE investigation_id = %s ORDER BY created_at DESC",
+            (investigation_id,),
+        ).fetchall()
+    return [{"id": r[0], "author": r[1], "body": r[2], "created_at": r[3]} for r in rows]
+
+
+def search_investigation_events(
+    *, investigation_id: UUID, observable_value: str, time_start: datetime,
+    time_end: datetime, limit: int = 5000,
+) -> list[dict[str, Any]]:
+    # Exact actor_source_ip is indexed. The JSONB fallback intentionally uses
+    # one parameterized substring to find the same observable in tags, targets,
+    # and module-specific fields without accepting user-supplied SQL.
+    pattern = f"%{observable_value}%"
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT event_id, envelope,
+                   CASE WHEN actor_source_ip = %s THEN 'actor.source_ip' ELSE 'event fields' END
+            FROM events
+            WHERE event_time >= %s AND event_time <= %s
+              AND (actor_source_ip = %s OR envelope::text ILIKE %s)
+            ORDER BY event_time DESC
+            LIMIT %s
+            """,
+            (observable_value, time_start, time_end, observable_value, pattern, min(max(limit, 1), 5000)),
+        ).fetchall()
+        for event_id, _, reason in rows:
+            conn.execute(
+                """
+                INSERT INTO investigation_results (investigation_id, event_id, match_reason)
+                VALUES (%s, %s, %s) ON CONFLICT (investigation_id, event_id)
+                DO UPDATE SET match_reason = EXCLUDED.match_reason
+                """,
+                (investigation_id, event_id, reason),
+            )
+        conn.execute("UPDATE investigations SET updated_at = now() WHERE id = %s", (investigation_id,))
+    return [{"event_id": str(r[0]), "event": r[1], "match_reason": r[2]} for r in rows]
+
+
+def list_investigation_results(investigation_id: UUID, limit: int = 5000) -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.event_id, r.match_reason, e.envelope
+            FROM investigation_results r JOIN events e ON e.event_id = r.event_id
+            WHERE r.investigation_id = %s ORDER BY e.event_time DESC LIMIT %s
+            """,
+            (investigation_id, min(max(limit, 1), 5000)),
+        ).fetchall()
+    return [{"event_id": str(r[0]), "match_reason": r[1], "event": r[2]} for r in rows]
 
 
 def severity_counts() -> dict[str, int]:

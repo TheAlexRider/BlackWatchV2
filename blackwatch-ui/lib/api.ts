@@ -49,6 +49,8 @@ import type {
   FimInstanceResponse,
   PerfAlertRule,
   PerfAlertsListResponse,
+  InvestigationDetail,
+  InvestigationsResponse,
 } from "./types";
 
 export const API_BASE = process.env.BW_API_URL ?? "http://localhost:8000";
@@ -124,6 +126,19 @@ export async function fetchEventFilterOptions(): Promise<EventFilterOptions> {
   const res = await bwFetch(`/api/events/options`);
   if (!res.ok) throw new Error(`fetchEventFilterOptions failed: ${res.status}`);
   return (await res.json()) as EventFilterOptions;
+}
+
+export async function fetchInvestigations(): Promise<InvestigationsResponse> {
+  const res = await bwFetch("/api/investigations");
+  if (!res.ok) throw new Error(`fetchInvestigations failed: ${res.status}`);
+  return (await res.json()) as InvestigationsResponse;
+}
+
+export async function fetchInvestigation(id: string): Promise<InvestigationDetail | null> {
+  const res = await bwFetch(`/api/investigations/${encodeURIComponent(id)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`fetchInvestigation failed: ${res.status}`);
+  return (await res.json()) as InvestigationDetail;
 }
 
 export async function fetchEvent(eventId: string): Promise<EventEnvelope | null> {

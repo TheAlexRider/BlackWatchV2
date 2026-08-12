@@ -40,7 +40,10 @@ export function ResizableTable({
       : `${window.location.pathname}-auto-${headers.length}-${hashString(
           headers.map((header) => header.textContent?.trim() ?? "").join("|"),
         )}`;
-    const storageKey = `bw-cols-${storageId}`;
+    // v3 drops the old neighbour-transfer model. The versioned key also
+    // prevents widths saved by that model from making columns unexpectedly
+    // narrow after the resize behavior changes.
+    const storageKey = `bw-cols-v3-${storageId}`;
     const saved = readWidths(storageKey, minColumnWidth);
     const cleanups: Array<() => void> = [];
 
@@ -68,19 +71,18 @@ export function ResizableTable({
     // Batch initial reads before writes to avoid layout thrashing.
     initialWidths.forEach((width, index) => setColumnWidth(columns[index], width, minColumnWidth));
 
-    // Keep the table edge flush with the shell when saved/user widths add up
-    // to less than the available space. The final column owns the flexible
-    // remainder; resizing still transfers width between adjacent columns.
-    const fillRemainingWidth = () => {
-      const available = wrapper.clientWidth;
-      const widths = columns.map((column) => column.getBoundingClientRect().width);
-      const usedByOtherColumns = widths.slice(0, -1).reduce((sum, width) => sum + width, 0);
-      const remainder = available - usedByOtherColumns;
-      if (remainder > widths[widths.length - 1]) {
-        setColumnWidth(columns[columns.length - 1], remainder, minColumnWidth);
-      }
+    // The table itself owns the horizontal width. This keeps its right edge
+    // exactly aligned with the final column while allowing a column to grow
+    // without stealing width from its neighbour.
+    const syncTableWidth = () => {
+      const total = columns.reduce(
+        (sum, column) => sum + column.getBoundingClientRect().width,
+        0,
+      );
+      table.style.width = `${Math.max(wrapper.clientWidth, Math.ceil(total))}px`;
+      table.style.minWidth = `${Math.max(wrapper.clientWidth, Math.ceil(total))}px`;
     };
-    fillRemainingWidth();
+    syncTableWidth();
 
     table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => {
       Array.from(row.children).forEach((cell, index) => {
@@ -111,22 +113,10 @@ export function ResizableTable({
       let startWidths: number[] = [];
       let activePointerId: number | null = null;
       let frame: number | null = null;
-      const neighborIndex = index < columns.length - 1 ? index + 1 : index - 1;
-
       const applyWidths = (delta: number) => {
-        if (neighborIndex < 0) return;
         const targetStart = startWidths[index];
-        const neighborStart = startWidths[neighborIndex];
-        const targetDelta = Math.max(
-          minColumnWidth - targetStart,
-          Math.min(neighborStart - minColumnWidth, delta),
-        );
-        setColumnWidth(columns[index], targetStart + targetDelta, minColumnWidth);
-        setColumnWidth(
-          columns[neighborIndex],
-          neighborStart - targetDelta,
-          minColumnWidth,
-        );
+        setColumnWidth(columns[index], targetStart + delta, minColumnWidth);
+        syncTableWidth();
       };
 
       const onPointerMove = (event: PointerEvent) => {
@@ -183,7 +173,7 @@ export function ResizableTable({
       });
     });
 
-    const resizeObserver = new ResizeObserver(fillRemainingWidth);
+    const resizeObserver = new ResizeObserver(syncTableWidth);
     resizeObserver.observe(wrapper);
     cleanups.push(() => resizeObserver.disconnect());
 

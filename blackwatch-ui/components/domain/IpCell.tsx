@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import clsx from "clsx";
-import { Search, Copy, Check, ExternalLink } from "lucide-react";
+import { Search, Copy, Check, ExternalLink, ClipboardPlus } from "lucide-react";
 
 import { IpLookupModal } from "./IpLookupModal";
 
@@ -86,6 +86,23 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
     }
   };
 
+  const handleAddToInvestigation = async () => {
+    setMenu(null);
+    try {
+      const response = await fetch("/api/investigations", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip: value }),
+      });
+      if (!response.ok) return;
+      const investigation = await response.json() as { id: string };
+      window.location.href = `/investigations/${encodeURIComponent(investigation.id)}`;
+    } catch {
+      // The menu is deliberately fail-closed if the request is unavailable.
+    }
+  };
+
   return (
     <>
       <span className="inline-flex items-center gap-1">
@@ -144,6 +161,9 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
             </div>
             <MenuItem onClick={handleLookup} icon={Search}>
               Lookup IP
+            </MenuItem>
+            <MenuItem onClick={handleAddToInvestigation} icon={ClipboardPlus}>
+              Add to investigation
             </MenuItem>
             <MenuItem onClick={handleOpenInTool} icon={ExternalLink}>
               Open in IP tool

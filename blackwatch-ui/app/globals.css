@@ -304,7 +304,6 @@
   .bw-table tbody th.truncate,
   .bw-table tbody td .truncate,
   .bw-table tbody th .truncate {
-    display: block;
     max-width: none;
     overflow: visible;
     overflow-wrap: anywhere;
@@ -316,8 +315,8 @@
   .bw-table tbody td,
   .bw-table tbody th {
     white-space: normal;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   /* Empty state row — spans the whole table, centered, muted. */
@@ -352,7 +351,8 @@
   /* Prevent long unbreakable identifiers (rule ids, event ids, ARNs) from
      forcing horizontal scroll on mobile. */
   code, pre, .font-mono {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   /* Mobile tables become readable cards instead of forcing users to drag a
