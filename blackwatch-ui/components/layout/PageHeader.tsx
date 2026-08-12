@@ -6,15 +6,18 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  breadcrumbs,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   actions?: React.ReactNode;
+  breadcrumbs?: BreadcrumbItem[];
 }) {
   return (
     <header className="mb-6 flex flex-col gap-3 md:mb-6 md:flex-row md:items-end md:justify-between md:gap-4">
       <div className="min-w-0">
-        <h1 className="truncate text-xl font-medium tracking-tight text-fg">
+        {breadcrumbs && <Breadcrumbs items={breadcrumbs} />}
+        <h1 className="break-words text-pretty text-xl font-medium tracking-tight text-fg">
           {title}
         </h1>
         {subtitle && (
@@ -27,3 +30,4 @@ export function PageHeader({
     </header>
   );
 }
+import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";

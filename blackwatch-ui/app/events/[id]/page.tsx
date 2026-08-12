@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchEvent } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -28,16 +26,11 @@ export default async function EventDetailPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/events"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to events
-        </Link>
-      </div>
-
-      <PageHeader title={event.action} subtitle={event.event_id} />
+      <PageHeader
+        title={event.action}
+        subtitle={event.event_id}
+        breadcrumbs={[{ label: "Events", href: "/events" }, { label: event.action }]}
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <DataPanel className="p-4">

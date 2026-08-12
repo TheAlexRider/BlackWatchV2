@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchConnector } from "@/lib/api";
 import type { ConnectorType } from "@/lib/types";
@@ -33,18 +31,10 @@ export default async function EditConnectorPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/connectors"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to connectors
-        </Link>
-      </div>
-
       <PageHeader
         title={`Edit · ${connector.name}`}
         subtitle={connector.id}
+        breadcrumbs={[{ label: "Connectors", href: "/connectors" }, { label: connector.name }]}
       />
 
       <DataPanel className="overflow-hidden">

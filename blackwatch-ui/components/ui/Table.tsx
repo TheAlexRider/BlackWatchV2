@@ -11,6 +11,7 @@ import {
   useState,
   type ReactElement,
   type ReactNode,
+  useId,
 } from "react";
 import { ResizableTable } from "./ResizableTable";
 import { TablePagination } from "./Pagination";
@@ -44,6 +45,9 @@ export function Table({
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [liveMessage, setLiveMessage] = useState("");
+  const tableInstanceId = useId().replace(/:/g, "");
+  const [hiddenColumns, setHiddenColumns] = useState<number[]>([]);
+  const [columnVisibilityHydrated, setColumnVisibilityHydrated] = useState(false);
   const parts = Children.toArray(children);
   const tbodyIndex = parts.findIndex(
     (child) => isValidElement(child) && child.type === "tbody",
@@ -98,8 +102,49 @@ export function Table({
   const thead = theadIndex >= 0 && isValidElement(paginatedParts[theadIndex])
     ? paginatedParts[theadIndex] as ReactElement<{ children?: ReactNode }>
     : null;
+  const columnLabels = thead ? readColumnLabels(thead) : [];
+  const hiddenColumnSet = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  const columnStorageKey = `bw-column-visibility-v1-${tableId ?? `auto-${tableInstanceId}`}`;
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(columnStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        setHiddenColumns(parsed.filter((index): index is number =>
+          Number.isInteger(index) && index >= 0 && index < columnLabels.length,
+        ));
+      }
+    } catch {
+      // Storage can be unavailable in private browsing.
+    }
+    setColumnVisibilityHydrated(true);
+  }, [columnStorageKey, columnLabels.length]);
+
+  useEffect(() => {
+    if (!columnVisibilityHydrated) return;
+    try {
+      window.localStorage.setItem(columnStorageKey, JSON.stringify(hiddenColumns));
+    } catch {
+      // Storage can be unavailable in private browsing.
+    }
+  }, [columnStorageKey, columnVisibilityHydrated, hiddenColumns]);
+
+  const toggleColumn = (index: number) => {
+    setHiddenColumns((current) => {
+      const next = current.includes(index)
+        ? current.filter((value) => value !== index)
+        : [...current, index].sort((a, b) => a - b);
+      setLiveMessage(`${columnLabels[index] ?? "Column"} ${next.includes(index) ? "hidden" : "shown"}.`);
+      return next;
+    });
+  };
+
+  const visibleThead = thead
+    ? hideColumnsInSection(thead, hiddenColumnSet)
+    : null;
   if (sortable && thead) {
-    paginatedParts[theadIndex] = enhanceHead(thead, sortColumn, sortDirection, (index, label, direction) => {
+    paginatedParts[theadIndex] = enhanceHead(visibleThead ?? thead, sortColumn, sortDirection, (index, label, direction) => {
       setPage(0);
       setSortColumn(index);
       setSortDirection(direction);
@@ -110,13 +155,39 @@ export function Table({
     paginatedParts[tbodyIndex] = cloneElement(
       tbodyElement,
       undefined,
-      visibleRows,
+      visibleRows.map((row) => hideColumnsInRow(row, hiddenColumnSet)),
     );
   }
 
   return (
     <div className="min-w-0">
       <LiveRegion message={liveMessage} />
+      {columnLabels.length > 1 && (
+        <div className="mb-2 flex justify-end">
+          <details className="relative">
+            <summary className="cursor-pointer list-none rounded border border-line-soft px-2.5 py-1 text-[10px] uppercase tracking-wider text-fg-muted transition-colors hover:border-signal hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal">
+              Columns
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 min-w-48 border border-line bg-surface-2 p-2 shadow-lg">
+              <p className="mb-2 text-[10px] uppercase tracking-wider text-fg-subtle">Visible columns</p>
+              <div className="space-y-1">
+                {columnLabels.map((column, index) => (
+                  <label key={`${column.label}-${index}`} className="flex items-center gap-2 px-1 py-1 text-xs text-fg hover:bg-surface-1">
+                    <input
+                      type="checkbox"
+                      checked={!hiddenColumnSet.has(index)}
+                      disabled={column.isActions}
+                      onChange={() => toggleColumn(index)}
+                      className="h-3.5 w-3.5 accent-[var(--color-signal)]"
+                    />
+                    <span className="min-w-0 truncate">{column.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
       <ResizableTable tableId={tableId}>
         <table
           className={clsx("bw-table text-sm", className)}
@@ -159,6 +230,46 @@ function isDataRow(row: ReactNode): row is ReactElement {
 function cellText(row: ReactElement, column: number): string {
   const cells = Children.toArray((row.props as { children?: ReactNode }).children);
   return nodeText(cells[column]);
+}
+
+function readColumnLabels(thead: ReactElement<{ children?: ReactNode }>) {
+  const firstRow = Children.toArray(thead.props.children).find(
+    (row) => isValidElement(row) && row.type === "tr",
+  );
+  if (!isValidElement(firstRow)) return [];
+  return Children.toArray((firstRow.props as { children?: ReactNode }).children)
+    .map((cell, index) => {
+      if (!isValidElement(cell) || cell.type !== "th") {
+        return { index, label: `Column ${index + 1}`, isActions: false };
+      }
+      const props = cell.props as { children?: ReactNode; "data-actions"?: boolean };
+      return {
+        index,
+        label: nodeText(props.children).trim() || `Column ${index + 1}`,
+        isActions: Boolean(props["data-actions"]),
+      };
+    });
+}
+
+function hideColumnsInSection(
+  section: ReactElement<{ children?: ReactNode }>,
+  hidden: Set<number>,
+) {
+  if (hidden.size === 0) return section;
+  const rows = Children.toArray(section.props.children).map((row) => {
+    if (!isValidElement(row) || row.type !== "tr") return row;
+    return hideColumnsInRow(row, hidden);
+  });
+  return cloneElement(section, undefined, rows);
+}
+
+function hideColumnsInRow(row: ReactNode, hidden: Set<number>): ReactNode {
+  if (!isValidElement(row) || row.type !== "tr" || hidden.size === 0) return row;
+  const cells = Children.toArray((row.props as { children?: ReactNode }).children);
+  if (cells.some((cell) => isValidElement(cell) && (cell.props as { colSpan?: number }).colSpan)) return row;
+  return cloneElement(row as ReactElement<{ children?: ReactNode }>, undefined,
+    cells.filter((_, index) => !hidden.has(index)),
+  );
 }
 
 function nodeText(node: ReactNode): string {

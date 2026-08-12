@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchPostureFinding } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -23,18 +21,10 @@ export default async function PostureFindingDetailPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/aws-posture"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to posture
-        </Link>
-      </div>
-
       <PageHeader
         title={finding.finding_type}
         subtitle={finding.resource_id}
+        breadcrumbs={[{ label: "AWS posture", href: "/aws-posture" }, { label: finding.finding_type }]}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
