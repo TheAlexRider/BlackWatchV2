@@ -132,10 +132,10 @@
     min-width: 0;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    /* Reserve space only where the scrollbar actually sits. `both-edges`
-       creates a false inset on the left, making table borders look detached
-       from the panel. */
-    scrollbar-gutter: stable;
+    /* Do not reserve a phantom inline scrollbar gutter. That makes the final
+       column look detached from the table/panel edge when no scrollbar is
+       visible. The shell still owns overflow when the table grows. */
+    scrollbar-gutter: auto;
     -webkit-overflow-scrolling: touch;
     isolation: isolate;
   }
