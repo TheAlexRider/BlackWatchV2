@@ -97,6 +97,7 @@ export default async function StoragePage() {
               <thead>
                 <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
                   <th className="px-4 py-2 text-left font-normal">Event</th>
+                  <th className="px-4 py-2 text-left font-normal">Tags</th>
                   <th className="px-4 py-2 text-left font-normal">Domain</th>
                   <th className="px-4 py-2 text-left font-normal">Target</th>
                   <th className="px-4 py-2 text-left font-normal">Principal</th>
@@ -123,6 +124,7 @@ function S3SecurityTable({ events }: { events: StorageS3SecurityEvent[] }) {
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="px-4 py-2 text-left font-normal">Event</th>
+          <th className="px-4 py-2 text-left font-normal">Tags</th>
           <th className="px-4 py-2 text-left font-normal">Signal</th>
           <th className="px-4 py-2 text-left font-normal">Bucket / object</th>
           <th className="px-4 py-2 text-left font-normal">Requester / evidence</th>

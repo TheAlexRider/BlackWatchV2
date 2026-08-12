@@ -68,6 +68,20 @@ export function ResizableTable({
     // Batch initial reads before writes to avoid layout thrashing.
     initialWidths.forEach((width, index) => setColumnWidth(columns[index], width, minColumnWidth));
 
+    // Keep the table edge flush with the shell when saved/user widths add up
+    // to less than the available space. The final column owns the flexible
+    // remainder; resizing still transfers width between adjacent columns.
+    const fillRemainingWidth = () => {
+      const available = wrapper.clientWidth;
+      const widths = columns.map((column) => column.getBoundingClientRect().width);
+      const usedByOtherColumns = widths.slice(0, -1).reduce((sum, width) => sum + width, 0);
+      const remainder = available - usedByOtherColumns;
+      if (remainder > widths[widths.length - 1]) {
+        setColumnWidth(columns[columns.length - 1], remainder, minColumnWidth);
+      }
+    };
+    fillRemainingWidth();
+
     table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => {
       Array.from(row.children).forEach((cell, index) => {
         if (cell instanceof HTMLElement && !cell.dataset.label && labels[index]) {
@@ -168,6 +182,10 @@ export function ResizableTable({
         handle.remove();
       });
     });
+
+    const resizeObserver = new ResizeObserver(fillRemainingWidth);
+    resizeObserver.observe(wrapper);
+    cleanups.push(() => resizeObserver.disconnect());
 
     return () => {
       document.body.style.cursor = "";

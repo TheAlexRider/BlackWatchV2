@@ -22,8 +22,7 @@ export function StorageEventRow({
           aria-hidden
           className={`pointer-events-none absolute left-0 top-0 h-full w-0.5 ${severityBorderBg(event.severity)}`}
         />
-        <div className="flex min-w-0 items-center gap-2 text-xs text-fg">
-          <SeverityBadge severity={event.severity} />
+        <div className="min-w-0 text-xs text-fg">
           <span className="truncate">{event.message ?? event.action}</span>
         </div>
         {event.message && (
@@ -31,6 +30,9 @@ export function StorageEventRow({
             {event.action}
           </div>
         )}
+      </td>
+      <td className="w-28 px-4 py-2.5">
+        <SeverityBadge severity={event.severity} />
       </td>
       {showSignal ? (
         <td className="w-36 px-4 py-2.5 text-xs text-fg-muted">
