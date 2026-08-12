@@ -58,6 +58,7 @@ export function InvestigationNotebook({
   const [data, setData] = useState(initial);
   const [note, setNote] = useState("");
   const [view, setView] = useState<EvidenceView>("module");
+  const [focusedModule, setFocusedModule] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(() =>
     rangeDays(initial.time_start, initial.time_end),
   );
@@ -220,21 +221,41 @@ export function InvestigationNotebook({
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <main className="min-w-0 space-y-5">
-          <InvestigationStory
+      <div className="space-y-5">
+        <InvestigationBrief
             ip={ip}
             results={data.results}
             scanning={scanning}
-          />
-          <EvidenceExplorer
-            results={data.results}
-            view={view}
-            setView={setView}
-          />
-        </main>
+        />
+        <EvidenceChain
+          results={data.results}
+          onReviewEvidence={(moduleName) => {
+            setView("module");
+            setFocusedModule(moduleName);
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            window.requestAnimationFrame(() => {
+              document.getElementById("evidence")?.scrollIntoView({
+                behavior: reduceMotion ? "auto" : "smooth",
+                block: "start",
+              });
+              window.setTimeout(() => document.getElementById("evidence-heading")?.focus(), reduceMotion ? 0 : 250);
+            });
+          }}
+        />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <main className="min-w-0 space-y-5">
+            <InvestigationActions results={data.results} ip={ip} />
+            <ActivityGraph results={data.results} />
+            <EvidenceExplorer
+              results={data.results}
+              view={view}
+              setView={setView}
+              focusedModule={focusedModule}
+              setFocusedModule={setFocusedModule}
+            />
+          </main>
 
-        <aside className="space-y-4">
+          <aside className="space-y-4">
           <DataPanel className="space-y-3 p-4">
             <SectionLabel>case scope</SectionLabel>
             <IpCell value={ip} className="text-sm text-fg" />
@@ -293,13 +314,14 @@ export function InvestigationNotebook({
               ))}
             </div>
           </DataPanel>
-        </aside>
+          </aside>
+        </div>
       </div>
     </div>
   );
 }
 
-function InvestigationStory({
+function InvestigationBrief({
   ip,
   results,
   scanning,
@@ -309,10 +331,7 @@ function InvestigationStory({
   scanning: boolean;
 }) {
   const summary = useMemo(() => buildSummary(results), [results]);
-  const actions = useMemo(() => buildActions(results, ip), [ip, results]);
-
   return (
-    <div className="space-y-5">
       <DataPanel className="overflow-hidden">
         <div className="border-b border-line-soft bg-surface-1 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -348,8 +367,20 @@ function InvestigationStory({
           )}
         </div>
       </DataPanel>
+  );
+}
 
-      <section className="space-y-2">
+function EvidenceChain({
+  results,
+  onReviewEvidence,
+}: {
+  results: InvestigationResult[];
+  onReviewEvidence: (moduleName: string) => void;
+}) {
+  const summary = useMemo(() => buildSummary(results), [results]);
+
+  return (
+    <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
           <div>
             <SectionLabel>evidence chain</SectionLabel>
@@ -366,10 +397,12 @@ function InvestigationStory({
             Run the investigation to build the evidence chain.
           </DataPanel>
         ) : (
-          <div className="grid gap-2 md:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
+          <DataPanel className="overflow-hidden">
+            <div className="overflow-x-auto p-3">
+              <div className="flex min-w-max items-stretch gap-3 md:min-w-0">
             {summary.modules.map((module, index) => (
-              <div key={module.name} className="flex min-w-0 items-stretch gap-2">
-                <DataPanel className="min-w-0 flex-1 p-4">
+              <div key={module.name} className="flex min-w-[15rem] flex-1 items-center gap-3 md:min-w-0">
+                <div className="min-w-0 flex-1 border border-line-soft bg-canvas/30 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-medium text-fg">{module.name}</div>
@@ -389,20 +422,38 @@ function InvestigationStory({
                     <div className="break-words text-fg-muted">
                       <span className="text-fg-subtle">activity · </span>{module.topAction}
                     </div>
-                    <a href="#evidence" className="mt-3 inline-flex items-center gap-1 text-xs text-signal hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => onReviewEvidence(module.name)}
+                      aria-controls="evidence"
+                      className="mt-3 inline-flex items-center gap-1 text-left text-xs text-signal hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+                    >
                       review evidence <ArrowRight size={12} aria-hidden="true" />
-                    </a>
+                    </button>
                   </div>
-                </DataPanel>
+                </div>
                 {index < summary.modules.length - 1 && (
                   <ArrowRight className="mt-12 hidden shrink-0 text-fg-disabled md:block" size={16} aria-hidden="true" />
                 )}
               </div>
             ))}
-          </div>
+              </div>
+            </div>
+          </DataPanel>
         )}
       </section>
+  );
+}
 
+function InvestigationActions({
+  results,
+  ip,
+}: {
+  results: InvestigationResult[];
+  ip: string;
+}) {
+  const actions = useMemo(() => buildActions(results, ip), [ip, results]);
+  return (
       <section className="space-y-2">
         <div>
           <SectionLabel>what to check next</SectionLabel>
@@ -422,9 +473,6 @@ function InvestigationStory({
           ))}
         </div>
       </section>
-
-      <ActivityGraph results={results} />
-    </div>
   );
 }
 
@@ -432,10 +480,14 @@ function EvidenceExplorer({
   results,
   view,
   setView,
+  focusedModule,
+  setFocusedModule,
 }: {
   results: InvestigationResult[];
   view: EvidenceView;
   setView: (value: EvidenceView) => void;
+  focusedModule: string | null;
+  setFocusedModule: (value: string | null) => void;
 }) {
   const sorted = useMemo(
     () => [...results].sort((a, b) => dateValue(b) - dateValue(a)),
@@ -453,7 +505,9 @@ function EvidenceExplorer({
     <section id="evidence" className="scroll-mt-6 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <SectionLabel>evidence detail</SectionLabel>
+          <h2 id="evidence-heading" tabIndex={-1} className="scroll-mt-6 text-[11px] uppercase tracking-[0.08em] text-fg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal">
+            evidence detail
+          </h2>
           <p className="mt-1 text-xs text-fg-subtle">
             Open the underlying records when you need to verify a link.
           </p>
@@ -489,6 +543,11 @@ function EvidenceExplorer({
                 title={group.name}
                 subtitle="linked records"
                 count={group.items.length}
+                open={focusedModule === null ? undefined : focusedModule === group.name}
+                onOpenChange={(open) => {
+                  if (open) setFocusedModule(group.name);
+                  else if (focusedModule === group.name) setFocusedModule(null);
+                }}
               >
                 <EvidenceTable
                   results={group.items}
