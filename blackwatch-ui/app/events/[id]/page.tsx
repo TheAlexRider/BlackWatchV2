@@ -7,6 +7,7 @@ import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { IntelBadge, type IntelData } from "@/components/domain/IntelBadge";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 export default async function EventDetailPage({
   params,
@@ -28,7 +29,12 @@ export default async function EventDetailPage({
     <>
       <PageHeader
         title={event.action}
-        subtitle={event.event_id}
+        subtitle={
+          <span className="inline-flex max-w-full items-center gap-1">
+            <code className="break-all">{event.event_id}</code>
+            <CopyButton value={event.event_id} label="Copy event ID" />
+          </span>
+        }
         breadcrumbs={[{ label: "Events", href: "/events" }, { label: event.action }]}
       />
 

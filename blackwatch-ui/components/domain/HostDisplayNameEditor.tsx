@@ -40,6 +40,14 @@ export function HostDisplayNameEditor({
   async function commit() {
     const next = value.trim();
     setError(null);
+    if (next.length > 80) {
+      setError("Display name must be 80 characters or fewer.");
+      return;
+    }
+    if (/[\u0000-\u001F\u007F]/.test(next)) {
+      setError("Display name contains unsupported control characters.");
+      return;
+    }
     try {
       const res = await setHostDisplayName(instanceId, next || null);
       setSaved(res.display_name);
@@ -83,6 +91,8 @@ export function HostDisplayNameEditor({
         className="w-56"
         autoFocus
         aria-label="Display name"
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? "host-display-name-error" : undefined}
       />
       <Button
         type="button"
@@ -97,7 +107,7 @@ export function HostDisplayNameEditor({
         <X size={12} /> Cancel
       </Button>
       {error && (
-        <span className="text-[11px] text-sev-critical">{error}</span>
+        <span id="host-display-name-error" role="alert" className="text-[11px] text-sev-critical">{error}</span>
       )}
     </div>
   );

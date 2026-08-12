@@ -6,6 +6,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 export default async function PostureFindingDetailPage({
   params,
@@ -23,7 +24,12 @@ export default async function PostureFindingDetailPage({
     <>
       <PageHeader
         title={finding.finding_type}
-        subtitle={finding.resource_id}
+        subtitle={
+          <span className="inline-flex max-w-full items-center gap-1">
+            <code className="break-all">{finding.resource_id}</code>
+            <CopyButton value={finding.resource_id} label="Copy resource ID" />
+          </span>
+        }
         breadcrumbs={[{ label: "AWS posture", href: "/aws-posture" }, { label: finding.finding_type }]}
       />
 

@@ -90,6 +90,14 @@
     }
   }
 
+  /* Preserve a clear non-motion interaction cue when animation is reduced. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin,
+    .animate-pulse {
+      animation: none !important;
+    }
+  }
+
   /* Default mono everywhere a developer would expect it */
   code, pre, kbd, samp, .mono {
     font-family: var(--font-mono);

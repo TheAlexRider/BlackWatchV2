@@ -184,6 +184,17 @@ export function Table({
                   </label>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setHiddenColumns([]);
+                  setSortColumn(null);
+                  setLiveMessage("All columns restored.");
+                }}
+                className="mt-2 w-full border-t border-line-soft pt-2 text-left text-[10px] uppercase tracking-wider text-fg-muted transition-colors hover:text-signal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+              >
+                Reset columns
+              </button>
             </div>
           </details>
         </div>
