@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   Children,
   cloneElement,
@@ -159,7 +160,22 @@ function nodeText(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(nodeText).join(" ");
-  if (isValidElement(node)) return nodeText((node.props as { children?: ReactNode }).children);
+  if (isValidElement(node)) {
+    const props = node.props as {
+      children?: ReactNode;
+      value?: ReactNode;
+      label?: ReactNode;
+      name?: ReactNode;
+      title?: ReactNode;
+      severity?: ReactNode;
+      status?: ReactNode;
+      id?: ReactNode;
+    };
+    if (props.children !== undefined) return nodeText(props.children);
+    for (const value of [props.value, props.label, props.name, props.title, props.severity, props.status, props.id]) {
+      if (value !== undefined && value !== null) return nodeText(value);
+    }
+  }
   return "";
 }
 
@@ -178,9 +194,10 @@ function enhanceHead(
       const label = nodeText((cell.props as { children?: ReactNode }).children).trim();
       if (!label || hasInteractiveChild((cell.props as { children?: ReactNode }).children)) return cell;
       const active = sortColumn === index;
+      const SortIcon = active ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
       return cloneElement(cell as ReactElement<{ children?: ReactNode; "aria-sort"?: "none" | "ascending" | "descending" }>, {
         "aria-sort": active ? (sortDirection === "asc" ? "ascending" : "descending") : "none",
-      }, <button type="button" onClick={() => onSort(index)} title={`Sort by ${label}`} className="inline-flex w-full items-center justify-between gap-2 text-left text-inherit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"> <span>{(cell.props as { children?: ReactNode }).children}</span><span aria-hidden="true" className="text-[10px] text-fg-subtle">{active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span></button>);
+      }, <button type="button" onClick={() => onSort(index)} title={`Sort by ${label}`} className="inline-flex w-full items-center justify-between gap-2 text-left text-inherit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"><span>{(cell.props as { children?: ReactNode }).children}</span><SortIcon size={13} aria-hidden="true" className={active ? "text-signal" : "text-fg-subtle"} /></button>);
     }));
   });
   return cloneElement(thead, undefined, headRows);
