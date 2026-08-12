@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { StorageCriticalEvent, StorageS3SecurityEvent } from "@/lib/types";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge, severityBorderBg } from "@/components/domain/SeverityBadge";
+import { IpCell } from "@/components/domain/IpCell";
 
 // One row in the "Recent critical storage events" table. Shows the friendly
 // message (fallback: action name) and identifies the actor + target so the
@@ -22,8 +23,8 @@ export function StorageEventRow({
           aria-hidden
           className={`pointer-events-none absolute left-0 top-0 h-full w-0.5 ${severityBorderBg(event.severity)}`}
         />
-        <div className="min-w-0 text-xs text-fg">
-          <span className="truncate">{event.message ?? event.action}</span>
+        <div className="min-w-0 break-words text-xs text-fg">
+          <span>{event.message ?? event.action}</span>
         </div>
         {event.message && (
           <div className="mt-0.5 font-mono text-[10px] text-fg-subtle">
@@ -52,9 +53,17 @@ export function StorageEventRow({
         </div>
       </td>
       <td className="w-40 px-4 py-2.5 font-mono text-xs text-fg-muted">
-        <div className="truncate" title={event.principal ?? undefined}>
-          {event.principal ?? (sourceIps.length ? sourceIps.join(", ") : "—")}
-        </div>
+        {event.principal ? (
+          <div className="break-words" title={event.principal}>{event.principal}</div>
+        ) : sourceIps.length ? (
+          <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1">
+            {sourceIps.map((ip) => (
+              <IpCell key={ip} value={ip} className="text-xs text-fg-muted" />
+            ))}
+          </div>
+        ) : (
+          <span>—</span>
+        )}
         {event.reason && (
           <div className="mt-1 max-w-[20rem] font-sans text-[10px] leading-relaxed text-fg-subtle">
             {event.reason}

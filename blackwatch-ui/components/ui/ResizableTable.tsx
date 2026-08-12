@@ -37,7 +37,7 @@ export function ResizableTable({
 
     const storageId = tableId
       ? tableId
-      : `auto-${headers.length}-${hashString(
+      : `${window.location.pathname}-auto-${headers.length}-${hashString(
           headers.map((header) => header.textContent?.trim() ?? "").join("|"),
         )}`;
     const storageKey = `bw-cols-${storageId}`;

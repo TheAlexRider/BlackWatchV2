@@ -296,6 +296,30 @@
     word-break: break-word;
   }
 
+  /* Table data is inspectable content, not a preview. Never hide a value
+     behind an ellipsis; users can resize the column and the row grows with
+     the wrapped content. Keep nowrap only for explicit controls such as
+     action buttons. */
+  .bw-table tbody td.truncate,
+  .bw-table tbody th.truncate,
+  .bw-table tbody td .truncate,
+  .bw-table tbody th .truncate {
+    display: block;
+    max-width: none;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .bw-table tbody td,
+  .bw-table tbody th {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   /* Empty state row — spans the whole table, centered, muted. */
   .bw-table tbody td.bw-empty {
     padding: 2rem 1rem;

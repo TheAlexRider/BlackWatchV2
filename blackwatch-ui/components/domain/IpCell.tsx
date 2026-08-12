@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import clsx from "clsx";
-import { Search, Copy, Check, ExternalLink, MoreHorizontal } from "lucide-react";
+import { Search, Copy, Check, ExternalLink } from "lucide-react";
 
 import { IpLookupModal } from "./IpLookupModal";
 
@@ -112,9 +112,10 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
           type="button"
           aria-label={`Open actions for ${value}`}
           onClick={openFromKeyboard}
-          className="rounded text-fg-disabled hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+          title="IP actions"
+          className="rounded p-0.5 text-fg-disabled transition-colors hover:bg-surface-2 hover:text-signal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
         >
-          <MoreHorizontal size={12} aria-hidden="true" />
+          <Search size={12} aria-hidden="true" />
         </button>
       </span>
 
