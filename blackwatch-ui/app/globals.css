@@ -150,12 +150,18 @@
     isolation: isolate;
   }
 
+  /* Handle sits fully inside its own cell, flush with the right edge.
+     Keeping it inside (rather than overhanging into the next column) means
+     hovering near the leading edge of a column never hits the previous
+     column's resize handle. The visible hairline is anchored to the cell's
+     right edge, so the last column shows the resize line exactly on the
+     table boundary — no phantom divider inside the final cell. */
   .bw-col-resize-handle {
     position: absolute;
     top: 0;
-    right: -5px;
+    right: 0;
     z-index: 10;
-    width: 10px;
+    width: 8px;
     height: 100%;
     margin: 0;
     padding: 0;
@@ -166,16 +172,10 @@
     -webkit-tap-highlight-color: transparent;
     transition: background 120ms ease;
   }
-  /* The last handle must stay inside the table boundary. If it hangs outside
-     the final <th>, the shell gains an extra few pixels of scroll width and
-     the visible table edge no longer lines up with its panel. */
-  .bw-col-resize-handle-last {
-    right: 0;
-  }
   .bw-col-resize-handle::after {
     content: "";
     position: absolute;
-    left: 50%;
+    right: 0;
     top: 15%;
     bottom: 15%;
     width: 1px;
