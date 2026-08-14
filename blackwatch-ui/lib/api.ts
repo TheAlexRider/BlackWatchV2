@@ -437,6 +437,7 @@ export type PreviewSampleKind =
   | "rds_auth_failure"
   | "service_down"
   | "service_degraded"
+  | "service_unknown"
   | "service_up"
   | "probe_agent_stale";
 

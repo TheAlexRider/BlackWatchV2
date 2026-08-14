@@ -2194,6 +2194,30 @@ def _build_preview_sample(kind: str, payload: dict[str, Any]):
             },
         )
 
+    if kind == "service_unknown":
+        return Event(
+            source=Source(module="ecs.probe", transport="api", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "service.unknown",
+            outcome=Outcome.failure,
+            severity=Severity.high,
+            target=Target(id="prod/keycloak", type="ecs.service", name="keycloak"),
+            extra={
+                "vpc": "prod", "name": "keycloak", "tier": "http_alive",
+                "target_id": "prod/keycloak", "status": "unknown",
+                "error": "timed out", "tags": {"env": "prod", "tier": "http_alive"},
+                "message": (
+                    "*Unable to verify keycloak*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Signal:* probe could not determine service availability\n"
+                    "• *Reason:* timeout\n"
+                    "• *Env:* prod"
+                ),
+            },
+        )
+
     if kind == "service_up":
         return Event(
             source=Source(module="ecs.probe", transport="api", account="095899260107",

@@ -30,6 +30,7 @@ const SAMPLES_BY_MODULE: Record<string, SampleOption[]> = {
   "ecs.probe": [
     { value: "service_down",       label: "Service went down" },
     { value: "service_degraded",   label: "Service degraded" },
+    { value: "service_unknown",    label: "Service monitoring uncertain" },
     { value: "service_up",         label: "Service recovered" },
     { value: "probe_agent_stale",  label: "Probe agent stale" },
   ],

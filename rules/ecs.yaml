@@ -43,9 +43,37 @@
     op: equals
     value: service.degraded
 
+- id: service-unknown-prod
+  title: PROD ECS service monitoring uncertain
+  description: A production service could not be verified after consecutive probe failures (for example timeout, DNS, or connection failure). This is a monitoring/availability signal, not proof that the service itself is down.
+  severity: high
+  tags: [ecs, prod, availability, monitoring, "notify:high"]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: service.unknown
+      - field: extra.tags.env
+        op: equals
+        value: prod
+
+- id: service-unknown
+  title: ECS service monitoring uncertain
+  description: A non-production service could not be verified after consecutive probe failures.
+  severity: medium
+  tags: [ecs, availability, monitoring, "notify:medium"]
+  match:
+    all:
+      - field: action
+        op: equals
+        value: service.unknown
+      - field: extra.tags.env
+        op: not_equals
+        value: prod
+
 - id: service-up
   title: ECS service recovered
-  description: A previously down/degraded service is back up.
+  description: A previously down, degraded, or sustained-unreachable service is healthy again.
   severity: informational
   tags: [ecs, availability]
   match:
