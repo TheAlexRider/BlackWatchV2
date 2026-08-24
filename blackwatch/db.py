@@ -1,9 +1,9 @@
 """Postgres connection pool + migration runner.
 
-Migrations run at most ONCE per file. On first startup against a database that
-already contains BW schema (from before this tracker existed), every existing
-migration is backfilled into `schema_migrations` as applied — otherwise we'd
-re-run legacy files (including anything with non-idempotent DML) on upgrade.
+Migrations run at most ONCE per file. Every migration must be idempotent at
+the DDL level (CREATE TABLE IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT
+EXISTS) and guarded at the DML level (INSERT ... ON CONFLICT DO NOTHING,
+UPDATE ... WHERE <sentinel>, DO block with an existence check for TRUNCATE).
 """
 
 from __future__ import annotations
@@ -45,16 +45,20 @@ def close_pool() -> None:
         _pool = None
 
 
-def _existing_events_table(conn) -> bool:
-    """True if the events table already exists — signal that this DB was
-    populated before the versioned migration runner landed."""
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = 'events' LIMIT 1"
-    ).fetchone()
-    return row is not None
-
-
 def _run_migrations() -> None:
+    """Run every SQL file in sorted order that hasn't been applied yet.
+
+    On the FIRST run against a database that already went through the old
+    replay-every-time runner: schema_migrations is empty, so every existing
+    migration is applied again. That's safe because every migration is written
+    to be idempotent (see module docstring). This is a one-time cost; from
+    the second run onward, the tracker skips everything and only new
+    migrations run.
+
+    DO NOT try to be clever and pre-mark old migrations as applied based on
+    "does the events table exist" — that hides the case where the deploy
+    also brought a BRAND NEW migration file that hasn't run yet.
+    """
     assert _pool is not None
     with _pool.connection() as conn:
         conn.execute(
@@ -70,21 +74,7 @@ def _run_migrations() -> None:
             for row in conn.execute("SELECT filename FROM schema_migrations").fetchall()
         }
 
-        all_migrations = sorted(_SQL_DIR.glob("*.sql"))
-
-        # First run against a DB that already has BW schema — backfill so we
-        # don't re-execute legacy migrations (some contain non-idempotent DML
-        # like TRUNCATE that would silently wipe operational state).
-        if not applied and _existing_events_table(conn):
-            for sql_file in all_migrations:
-                conn.execute(
-                    "INSERT INTO schema_migrations (filename) VALUES (%s) "
-                    "ON CONFLICT (filename) DO NOTHING",
-                    (sql_file.name,),
-                )
-            return
-
-        for sql_file in all_migrations:
+        for sql_file in sorted(_SQL_DIR.glob("*.sql")):
             if sql_file.name in applied:
                 continue
             conn.execute(sql_file.read_text(encoding="utf-8"))

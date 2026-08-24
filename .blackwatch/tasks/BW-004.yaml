@@ -1,0 +1,40 @@
+id: BW-004
+status: review
+title: Build a cross-module, beginner-friendly Notification Studio
+area: full-stack
+source: notification-r-and-d-and-qa
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: blackwatch/notify/model.py
+    location: "63-85"
+    observation: "NotificationRule supports routing, throttling, silence, and one optional rule-level message_template, but has no first-class event-kind/profile metadata."
+  - file: blackwatch/notify/routing_matrix.py
+    location: "31-245"
+    observation: "Module cards persist channel, threshold, enablement, and silence, but not message content or event-kind selection."
+  - file: blackwatch-ui/app/notifications/AlertWizard.tsx
+    location: "1-180"
+    observation: "The UI previews module samples, but the chosen sample is not part of the saved match condition."
+  - file: blackwatch/notify/channels.py
+    location: "416-447"
+    observation: "Rendering already accepts a rule-level template before a channel template, providing a compatibility seam for profiles."
+impact: "Technical users can configure clear, approachable notifications for every supported BlackWatch module without learning event schemas, rule syntax, or template languages."
+acceptance_criteria:
+  - "Define one canonical notification catalog covering every supported module and its alert types, including EC2, RDS, VPN, IAM, S3, API Gateway, FIM, UEBA, certificates, services, posture, and future modules."
+  - "Define a profile keyed by module plus alert type/event kind, with enabled state, severity policy, channel routing, throttle/digest/silence settings, and recovery behavior."
+  - "Provide a guided UI flow: choose module, choose a plain-language alert type, choose recipients/channels, choose urgency/frequency, edit message guidance, preview, test-send, and save."
+  - "Define structured message fields for title, what happened, why it matters, evidence/observations, monitoring method, technical/customer impact, next steps, recovery wording, and optional runbook links."
+  - "Make normal editing form-based and approachable; retain raw Jinja/template editing behind an explicit Advanced option."
+  - "Keep the existing notification rule/worker/channel pipeline as the delivery primitive; profiles must not create a second dispatch system."
+  - "Add backward-compatible fallback to current rule/channel rendering when no profile exists."
+  - "Add representative previews and test-send support for every cataloged module/alert type, with available fields explained in plain language."
+  - "Add auditability for profile changes and render failures without storing channel secrets or full sensitive event bodies."
+  - "Add focused backend and UI tests proving catalog completeness, event-kind matching, profile-specific rendering, fallback behavior, and channel independence."
+dependencies: []
+risks:
+  - "A new profile store could duplicate notification_rules; prefer an explicit compatibility layer or carefully extended rule metadata."
+  - "Free-form templates can expose sensitive event fields; show available fields and keep preview/test-send access admin-gated."
+proposed_role: coder-backend + coder-ui + coder-tests
+approved_by: user
+notes: "Implemented the shared module + alert-kind Notification Studio with compiled compatibility rules, guided message fields, preview/test-send, FIM coverage, and redacted profile audit records. Review is recommended before deployment; the existing generic route behavior remains available for non-Studio rules."

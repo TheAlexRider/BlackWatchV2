@@ -655,7 +655,7 @@ def set_host_active(instance_id: str, active: bool) -> None:
 
 _NRULE_COLS = (
     "id, name, enabled, match, channels, throttle_seconds, silence_until, "
-    "priority, message_template"
+    "priority, message_template, digest_window_seconds"
 )
 
 
@@ -664,7 +664,7 @@ def _nrule_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "id": row[0], "name": row[1], "enabled": row[2], "match": row[3],
         "channels": list(row[4] or []), "throttle_seconds": row[5],
         "silence_until": row[6], "priority": row[7],
-        "message_template": row[8],
+        "message_template": row[8], "digest_window_seconds": row[9],
     }
 
 
@@ -693,6 +693,7 @@ def upsert_notification_rule(
     throttle_seconds: int = 0,
     priority: int = 100,
     message_template: str | None = None,
+    digest_window_seconds: int = 0,
 ) -> None:
     """Create or update editable fields. Does NOT touch silence_until — that is
     managed by set_notification_rule_silence so the Save flow can't accidentally
@@ -709,18 +710,112 @@ def upsert_notification_rule(
             """
             INSERT INTO notification_rules
                 (id, name, enabled, match, channels, throttle_seconds,
-                 priority, message_template)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                priority, message_template, digest_window_seconds)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE
               SET name = EXCLUDED.name, enabled = EXCLUDED.enabled,
                   match = EXCLUDED.match, channels = EXCLUDED.channels,
                   throttle_seconds = EXCLUDED.throttle_seconds,
                   priority = EXCLUDED.priority,
                   message_template = EXCLUDED.message_template,
+                  digest_window_seconds = EXCLUDED.digest_window_seconds,
                   updated_at = now()
             """,
             (rule_id, name, enabled, Jsonb(match), list(channels),
-             throttle_seconds, priority, tpl),
+             throttle_seconds, priority, tpl, max(0, int(digest_window_seconds))),
+        )
+
+
+# --- Notification profiles (module + alert kind) ----------------------------
+
+_NPROFILE_COLS = (
+    "id, module, event_kind, label, description, enabled, severities, channels, "
+    "throttle_seconds, digest_window_seconds, silence_until, content, "
+    "advanced_template, created_at, updated_at"
+)
+
+
+def _nprofile_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": row[0], "module": row[1], "event_kind": row[2],
+        "label": row[3], "description": row[4], "enabled": row[5],
+        "severities": list(row[6] or []), "channels": list(row[7] or []),
+        "throttle_seconds": row[8], "digest_window_seconds": row[9],
+        "silence_until": row[10], "content": row[11] or {},
+        "advanced_template": row[12], "created_at": row[13],
+        "updated_at": row[14],
+    }
+
+
+def list_notification_profiles() -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {_NPROFILE_COLS} FROM notification_profiles ORDER BY module, event_kind"
+        ).fetchall()
+    return [_nprofile_row(r) for r in rows]
+
+
+def get_notification_profile(profile_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"SELECT {_NPROFILE_COLS} FROM notification_profiles WHERE id = %s",
+            (profile_id,),
+        ).fetchone()
+    return _nprofile_row(row) if row else None
+
+
+def upsert_notification_profile(
+    profile_id: str,
+    module: str,
+    event_kind: str,
+    label: str,
+    description: str,
+    enabled: bool,
+    severities: list[str],
+    channels: list[str],
+    throttle_seconds: int,
+    digest_window_seconds: int,
+    silence_until: datetime | None,
+    content: dict[str, Any],
+    advanced_template: str | None,
+) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            f"""
+            INSERT INTO notification_profiles
+              ({_NPROFILE_COLS.replace(', created_at, updated_at', '')})
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+              module=EXCLUDED.module, event_kind=EXCLUDED.event_kind,
+              label=EXCLUDED.label, description=EXCLUDED.description,
+              enabled=EXCLUDED.enabled, severities=EXCLUDED.severities,
+              channels=EXCLUDED.channels, throttle_seconds=EXCLUDED.throttle_seconds,
+              digest_window_seconds=EXCLUDED.digest_window_seconds,
+              silence_until=EXCLUDED.silence_until, content=EXCLUDED.content,
+              advanced_template=EXCLUDED.advanced_template, updated_at=now()
+            """,
+            (profile_id, module, event_kind, label, description, enabled,
+             list(severities), list(channels), throttle_seconds,
+             digest_window_seconds, silence_until, Jsonb(content), advanced_template),
+        )
+
+
+def delete_notification_profile(profile_id: str) -> None:
+    with get_pool().connection() as conn:
+        conn.execute("DELETE FROM notification_profiles WHERE id = %s", (profile_id,))
+
+
+def record_notification_profile_audit(
+    profile_id: str, action: str, detail: str = "",
+) -> None:
+    """Record profile lifecycle events without storing message bodies or events."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO notification_profile_audit (profile_id, action, detail)
+            VALUES (%s, %s, %s)
+            """,
+            (profile_id, action[:80], detail[:500]),
         )
 
 

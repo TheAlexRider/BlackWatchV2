@@ -77,6 +77,7 @@ class NotificationRule(BaseModel):
     channels: list[str] = Field(default_factory=list)
     # 0 = use the channel's dedup_window_seconds; non-zero overrides per rule.
     throttle_seconds: int = 0
+    digest_window_seconds: int = 0
     silence_until: datetime | None = None
     priority: int = 100
     # Optional Jinja source. When set, dispatch renders this instead of the

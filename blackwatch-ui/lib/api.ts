@@ -18,6 +18,7 @@ import type {
   StorageSummary,
   Connector,
   ConnectorsListResponse,
+  CoverageResponse,
   OverviewResponse,
   VpnResponse,
   RdsViewResponse,
@@ -38,6 +39,7 @@ import type {
   NotificationChannelsResponse,
   NotificationRule,
   NotificationRulesResponse,
+  NotificationProfilesResponse,
   NotificationCardsResponse,
   RoutesResponse,
   NotificationLogResponse,
@@ -666,6 +668,35 @@ export async function fetchConnectors(): Promise<ConnectorsListResponse> {
   const res = await bwFetch(`/api/connectors`);
   if (!res.ok) throw new Error(`fetchConnectors failed: ${res.status} ${res.statusText}`);
   return (await res.json()) as ConnectorsListResponse;
+}
+
+export async function fetchNotificationProfiles(): Promise<NotificationProfilesResponse> {
+  const res = await bwFetch(`/api/notifications/profiles`);
+  if (!res.ok) throw new Error(`fetchNotificationProfiles failed: ${res.status}`);
+  return (await res.json()) as NotificationProfilesResponse;
+}
+
+export async function previewNotificationProfile(
+  payload: Record<string, unknown>,
+  channelType = "slack",
+): Promise<{ rendered: string }> {
+  const res = await fetch(
+    "/api/notifications/profiles/preview?channel_type=" + encodeURIComponent(channelType),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) throw new Error("previewNotificationProfile failed: " + res.status);
+  return (await res.json()) as { rendered: string };
+}
+
+export async function fetchCoverage(): Promise<CoverageResponse> {
+  const res = await bwFetch(`/api/coverage`);
+  if (!res.ok) throw new Error(`fetchCoverage failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as CoverageResponse;
 }
 
 // --- UEBA ----------------------------------------------------------------

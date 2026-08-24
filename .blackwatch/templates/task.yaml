@@ -1,0 +1,20 @@
+id: BW-000
+status: proposed
+title: ""
+area: backend # backend | ui | full-stack | infrastructure | tests | docs
+source: research # research | qa | user
+severity: medium # low | medium | high | critical
+confidence: medium # low | medium | high
+implementation_allowed: false
+evidence:
+  - file: ""
+    location: ""
+    observation: ""
+impact: ""
+acceptance_criteria:
+  - ""
+dependencies: []
+risks: []
+proposed_role: ""
+approved_by: null
+notes: ""

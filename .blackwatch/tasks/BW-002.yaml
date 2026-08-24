@@ -1,0 +1,30 @@
+id: BW-002
+status: review
+title: Add a unified security coverage and collector-health surface
+area: full-stack
+source: research-and-qa
+severity: medium
+confidence: medium
+implementation_allowed: true
+evidence:
+  - file: blackwatch/api.py
+    location: "380-2934"
+    observation: "Operational data is split across connectors, services, storage, RDS, API Gateway, intel, posture, and UEBA endpoints."
+  - file: blackwatch-ui/app
+    location: "page inventory"
+    observation: "The UI exposes separate module pages but no coverage or collector-health page."
+  - file: blackwatch-ui/app/page.tsx
+    location: "1-270"
+    observation: "The home page summarizes notable events and selected module information rather than source coverage state."
+impact: "Operators cannot quickly answer which telemetry sources are healthy, stale, delayed, unverified, or silent."
+acceptance_criteria:
+  - "Define a small coverage model for source, module, connector, last-seen event, verification, and stale/failing state."
+  - "Provide one overview surface linking to the existing module pages rather than duplicating their detailed tables."
+  - "Show missing coverage and stale collectors distinctly from normal zero-event states."
+  - "Include a product decision on whether ingestion lag is measured at connector, module, or event level."
+dependencies: []
+risks:
+  - "A broad health dashboard can become another aggregation page; keep the first version decision-oriented and link out."
+proposed_role: coder-backend + coder-ui
+approved_by: user
+notes: "Explicitly approved by the user. Freshness is measured at connector last-run level; healthy successful zero-event runs remain healthy."

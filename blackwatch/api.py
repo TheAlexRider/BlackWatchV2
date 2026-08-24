@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, Cookie, Depends, Header, HTTPException, Que
 from .auth import require_role
 from pydantic import BaseModel
 
-from . import auth, noise, storage
+from . import auth, coverage, noise, storage
 from .intel import db as intel_db
 from .connectors import runner as connector_runner
 from .config import settings
@@ -396,6 +396,12 @@ def connectors_list() -> dict[str, Any]:
             "last_error": r.get("last_error"),
         })
     return {"count": len(out), "connectors": out}
+
+
+@router.get("/coverage")
+def coverage_view() -> dict[str, Any]:
+    """Return a compact, read-only view of collector coverage and freshness."""
+    return coverage.build_coverage_summary(storage.list_connectors())
 
 
 @router.get("/connectors/{connector_id}")
@@ -1549,6 +1555,66 @@ def test_notification(channel: str) -> dict[str, Any]:
 # ---------- Notifications (DB-backed) — list / read / save / mutate ---------
 # Mutation endpoints accept JSON bodies so the Next.js UI can ship per-type
 # channel config dicts and Condition trees without a YAML textarea.
+
+# ---------- Notification Studio (module + alert kind) -----------------------
+
+@router.get("/notifications/profiles")
+def notif_profiles_list() -> dict[str, Any]:
+    from .notify import profile_service, profiles as profile_model
+    channels = [
+        {"id": str(c["id"]), "name": c["name"], "type": c["type"],
+         "enabled": c["enabled"]}
+        for c in storage.list_notification_channels()
+    ]
+    return {
+        "profiles": profile_service.list_profiles(),
+        "catalog": profile_model.NOTIFICATION_CATALOG,
+        "channels": channels,
+    }
+
+
+@router.post("/notifications/profiles/preview", dependencies=[Depends(require_role("admin"))])
+def notif_profile_preview(
+    channel_type: str = "slack",
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    from .notify import profile_service
+    try:
+        return {"rendered": profile_service.render_preview(payload, channel_type)}
+    except (TypeError, ValueError) as exc:
+        storage.record_notification_profile_audit(
+            str(payload.get("id") or "preview"),
+            "preview_error",
+            str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/notifications/profiles/save", dependencies=[Depends(require_role("admin"))])
+def notif_profile_save(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .notify import profile_service
+    try:
+        return {"saved": True, "profile": profile_service.save_profile(payload)}
+    except (TypeError, ValueError) as exc:
+        storage.record_notification_profile_audit(
+            str(payload.get("id") or "unknown"),
+            "save_error",
+            str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/notifications/profiles/{profile_id}", dependencies=[Depends(require_role("admin"))])
+def notif_profile_delete(profile_id: str) -> dict[str, Any]:
+    from .notify import profile_service
+    profile_service.delete_profile(profile_id)
+    return {"deleted": True, "id": profile_id}
+
+
+@router.post("/notifications/profiles/{profile_id}/test", dependencies=[Depends(require_role("admin"))])
+def notif_profile_test(profile_id: str) -> dict[str, Any]:
+    from .notify import profile_service
+    return profile_service.test_profile(profile_id)
 
 @router.get("/notifications/templates/recent-events")
 def notif_recent_events(

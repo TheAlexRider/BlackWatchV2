@@ -91,6 +91,14 @@ export default async function NotificationsPage({
         } · ${sent24h} sent (24h) · ${failed24h} failed`}
       />
 
+      <div className="mb-5 flex items-center justify-between border border-signal/20 bg-signal/5 px-3 py-2.5">
+        <div>
+          <p className="text-sm text-fg">Notification Studio</p>
+          <p className="mt-0.5 text-xs text-fg-muted">Customize every alert type in plain language, module by module.</p>
+        </div>
+        <Button asChild variant="secondary" size="sm"><Link href="/notifications/profiles">Open Studio</Link></Button>
+      </div>
+
       {msg && <FlashToast message={msg} />}
 
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}

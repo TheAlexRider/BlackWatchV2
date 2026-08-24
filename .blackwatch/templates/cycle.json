@@ -1,0 +1,14 @@
+{
+  "cycle_id": "",
+  "trigger": "BLACKWATCH CYCLE",
+  "started_at": "",
+  "completed_at": null,
+  "graph_commit": null,
+  "roles": {
+    "research": {"status": "pending", "report": ".blackwatch/reports/research.md"},
+    "qa": {"status": "pending", "report": ".blackwatch/reports/qa.md"},
+    "coding": {"status": "blocked_until_explicit_approval"}
+  },
+  "tasks": [],
+  "verification": []
+}

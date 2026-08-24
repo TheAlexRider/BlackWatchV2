@@ -1,0 +1,33 @@
+id: BW-001
+status: proposed
+title: Extend IP lookup with free-source threat enrichment and automated pivots
+area: full-stack
+source: user-directed-scope
+severity: high
+confidence: medium
+implementation_allowed: false
+evidence:
+  - file: blackwatch-ui/app/tools/ip-lookup/page.tsx
+    location: "1-85"
+    observation: "The current tool provides a single ip-api.com geolocation, ASN, reverse DNS, proxy, and hosting lookup."
+  - file: blackwatch-ui/components/domain/IpCell.tsx
+    location: "1-80"
+    observation: "Existing event IP cells already provide a natural pivot into the standalone IP lookup tool."
+  - file: blackwatch-ui/app/api/tools/ip-lookup/route.ts
+    location: "1-55"
+    observation: "The lookup route centralizes upstream access, making provider adapters and caching possible without exposing providers to the browser."
+impact: "Operators can turn an IP observed in BlackWatch into a deeper, source-attributed investigation without leaving the console or manually repeating lookups."
+acceptance_criteria:
+  - "Keep the existing lookup fast path and add optional provider adapters for free or free-tier threat intelligence sources."
+  - "Start with GreyNoise Community, AbuseIPDB, and VirusTotal only when their applicable terms, rate limits, and use case permit; expose provider availability and rate-limit outcomes clearly."
+  - "Add cached, source-attributed enrichment for reputation, classification, confidence, first/last seen, ASN/organization, and related indicators without storing secrets or raw provider credentials."
+  - "Add bounded automated pivots from an IP to related domains, certificates, URLs, hashes, and observed BlackWatch events, with deduplication and a visible investigation trail."
+  - "Degrade per provider: one unavailable or rate-limited source must not hide the existing lookup result or the other sources."
+  - "Add focused backend and UI verification, including cache behavior, provider failure handling, rate limits, and safe input validation."
+dependencies: []
+risks:
+  - "Free tiers have strict quotas and some public APIs restrict commercial or automated use; provider adapters must be configurable and terms-aware."
+  - "Threat scores are source signals, not verdicts; show provenance and confidence rather than collapsing them into one unexplained score."
+proposed_role: coder-backend + coder-ui + coder-tests
+approved_by: null
+notes: "Potential starting references: https://docs.greynoise.io/docs/using-the-greynoise-community-api, https://www.abuseipdb.com/pricing, https://docs.virustotal.com/docs/api-overview. This remains proposed until the provider set and operating limits are approved."

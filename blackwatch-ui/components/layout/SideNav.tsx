@@ -23,6 +23,7 @@ import {
   UserSearch,
   FileLock2,
   Archive,
+  Radar,
   ChevronsLeft,
   ChevronsRight,
   type LucideIcon,
@@ -54,6 +55,7 @@ const primaryNav: NavEntry[] = [
 
 const secondaryNav: NavEntry[] = [
   { href: "/tools", label: "Tools", icon: Wrench },
+  { href: "/coverage", label: "Coverage", icon: Radar },
   { href: "/connectors", label: "Connectors", icon: Plug },
   { href: "/audit", label: "Audit log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: SettingsIcon },

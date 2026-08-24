@@ -167,8 +167,10 @@ class Worker:
             _log(entry)
             return entry
 
-        # Digest: buffer; the loop flushes when the window expires
-        if channel.digest_window_seconds > 0:
+        # Digest: a profile can override the channel default for one alert
+        # kind; otherwise preserve the existing per-channel behavior.
+        digest_window = getattr(rule, "digest_window_seconds", 0) or channel.digest_window_seconds
+        if digest_window > 0:
             self._digest.add(channel.name, {"rule": rule, "event": event, "channel": channel,
                                             "channel_id": channel_id})
             entry = {**log_skel, "status": "digested",
@@ -215,7 +217,9 @@ class Worker:
             if not items:
                 continue
             channel: Channel = items[0]["channel"]
-            if not self._digest.due(cname, channel.digest_window_seconds):
+            rule = items[0]["rule"]
+            digest_window = getattr(rule, "digest_window_seconds", 0) or channel.digest_window_seconds
+            if not self._digest.due(cname, digest_window):
                 continue
             self._flush_one(channel, self._digest.drain(cname))
 
@@ -225,8 +229,10 @@ class Worker:
             ev: Event = it["event"]
             lines.append(f"- [{(ev.severity.value if ev.severity else '-'):>8}] "
                          f"{ev.action} by {ev.actor.principal or '-'}")
+        rule = items[0]["rule"]
+        digest_window = getattr(rule, "digest_window_seconds", 0) or channel.digest_window_seconds
         body = (f"BlackWatch digest: {len(items)} events in the last "
-                f"{channel.digest_window_seconds}s\n" + "\n".join(lines))
+                f"{digest_window}s\n" + "\n".join(lines))
 
         # Synthetic event the channel-specific senders can receive uniformly.
         digest_event = Event(

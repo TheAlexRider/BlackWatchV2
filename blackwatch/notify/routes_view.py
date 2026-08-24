@@ -206,6 +206,11 @@ def list_routes() -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     for r in all_rules:
+        # Notification Studio owns module + alert-kind profiles. Keep their
+        # compiled compatibility rules out of the generic route table so the
+        # operator does not have to edit the same alert in two places.
+        if str(r.get("id") or "").startswith("profile:"):
+            continue
         if not (r.get("channels") or []):
             continue  # No channel = not really a route; skip from list.
         module = _extract_module_from_match(r.get("match"))

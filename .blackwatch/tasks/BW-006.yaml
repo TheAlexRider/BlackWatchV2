@@ -1,0 +1,32 @@
+id: BW-006
+status: proposed
+title: Add notification coverage for every supported module and event family
+area: full-stack
+source: notification-r-and-d-and-qa
+severity: medium
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: blackwatch/notify/routing_matrix.py
+    location: "31-40"
+    observation: "The module-card catalog is a hardcoded subset of the supported notification surface."
+  - file: blackwatch/notify/routes_view.py
+    location: "31-41"
+    observation: "The route catalog repeats a separate hardcoded subset, creating drift risk."
+  - file: rules
+    location: "rule file inventory"
+    observation: "The repository contains active rule families for API Gateway, backup, EFS, IAM/auth, network, secrets, UEBA, and host events beyond the current notification catalog."
+impact: "Operators can see which modules/event kinds are configured, intentionally fallback-rendered, muted, or not yet covered, instead of assuming the absence of a card means the absence of support."
+acceptance_criteria:
+  - "Use one canonical supported-module/event-kind catalog for notification configuration and coverage reporting."
+  - "Show configured, fallback, muted, and unconfigured states without generating noisy placeholder alerts."
+  - "Include event-kind counts and links to representative events or the relevant module page."
+  - "Flag high/critical event kinds that have no explicit profile or route."
+  - "Add tests preventing MODULE_CARDS and MODULE_CATALOG from silently diverging from the canonical catalog."
+dependencies:
+  - BW-004
+risks:
+  - "Rule files may contain overlapping or intentionally internal actions; catalog generation needs explicit exclusions and ownership metadata."
+proposed_role: coder-backend + coder-ui + coder-tests
+approved_by: null
+notes: "Keep coverage visibility separate from delivery; this task should not auto-enable new notifications."

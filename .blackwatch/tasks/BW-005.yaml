@@ -1,0 +1,34 @@
+id: BW-005
+status: proposed
+title: Pilot contextual notifications for service and probe-agent events
+area: full-stack
+source: notification-r-and-d-and-qa
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: blackwatch/services/projection.py
+    location: "100-196"
+    observation: "The service domain already emits distinct service.down, service.degraded, service.up, probe-agent first-seen, and recovered event kinds with status, latency, error, environment, and downtime context."
+  - file: blackwatch/services/staleness.py
+    location: "15-55"
+    observation: "Probe-agent silence emits age, last report, VPC, and monitoring-impact context, but the human-facing body is hardcoded."
+  - file: rules/ecs.yaml
+    location: "1-84"
+    observation: "Service and probe-agent event kinds already have separate detection/routing semantics and severity tiers."
+impact: "A service-down alert can explain what failed, how it is monitored, the evidence, blast radius, and the first remediation steps; recovery and monitoring-silence alerts can be distinct instead of generic."
+acceptance_criteria:
+  - "Create separate profiles for service.down, service.degraded, service.up, probe.agent.stale, probe.agent.recovered, and probe.agent.first_seen."
+  - "Expose monitor method/tier, VPC, service, error signal, consecutive-failure evidence, latency, last report, downtime, impact, and next steps as safe template fields."
+  - "Move human-facing wording out of the projection/staleness helpers where a profile exists, while preserving structured facts and a fallback message for unmigrated installations."
+  - "Allow different channels, thresholds, throttle/digest policy, and recovery behavior for outage, degradation, recovery, and monitoring-silence events."
+  - "Include a preview/test-send example for each event kind and verify that a service-down template cannot render for a degraded event unless explicitly configured."
+  - "Add regression tests for hysteresis, stale-agent context, profile selection, and fallback rendering."
+dependencies:
+  - BW-004
+risks:
+  - "Availability alerts are operationally sensitive; migration must not change existing severity or notification delivery unintentionally."
+  - "Runbook text may become stale; support links and versioned profile changes rather than embedding long procedures in every message."
+proposed_role: coder-backend + coder-ui + coder-tests
+approved_by: null
+notes: "This is only the first validation example for the cross-module Notification Studio; it does not define the overall product scope."

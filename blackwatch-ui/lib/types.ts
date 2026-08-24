@@ -434,6 +434,58 @@ export interface NotificationRulesResponse {
   rules: NotificationRule[];
 }
 
+export interface NotificationProfileContent {
+  title: string;
+  what_happened: string;
+  why_it_matters: string;
+  evidence: string;
+  monitoring_method: string;
+  impact: string;
+  next_steps: string;
+  recovery: string;
+  runbook_url: string;
+}
+
+export interface NotificationProfile {
+  id: string;
+  module: string;
+  event_kind: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  severities: SeverityKey[];
+  channels: string[];
+  throttle_seconds: number;
+  digest_window_seconds: number;
+  silence_until: string | null;
+  content: NotificationProfileContent;
+  advanced_template: string | null;
+  message_template: string;
+  updated_at: string | null;
+  source: "saved" | "default" | string;
+}
+
+export interface NotificationProfileEvent {
+  key: string;
+  label: string;
+  description: string;
+  default_severities: string[];
+  defaults: NotificationProfileContent;
+}
+
+export interface NotificationProfileModule {
+  key: string;
+  label: string;
+  description: string;
+  events: NotificationProfileEvent[];
+}
+
+export interface NotificationProfilesResponse {
+  profiles: NotificationProfile[];
+  catalog: NotificationProfileModule[];
+  channels: Array<{ id: string; name: string; type: string; enabled: boolean }>;
+}
+
 // --- Module cards (simple per-module routing) ----------------------------
 
 export type CardThresholdKey = "critical" | "high" | "medium" | "low";
@@ -1121,6 +1173,40 @@ export interface Connector {
 export interface ConnectorsListResponse {
   count: number;
   connectors: Connector[];
+}
+
+export type CoverageStatus = "healthy" | "stale" | "failing" | "unverified" | "disabled";
+
+export interface CoverageRow {
+  source: string;
+  module: string;
+  module_href: string;
+  connector_id: string;
+  connector_name: string;
+  enabled: boolean;
+  verified: boolean;
+  last_seen_event: string | null;
+  status: CoverageStatus;
+  stale: boolean;
+  failing: boolean;
+  reason: string;
+}
+
+export interface CoverageResponse {
+  now: string;
+  freshness_basis: "connector_last_run" | string;
+  stale_after_seconds: number;
+  summary: {
+    total: number;
+    healthy: number;
+    stale: number;
+    failing: number;
+    unverified: number;
+    disabled: number;
+    attention: number;
+  };
+  coverage: CoverageRow[];
+  zero_event_semantics: string;
 }
 
 // Per-type config field maps (loose — backend is Pydantic-validated)
