@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 // Collapsible group wrapper. Persists open/closed per `storageKey` in
@@ -12,6 +12,8 @@ export function CollapsibleSection({
   subtitle,
   count,
   defaultOpen = true,
+  open: controlledOpen,
+  onOpenChange,
   children,
 }: {
   storageKey: string;
@@ -19,34 +21,50 @@ export function CollapsibleSection({
   subtitle?: React.ReactNode;
   count?: number;
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [hydrated, setHydrated] = useState(false);
+  const panelId = `collapsible-${useId().replace(/:/g, "")}`;
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
 
   useEffect(() => {
+    if (isControlled) {
+      setHydrated(true);
+      return;
+    }
     try {
       const v = window.localStorage.getItem(storageKey);
-      if (v === "0") setOpen(false);
-      else if (v === "1") setOpen(true);
+      if (v === "0") setInternalOpen(false);
+      else if (v === "1") setInternalOpen(true);
     } catch {}
     setHydrated(true);
-  }, [storageKey]);
+  }, [isControlled, storageKey]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || isControlled) return;
     try {
       window.localStorage.setItem(storageKey, open ? "1" : "0");
     } catch {}
-  }, [open, storageKey, hydrated]);
+  }, [open, storageKey, hydrated, isControlled]);
+
+  function toggle() {
+    const next = !open;
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  }
 
   return (
     <div className="mb-3 border border-line-soft bg-surface-1">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className="flex w-full items-center gap-2 border-b border-line-soft px-3 py-2 text-left transition-colors hover:bg-surface-2"
         aria-expanded={open}
+        aria-controls={panelId}
       >
         {open ? (
           <ChevronDown size={12} className="text-fg-subtle" />
@@ -65,7 +83,9 @@ export function CollapsibleSection({
           <span className="ml-2 text-[11px] text-fg-subtle">{subtitle}</span>
         )}
       </button>
-      {open && <div>{children}</div>}
+      <div id={panelId} hidden={!open}>
+        {children}
+      </div>
     </div>
   );
 }

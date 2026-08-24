@@ -34,6 +34,12 @@ const CONNECTOR_OPTIONS: Array<{
     icon: Database,
   },
   {
+    type: "aws_s3_access_logs",
+    title: "S3 access-log reader",
+    blurb: "Reads a central S3 server-access-log bucket and emits object access events",
+    icon: Database,
+  },
+  {
     type: "aws_posture_drift",
     title: "AWS posture drift",
     blurb: "Current-state checks across SG, EBS, EC2, IAM, KMS, CloudTrail. Phase 2a + 2b.",
@@ -120,6 +126,8 @@ function labelFor(type: ConnectorType): string {
       return "Add ECS health connector";
     case "aws_s3_drift":
       return "Add S3 drift connector";
+    case "aws_s3_access_logs":
+      return "Add S3 access-log reader";
     case "aws_posture_drift":
       return "Add AWS posture drift connector";
     case "cert_probe":

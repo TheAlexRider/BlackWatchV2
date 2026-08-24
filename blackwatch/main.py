@@ -17,6 +17,7 @@ from .connectors import scheduler as connector_scheduler
 from .modules import registry
 from .notify import router as notify_router
 from .notify import worker as notify_worker
+from . import investigation_worker
 from .rules import engine as rule_engine
 from .ui import views as ui_views
 
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     noise.refresh()
     notify_router.init_notifier(settings.notifications_file)
     notify_worker.start()
+    investigation_worker.start()
     connector_scheduler.start()
     # Seed the default admin/password if the auth_users table is empty.
     # No-op after the operator has created a real account.
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI):
     yield
     connector_scheduler.stop()
     notify_worker.stop()
+    investigation_worker.stop()
     close_pool()
 
 

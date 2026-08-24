@@ -24,6 +24,7 @@ import {
   FileLock2,
   Archive,
   Radar,
+  SearchCheck,
   ChevronsLeft,
   ChevronsRight,
   type LucideIcon,
@@ -50,6 +51,7 @@ const primaryNav: NavEntry[] = [
   { href: "/ueba", label: "UEBA", icon: UserSearch },
   { href: "/buckets", label: "Buckets", icon: Database },
   { href: "/storage", label: "Storage", icon: Archive },
+  { href: "/investigations", label: "Investigations", icon: SearchCheck },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 

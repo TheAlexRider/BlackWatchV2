@@ -226,6 +226,12 @@ function ConnectorDetails({ connector: c }: { connector: Connector }) {
           all regions · profile={String(cfg.aws_profile ?? "(default)")}
         </span>
       );
+    case "aws_s3_access_logs":
+      return (
+        <span>
+          bucket={String(cfg.bucket ?? "—")} · prefix={String(cfg.prefix ?? "(all)")}
+        </span>
+      );
     case "aws_posture_drift": {
       const regions = (cfg.regions as string[]) ?? [];
       return (

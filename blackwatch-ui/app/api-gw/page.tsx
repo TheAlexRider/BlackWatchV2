@@ -418,10 +418,10 @@ function FailuresTable({ failures }: { failures: ApiGwFailure[] }) {
             <td className="truncate px-4 py-2.5 font-mono text-xs text-fg-muted">
               <IpCell value={f.source_ip} />
             </td>
-            <td className="truncate px-4 py-2.5 text-xs text-fg-muted">
+            <td className="max-w-[32rem] wrap-anywhere px-4 py-2.5 text-xs text-fg-muted">
               {f.reason || <span className="text-fg-disabled">—</span>}
             </td>
-            <td className="truncate px-4 py-2.5 font-mono text-[11px] text-fg-subtle">
+            <td className="max-w-[40rem] wrap-anywhere px-4 py-2.5 font-mono text-[11px] text-fg-subtle">
               {f.user_agent || <span className="text-fg-disabled">—</span>}
             </td>
           </tr>

@@ -22,6 +22,7 @@ export interface NativeSelectProps
 }
 
 type OptionProps = { value?: string; disabled?: boolean; children?: React.ReactNode };
+const EMPTY_OPTION_VALUE = "__bw_empty_option__";
 
 /**
  * Custom select with the old NativeSelect API, so forms can migrate without
@@ -47,23 +48,23 @@ export const NativeSelect = forwardRef<HTMLButtonElement, NativeSelectProps>(
     const options = Children.toArray(children).filter(isValidElement) as ReactElement<OptionProps>[];
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
     const selectedValue = value ?? uncontrolledValue;
-    const selectedOption = options.find((option) => option.props.value === selectedValue);
+    const selectedOption = options.find((option) => (option.props.value ?? "") === selectedValue);
 
     const changeValue = (nextValue: string) => {
-      if (value === undefined) setUncontrolledValue(nextValue);
+      const actualValue = nextValue === EMPTY_OPTION_VALUE ? "" : nextValue;
+      if (value === undefined) setUncontrolledValue(actualValue);
       onChange?.({
-        target: { value: nextValue },
-        currentTarget: { value: nextValue },
+        target: { value: actualValue },
+        currentTarget: { value: actualValue },
       } as ChangeEvent<HTMLSelectElement>);
     };
 
     return (
       <SelectPrimitive.Root
-        value={selectedValue || undefined}
+        value={selectedValue || EMPTY_OPTION_VALUE}
         onValueChange={changeValue}
         disabled={disabled}
         required={required}
-        name={name}
       >
         <SelectPrimitive.Trigger
           ref={ref}
@@ -77,7 +78,9 @@ export const NativeSelect = forwardRef<HTMLButtonElement, NativeSelectProps>(
             className,
           )}
         >
-          <SelectPrimitive.Value placeholder={selectedOption?.props.children ?? "Select…"} />
+          <SelectPrimitive.Value>
+            {selectedOption?.props.children ?? "Select…"}
+          </SelectPrimitive.Value>
           <SelectPrimitive.Icon>
             <ChevronDown size={13} className="text-fg-subtle" aria-hidden="true" />
           </SelectPrimitive.Icon>
@@ -92,10 +95,11 @@ export const NativeSelect = forwardRef<HTMLButtonElement, NativeSelectProps>(
             <SelectPrimitive.Viewport className="max-h-72">
               {options.map((option, index) => {
                 const optionValue = option.props.value ?? `option-${index}`;
+                const selectValue = optionValue || EMPTY_OPTION_VALUE;
                 return (
                   <SelectPrimitive.Item
-                    key={optionValue}
-                    value={optionValue}
+                    key={`${selectValue}-${index}`}
+                    value={selectValue}
                     disabled={option.props.disabled}
                     className="relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-7 pr-2 text-sm text-fg-muted outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-fg data-[disabled]:opacity-40"
                   >

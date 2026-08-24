@@ -22,6 +22,7 @@ const SAMPLE_EVENTS: Array<{ value: PreviewSampleKind; label: string }> = [
   { value: "rds_auth_failure", label: "RDS proxy auth failure" },
   { value: "service_down", label: "ECS: service went down" },
   { value: "service_degraded", label: "ECS: service degraded" },
+  { value: "service_unknown", label: "ECS: service monitoring uncertain" },
   { value: "service_up", label: "ECS: service recovered" },
   { value: "probe_agent_stale", label: "ECS: probe agent stale" },
 ];

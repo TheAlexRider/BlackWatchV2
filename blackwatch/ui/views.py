@@ -19,7 +19,7 @@ from .. import noise, storage
 from ..connectors import runner as connector_runner
 from ..connectors.models import (
     AwsCloudtrailSqsConfig, AwsEcsHealthConfig,
-    AwsPostureDriftConfig, AwsS3DriftConfig,
+    AwsPostureDriftConfig, AwsS3AccessLogsConfig, AwsS3DriftConfig,
     CertProbeConfig,
 )
 from ..notify import router as notify_router
@@ -594,7 +594,7 @@ def connector_save_aws_ecs(
     name: str = Form(...),
     vpc: str = Form(...),
     aws_region: str = Form("us-west-1"),
-    aws_profile: str = Form("blackwatch"),
+    aws_profile: str = Form(""),
     interval_seconds: int = Form(60),
     running_smoothing_minutes: int = Form(5),
 ) -> RedirectResponse:
@@ -838,6 +838,30 @@ def connector_save_aws_s3(
     ).model_dump()
     cid = connector_id or str(uuid.uuid4())
     storage.upsert_connector(cid, name, "aws_s3_drift", config)
+    return _settings_redirect("saved (test to verify, then enable)")
+
+
+@router.post("/ui/connectors/save_aws_s3_access")
+def connector_save_aws_s3_access(
+    connector_id: str = Form(""),
+    name: str = Form(...),
+    bucket: str = Form(...),
+    prefix: str = Form(""),
+    aws_region: str = Form("us-west-1"),
+    aws_profile: str = Form(""),
+    interval_seconds: int = Form(300),
+    max_files_per_run: int = Form(200),
+) -> RedirectResponse:
+    config = AwsS3AccessLogsConfig(
+        bucket=bucket.strip(),
+        prefix=prefix.strip(),
+        aws_region=aws_region or "us-west-1",
+        aws_profile=aws_profile or None,
+        interval_seconds=interval_seconds,
+        max_files_per_run=max_files_per_run,
+    ).model_dump()
+    cid = connector_id or str(uuid.uuid4())
+    storage.upsert_connector(cid, name, "aws_s3_access_logs", config)
     return _settings_redirect("saved (test to verify, then enable)")
 
 

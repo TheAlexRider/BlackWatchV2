@@ -53,6 +53,10 @@ def _ecs_severity(action: str, tags: dict[str, Any] | None) -> Severity:
         return Severity.critical if prod else Severity.high
     if action == "service.degraded":
         return Severity.high if prod else Severity.medium
+    if action == "service.unknown":
+        # Monitoring uncertainty is not a confirmed outage, but sustained
+        # inability to reach a production target is still high-signal.
+        return Severity.high if prod else Severity.medium
     if action == "probe.agent.stale":
         return Severity.critical  # whole VPC's probe visibility is offline
     if action in ("service.up", "probe.agent.recovered"):
@@ -107,6 +111,7 @@ def _friendly_service_message(
     when: datetime | None = None,
     down_since: datetime | None = None,
     down_seconds: float | None = None,
+    unknown_seconds: float | None = None,
     latency_ms: int | None = None,
 ) -> str:
     """Build the pre-formatted Slack/Discord/Teams body for an ECS lifecycle
@@ -151,8 +156,21 @@ def _friendly_service_message(
         lines.append(f"• *VPC:* {vpc}")
         if down_seconds is not None and down_seconds > 0:
             lines.append(f"• *Was down for:* {_fmt_duration(down_seconds)}")
+        if unknown_seconds is not None and unknown_seconds > 0:
+            lines.append(f"• *Monitoring was uncertain for:* {_fmt_duration(unknown_seconds)}")
         if latency_ms is not None:
             lines.append(f"• *Latency now:* {latency_ms} ms")
+        if env_line:
+            lines.append(env_line.rstrip("\n"))
+        return "\n".join(lines)
+
+    if action == "service.unknown":
+        lines = [f"*Unable to verify {name}*"]
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"• *VPC:* {vpc}")
+        lines.append("• *Signal:* probe could not determine service availability")
+        if error:
+            lines.append(f"• *Reason:* {_down_hint(error)}")
         if env_line:
             lines.append(env_line.rstrip("\n"))
         return "\n".join(lines)
@@ -184,6 +202,10 @@ DOWN_THRESHOLD = 2
 # probe, spamming the channel. Requiring 2 consecutive successes means
 # recovery only fires when the service actually stabilised.
 UP_THRESHOLD = 2
+# A network/DNS failure is not proof that the service is down. Alert only when
+# the target has remained unverifiable for ten minutes, independent of the
+# probe interval.
+UNKNOWN_AFTER_SECONDS = 10 * 60
 
 
 def project(event: Event) -> list[Event]:
@@ -255,6 +277,10 @@ def _project_result(event: Event) -> list[Event]:
     fails = (prev["consecutive_fails"] if prev else 0)
     succs = (prev["consecutive_success"] if prev else 0)
     prev_down_since = (prev.get("down_since") if prev else None)
+    prev_extra = (prev.get("extra") or {}) if prev else {}
+    unknown_since = prev_extra.get("unknown_since")
+    unknown_streak = int(prev_extra.get("unknown_streak") or 0)
+    unknown_alerted = bool(prev_extra.get("unknown_alerted"))
 
     # Hysteresis bookkeeping. `unknown` resets both counters since it
     # represents indeterminate state -- neither "this attempt confirmed
@@ -262,10 +288,25 @@ def _project_result(event: Event) -> list[Event]:
     # no longer mean anything definite.
     if incoming_status == "up":
         succs += 1; fails = 0
+        unknown_streak = 0
     elif incoming_status in ("down", "degraded"):
         fails += 1; succs = 0
+        unknown_streak = 0
     else:  # 'unknown'
         fails = 0; succs = 0
+        unknown_streak += 1
+        if unknown_since is None:
+            unknown_since = when.isoformat()
+
+    unknown_duration = 0.0
+    if unknown_since is not None:
+        try:
+            unknown_duration = max(
+                0, (when - datetime.fromisoformat(unknown_since)).total_seconds()
+            )
+        except (TypeError, ValueError):
+            unknown_duration = 0.0
+    unknown_ready = unknown_duration >= UNKNOWN_AFTER_SECONDS
 
     # Decide what the *effective* status should be after hysteresis.
     effective = prev_status if prev_status else incoming_status
@@ -274,9 +315,10 @@ def _project_result(event: Event) -> list[Event]:
     elif incoming_status in ("down", "degraded") and fails >= DOWN_THRESHOLD:
         effective = incoming_status
     elif incoming_status == "unknown":
-        # Unknown takes effect immediately -- no hysteresis. It's not a
-        # signal we're confident enough to delay; it IS the confidence level.
-        effective = "unknown"
+        # Network uncertainty gets a small amount of hysteresis. Preserve an
+        # already-known status for one failed probe, then surface the unknown
+        # state when it persists. This avoids paging on one transient timeout.
+        effective = "unknown" if unknown_ready else (prev_status or "unknown")
 
     # Track how long the service has been continuously down. Set on the
     # transition INTO down/degraded (so it survives subsequent down probes),
@@ -287,26 +329,43 @@ def _project_result(event: Event) -> list[Event]:
     else:
         down_since = None
 
+    state_extra = {
+        "last_raw_status": incoming_status,
+        "last_error": e.get("error"),
+        "tier_extra": e.get("result_extra") or {},
+    }
+    if incoming_status == "unknown" or effective == "unknown":
+        state_extra["unknown_since"] = unknown_since
+        state_extra["unknown_streak"] = unknown_streak
+        state_extra["unknown_alerted"] = unknown_alerted or unknown_ready
+
     storage.upsert_service_status(
         target_id, vpc=vpc, name=name, tier=tier,
         status=effective, last_seen=when, latency_ms=latency_ms,
         consecutive_fails=fails, consecutive_success=succs,
         down_since=down_since,
-        extra={
-            "last_raw_status": incoming_status,
-            "last_error": e.get("error"),
-            "tier_extra": e.get("result_extra") or {},
-        },
+        extra=state_extra,
     )
 
     derived: list[Event] = []
-    if prev_status != effective:
+    emits_unknown = (
+        effective == "unknown"
+        and unknown_ready
+        and not unknown_alerted
+    )
+    if prev_status != effective or emits_unknown:
         # Transitioned. Emit the right action.
         action = {
             "up": "service.up",
             "down": "service.down",
             "degraded": "service.degraded",
+            "unknown": "service.unknown",
         }.get(effective)
+        # Do not send a recovery for a single/unalerted unknown result. A
+        # recovery pairs with an emitted unknown alert, just as a normal
+        # recovery pairs with a real down/degraded transition.
+        if action == "service.up" and prev_status == "unknown" and not unknown_alerted:
+            action = None
         if action:
             # Promote target's tags onto the derived event so per-env routing
             # works (e.g. service-down-prod-critical rule) AND so the severity
@@ -323,6 +382,15 @@ def _project_result(event: Event) -> list[Event]:
                 except Exception:
                     down_seconds = None
 
+            unknown_seconds: float | None = None
+            if action == "service.up" and prev_status == "unknown" and unknown_since:
+                try:
+                    unknown_seconds = max(
+                        0, (when - datetime.fromisoformat(unknown_since)).total_seconds()
+                    )
+                except (TypeError, ValueError):
+                    unknown_seconds = None
+
             extras = {
                 "vpc": vpc, "name": name, "tier": tier,
                 "target_id": target_id, "prev_status": prev_status,
@@ -336,6 +404,7 @@ def _project_result(event: Event) -> list[Event]:
                     when=when,
                     down_since=prev_down_since,
                     down_seconds=down_seconds,
+                    unknown_seconds=unknown_seconds,
                     latency_ms=latency_ms,
                 ),
             }
@@ -343,6 +412,8 @@ def _project_result(event: Event) -> list[Event]:
                 extras["tags"] = target_tags
             if down_seconds is not None:
                 extras["down_seconds"] = int(down_seconds)
+            if unknown_seconds is not None:
+                extras["unknown_seconds"] = int(unknown_seconds)
 
             derived.append(_derive(
                 event, action, target_id, extras, when,

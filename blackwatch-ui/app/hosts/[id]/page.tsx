@@ -1,6 +1,5 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchHostDetail, hostLabel } from "@/lib/api";
 import { HostDisplayNameEditor } from "@/components/domain/HostDisplayNameEditor";
@@ -41,15 +40,6 @@ export default async function HostDetailPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/hosts"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to hosts
-        </Link>
-      </div>
-
       <PageHeader
         title={host ? hostLabel({ ...host, instance_id: id }) : id}
         subtitle={
@@ -57,6 +47,7 @@ export default async function HostDetailPage({
             ? [host.hostname, id].filter(Boolean).join(" · ")
             : "no hostname reported"
         }
+        breadcrumbs={[{ label: "Hosts", href: "/hosts" }, { label: host ? hostLabel({ ...host, instance_id: id }) : id }]}
       />
 
       {!host && (

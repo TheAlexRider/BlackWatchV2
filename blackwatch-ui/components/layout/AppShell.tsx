@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { TopNav } from "./TopNav";
 import { SideNav } from "./SideNav";
@@ -21,6 +21,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );
 
+  useEffect(() => {
+    if (chromeless) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("main-content")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [chromeless, pathname]);
+
   if (chromeless) {
     return <div className="min-h-dvh">{children}</div>;
   }
@@ -30,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <TopNav onMenuClick={() => setNavOpen((v) => !v)} menuOpen={navOpen} />
       <div className="flex flex-1 overflow-hidden">
         <SideNav mobileOpen={navOpen} onCloseMobile={() => setNavOpen(false)} />
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
+        <main id="main-content" tabIndex={-1} aria-label="Main content" className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
           <div data-impeccable-variants="e6f6884f" data-impeccable-variant-count="3" style={{ display: "contents" }}>
             {/* impeccable-variants-start e6f6884f */}
             {/* Original */}

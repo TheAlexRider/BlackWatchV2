@@ -25,22 +25,21 @@ Both live at `/notifications` in the dashboard. Recent firings show up in the
 
 ### Secrets — where they live
 
-BlackWatch **never stores secrets in the database**. Anywhere a field asks for
-a "password" or "routing key", you supply the **name of an environment
-variable** that holds the actual secret. The variable is set on the `app`
-container in `docker-compose.yml`:
+BlackWatch **never stores secrets in the database**. PagerDuty still uses an
+environment variable name for its routing key. SES API email does not require
+an email secret: the AWS SDK uses the EC2 instance role automatically. The
+variable for PagerDuty is set on the `app` container in `docker-compose.yml`:
 
 ```yaml
 services:
   app:
     environment:
-      SMTP_PASS: ${SMTP_PASS}            # email password
       PD_ROUTING_KEY: ${PD_ROUTING_KEY}  # pagerduty key
 ```
 
-…and the actual values come from a host-local `.env` file (not committed)
-or from your shell. Channel forms reference these by name (`password_env:
-SMTP_PASS`), so the secret never touches the DB.
+The actual value comes from a host-local `.env` file (not committed) or from
+your shell. The channel form references only the variable name, so the secret
+never touches the DB.
 
 ---
 
@@ -155,70 +154,54 @@ shape before pointing a real channel at it.
 
 ---
 
-## 3. Email (SMTP)
+## 3. Email (Amazon SES API)
 
 ### Prerequisites
-- An SMTP relay you can authenticate against. Common choices:
-  - **Gmail** with an App Password
-  - **AWS SES** (recommended for AWS-shop)
-  - Your own MX (Postfix, etc.)
+- An Amazon SES identity verified in the region you will use
+- An IAM policy allowing `ses:SendEmail` and `ses:SendRawEmail`
+- If BlackWatch runs on EC2, attach that policy to the instance role
 - A `From` address the relay will let you send as
 - One or more `To` addresses
+
+BlackWatch uses the AWS SDK credential chain. On EC2 this means the attached
+instance role is used automatically; do not create an AWS profile, mount an
+AWS credentials file, or put an SES password in `.env`.
 
 ### Configure in BlackWatch
 
 1. **+ add channel** → **Email**
 2. **Name**: `ops-email`
-3. **SMTP host**: e.g. `smtp.gmail.com`, `email-smtp.us-west-1.amazonaws.com`
-4. **SMTP port**: `587` (STARTTLS) is the common pick; `465` if your relay
-   uses implicit TLS; `25` only on internal/trusted networks
-5. **Use TLS**: leave ticked (STARTTLS)
-6. **SMTP user**: usually the full email address for Gmail; for SES it's the
-   IAM-SMTP user (NOT your normal IAM user — see SES below)
-7. **Password env var**: just the **name** of the env var holding the password
-   — e.g. `SMTP_PASS`. The actual value goes in `docker-compose.yml`.
-8. **From**: `alerts@example.com`
-9. **To**: comma-separated list: `you@example.com, oncall@example.com`
-10. **Add channel**, **Test**, **Enable**
+3. **AWS region**: for example `us-west-1`
+4. **Configuration set**: optional; leave blank unless you use one
+5. **From**: `alerts@mail.example.com`
+6. **To**: comma-separated list: `you@example.com, oncall@example.com`
+7. **Add channel**, **Test**, **Enable**
 
-### Setting the env var
+### IAM policy example
 
-In `docker-compose.yml`, on the `app` service:
+Attach a policy like this to the EC2 instance role (adjust region, account,
+and identity to your deployment):
 
-```yaml
-environment:
-  SMTP_PASS: ${SMTP_PASS}
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["ses:SendEmail", "ses:SendRawEmail"],
+    "Resource": [
+      "arn:aws:ses:us-west-1:095899260107:identity/mail.longhealth.io",
+      "arn:aws:ses:us-west-1:095899260107:configuration-set/*"
+    ]
+  }]
+}
 ```
 
-Then in a host-local `.env` file (gitignored):
+### SMTP compatibility fallback
 
-```
-SMTP_PASS=your-actual-app-password-here
-```
-
-Run `docker compose up -d app` to apply.
-
-### Provider-specific notes
-
-**Gmail** — won't accept your real account password. Steps:
-1. Enable 2FA on the account
-2. Go to <https://myaccount.google.com/apppasswords>
-3. Generate an App Password named "BlackWatch"
-4. Copy the 16-char password → that's what goes in `SMTP_PASS`
-5. **SMTP host**: `smtp.gmail.com`, **port**: `587`, **TLS**: on
-
-**AWS SES** — recommended for production:
-1. Verify your `From` domain or address in SES
-2. Move out of sandbox if needed (request prod access)
-3. **SMTP credentials** are NOT your IAM access keys — go to
-   SES console → **SMTP settings** → **Create SMTP credentials**
-4. **SMTP user**: the generated `AKIA…` looking string from SES
-5. **Password env var name**: e.g. `SES_SMTP_PASS`, value = the long
-   string SES gave you
-6. **Host**: `email-smtp.<region>.amazonaws.com`, **port**: `587`
-
-**Office 365** — usually needs an OAuth-capable client, harder to set up
-with plain SMTP. Use a relay or switch to a different channel.
+SMTP is still supported for non-SES relays when a channel config explicitly
+sets `provider: smtp`, along with `smtp_host`, `smtp_user`, `password_env`, and
+the other SMTP fields. The normal UI intentionally configures SES API only so
+AWS deployments do not need long-lived SMTP secrets.
 
 ---
 
@@ -405,8 +388,10 @@ above it.
 |---|---|
 | HTTP 401 / 403 | Wrong webhook URL or auth-env value |
 | HTTP 404 | URL typo or webhook was deleted at the provider |
-| Timeout | Wrong port (e.g. 25 instead of 587 for SMTP), or firewall blocking egress from the BlackWatch host |
-| "SMTP auth failed" | Wrong `password_env` name, env var not set on the container, or provider requires an app password (Gmail) |
+| Timeout | Network egress is blocked, or an SMTP fallback uses the wrong port |
+| "AccessDenied" from SES | The instance role is missing `ses:SendRawEmail`, or the From identity/region does not match the IAM policy |
+| "Email address is not verified" | Verify the From address/domain in the SES region configured for the channel |
+| "SMTP auth failed" | Only applies to the explicit SMTP fallback: check `password_env` and the relay credentials |
 | "missing routing key" | PagerDuty `routing_key_env` set to a name but the env var isn't on the container |
 
 After fixing the env var, run `docker compose up -d app` (NOT `restart` — env

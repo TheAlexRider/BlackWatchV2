@@ -52,6 +52,13 @@ export interface EventsResponse {
   events: EventEnvelope[];
 }
 
+export interface EventFilterOptions {
+  categories: string[];
+  modules: string[];
+  actions: string[];
+  severities: string[];
+}
+
 // --- Posture findings ------------------------------------------------------
 
 // --- IAM (AWS control-plane: logins, IAM, network, KMS, storage, CT) -----
@@ -1139,6 +1146,13 @@ export interface StorageCriticalEvent {
   source_ip: string | null;
 }
 
+export interface StorageS3SecurityEvent extends StorageCriticalEvent {
+  signal: string;
+  reason: string;
+  source_ips: string[];
+  count: number;
+}
+
 export interface StorageSummary {
   hours: number;
   buckets: {
@@ -1146,7 +1160,69 @@ export interface StorageSummary {
     public: number;
   };
   groups: Record<StorageGroup, StorageGroupCounts>;
+  recent_s3_security: StorageS3SecurityEvent[];
   recent_critical: StorageCriticalEvent[];
+}
+
+export type InvestigationStatus =
+  | "ready"
+  | "investigating"
+  | "contained"
+  | "confirmed_malicious"
+  | "confirmed_expected"
+  | "false_positive"
+  | "inconclusive"
+  | "closed";
+
+export interface Investigation {
+  id: string;
+  title: string;
+  status: InvestigationStatus;
+  priority: "low" | "medium" | "high" | "critical";
+  owner: string;
+  time_start: string;
+  time_end: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  result_count: number;
+  observables: string[];
+}
+
+export interface InvestigationNote {
+  id: number;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+export interface InvestigationResult {
+  event_id: string | null;
+  match_reason: string;
+  event: EventEnvelope;
+  source_kind?: "event" | "projection";
+  source_label?: string;
+  category?: string;
+  observed_at?: string | null;
+}
+
+export interface InvestigationScan {
+  id: string;
+  status: "queued" | "running" | "complete" | "failed";
+  result_count: number;
+  error: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface InvestigationDetail extends Investigation {
+  notes: InvestigationNote[];
+  results: InvestigationResult[];
+  scan?: InvestigationScan | null;
+}
+
+export interface InvestigationsResponse {
+  investigations: Investigation[];
 }
 
 // --- Connectors -----------------------------------------------------------
@@ -1155,6 +1231,7 @@ export type ConnectorType =
   | "aws_cloudtrail_sqs"
   | "aws_ecs_health"
   | "aws_s3_drift"
+  | "aws_s3_access_logs"
   | "aws_posture_drift"
   | "cert_probe";
 
@@ -1229,6 +1306,16 @@ export interface EcsHealthConfig {
 export interface S3DriftConfig {
   aws_profile?: string;
   interval_seconds?: number;
+}
+
+export interface S3AccessLogsConfig {
+  bucket?: string;
+  aws_region?: string;
+  aws_profile?: string;
+  interval_seconds?: number;
+  overlap_seconds?: number;
+  max_files_per_run?: number;
+  prefix?: string;
 }
 
 export interface CertProbeTarget {

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchFimInstance } from "@/lib/api";
 import type {
@@ -27,15 +26,6 @@ export default async function FimInstancePage({
   return (
     <>
       <AutoRefresh intervalMs={15_000} />
-      <div className="mb-4">
-        <Link
-          href="/fim"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to FIM
-        </Link>
-      </div>
-
       <PageHeader
         title={id}
         subtitle={
@@ -43,6 +33,7 @@ export default async function FimInstancePage({
             ? `${data.coverage.files_tracked} files tracked · ${data.coverage.paths_configured} paths configured`
             : "no coverage data yet"
         }
+        breadcrumbs={[{ label: "FIM", href: "/fim" }, { label: id }]}
       />
 
       <CoverageSection coverage={data.coverage} />

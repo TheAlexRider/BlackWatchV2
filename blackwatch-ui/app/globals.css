@@ -90,6 +90,14 @@
     }
   }
 
+  /* Preserve a clear non-motion interaction cue when animation is reduced. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin,
+    .animate-pulse {
+      animation: none !important;
+    }
+  }
+
   /* Default mono everywhere a developer would expect it */
   code, pre, kbd, samp, .mono {
     font-family: var(--font-mono);
@@ -127,30 +135,47 @@
      visible 1-px line centered on it. That's the "column line" — same
      hairline as the divider between columns, but signal-colored on hover. */
   .bw-table-shell {
+    width: 100%;
     max-width: 100%;
+    min-width: 0;
+    position: relative;
     overflow-x: auto;
+    overflow-y: visible;
     overscroll-behavior-x: contain;
-    scrollbar-gutter: stable;
+    /* Do not reserve a phantom inline scrollbar gutter. That makes the final
+       column look detached from the table/panel edge when no scrollbar is
+       visible. The shell still owns overflow when the table grows. */
+    scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: touch;
+    isolation: isolate;
   }
 
+  /* Handle sits fully inside its own cell, flush with the right edge.
+     Keeping it inside (rather than overhanging into the next column) means
+     hovering near the leading edge of a column never hits the previous
+     column's resize handle. The visible hairline is anchored to the cell's
+     right edge, so the last column shows the resize line exactly on the
+     table boundary — no phantom divider inside the final cell. */
   .bw-col-resize-handle {
     position: absolute;
     top: 0;
-    right: -5px;
+    right: 0;
     z-index: 10;
-    width: 10px;
+    width: 8px;
     height: 100%;
     margin: 0;
     padding: 0;
     cursor: col-resize;
     border: 0;
     background: transparent;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
     transition: background 120ms ease;
   }
   .bw-col-resize-handle::after {
     content: "";
     position: absolute;
-    left: 50%;
+    right: 0;
     top: 15%;
     bottom: 15%;
     width: 1px;
@@ -174,7 +199,7 @@
 
   .bw-table {
     width: 100%;
-    min-width: max(100%, 720px);
+    min-width: 720px;
     border-collapse: separate;
     border-spacing: 0;
     font-variant-numeric: tabular-nums;
@@ -182,6 +207,9 @@
        handles provide minimum hints, while auto layout lets neighboring
        columns adapt when a cell expands. */
     table-layout: fixed;
+    /* The shell owns horizontal scrolling; the surrounding panel never
+       grows or moves when a column is widened. */
+    max-width: none;
   }
 
   .bw-table th,
@@ -196,6 +224,7 @@
     position: -webkit-sticky;
     top: 0;
     z-index: 5;
+    box-sizing: border-box;
     /* Solid backdrop so scrolled rows don't bleed through. */
     background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface-1));
     padding: 0.7rem 0.8rem;
@@ -284,6 +313,29 @@
     word-break: break-word;
   }
 
+  /* Table data is inspectable content, not a preview. Never hide a value
+     behind an ellipsis; users can resize the column and the row grows with
+     the wrapped content. Keep nowrap only for explicit controls such as
+     action buttons. */
+  .bw-table tbody td.truncate,
+  .bw-table tbody th.truncate,
+  .bw-table tbody td .truncate,
+  .bw-table tbody th .truncate {
+    max-width: none;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .bw-table tbody td,
+  .bw-table tbody th {
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
   /* Empty state row — spans the whole table, centered, muted. */
   .bw-table tbody td.bw-empty {
     padding: 2rem 1rem;
@@ -316,7 +368,8 @@
   /* Prevent long unbreakable identifiers (rule ids, event ids, ARNs) from
      forcing horizontal scroll on mobile. */
   code, pre, .font-mono {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   /* Mobile tables become readable cards instead of forcing users to drag a

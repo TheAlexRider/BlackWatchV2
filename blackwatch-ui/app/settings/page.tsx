@@ -8,6 +8,7 @@ import { KeyValueRow } from "@/components/layout/KeyValueRow";
 import { Input } from "@/components/ui/Input";
 import { PendingButton } from "@/components/ui/PendingButton";
 import { FlashToast } from "@/components/ui/FlashToast";
+import { TablePageSizeSetting } from "@/components/ui/TablePreferences";
 
 import { changePasswordAction } from "./actions";
 
@@ -28,6 +29,13 @@ export default async function SettingsPage({
       />
 
       {msg && <FlashToast message={msg} />}
+
+      <section className="space-y-2">
+        <SectionLabel>table display</SectionLabel>
+        <DataPanel className="p-4" scrollX={false}>
+          <TablePageSizeSetting />
+        </DataPanel>
+      </section>
 
       {/* Account credentials — the one thing on this page that actually
           writes to the DB. Everything else is just documentation. */}

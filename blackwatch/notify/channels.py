@@ -3,9 +3,9 @@
 Pluggable channel types — slack, webhook, email, pagerduty, teams, discord —
 each with a Jinja2-rendered message body and a default template per type.
 
-Secrets are NEVER stored in channel config. Sensitive values are referenced
-by env var name (e.g. `password_env: SMTP_PASS`, `routing_key_env: PD_KEY`);
-this module reads the env at send time. Set the env var in docker-compose.
+Secrets are NEVER stored in channel config. AWS SES API delivery uses the
+standard boto3 credential chain (including an EC2 instance role); SMTP remains
+available only when a channel explicitly sets `provider: smtp`.
 
 Sends are best-effort and never raise — failures are returned, so the worker
 can record them and retry.
@@ -17,6 +17,7 @@ import json
 import os
 import smtplib
 import urllib.request
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
@@ -595,18 +596,13 @@ def _send_pagerduty(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
 
 
 def _send_email(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
-    from email.mime.multipart import MIMEMultipart
-    host = cfg.get("smtp_host")
-    port = int(cfg.get("smtp_port", 587))
     from_addr = cfg.get("from_addr")
     to_addrs = cfg.get("to_addrs") or []
     if isinstance(to_addrs, str):
         to_addrs = [to_addrs]
-    if not (host and from_addr and to_addrs):
-        return False, "missing smtp_host / from_addr / to_addrs"
-    pw_env = cfg.get("password_env")
-    password = _env(pw_env) if pw_env else cfg.get("password")
-    use_tls = bool(cfg.get("use_tls", True))
+    if not (from_addr and to_addrs):
+        return False, "missing from_addr / to_addrs"
+
     sev = event.severity.value if event.severity else "unscored"
     # Subject prefers a friendly rule name + host label. Falls back to the raw
     # action when neither is present. Format: "[sev] Rule name — Host".
@@ -630,12 +626,51 @@ def _send_email(cfg: dict, body: str, event: Event) -> tuple[bool, str]:
     # rendered so *bold* and lists look right in an email client).
     msg.attach(MIMEText(body, "plain", "utf-8"))
     msg.attach(MIMEText(_body_to_html(body), "html", "utf-8"))
+
+    provider = str(cfg.get("provider") or "ses_api").strip().lower()
+    if provider in {"ses", "ses_api", "aws_ses"}:
+        try:
+            # Import lazily so the rest of the notifier remains usable in
+            # installations that do not send email. boto3 will use the EC2
+            # instance role automatically when no static credentials/profile
+            # are configured.
+            import boto3
+
+            region = str(cfg.get("aws_region") or "us-west-1").strip()
+            client = boto3.client("ses", region_name=region)
+            kwargs: dict[str, Any] = {
+                "Source": from_addr,
+                "Destinations": to_addrs,
+                "RawMessage": {"Data": msg.as_bytes()},
+            }
+            configuration_set = str(cfg.get("configuration_set") or "").strip()
+            if configuration_set:
+                kwargs["ConfigurationSetName"] = configuration_set
+            client.send_raw_email(**kwargs)
+            return True, f"SES API delivered to {len(to_addrs)} recipient(s)"
+        except Exception as exc:
+            return False, str(exc)
+
+    if provider not in {"smtp", "ses_smtp"}:
+        return False, f"unsupported email provider: {provider}"
+
+    # SMTP is retained as an explicit compatibility fallback for non-AWS
+    # relays. It must authenticate when credentials are configured; silently
+    # attempting an unauthenticated send produces an unhelpful 530 error.
+    host = cfg.get("smtp_host")
+    port = int(cfg.get("smtp_port", 587))
+    pw_env = cfg.get("password_env")
+    password = _env(pw_env) if pw_env else cfg.get("password")
+    use_tls = bool(cfg.get("use_tls", True))
+    if not host:
+        return False, "missing smtp_host for SMTP provider"
+    if not cfg.get("smtp_user") or not password:
+        return False, "missing SMTP credentials (smtp_user/password_env)"
     try:
         with smtplib.SMTP(host, port, timeout=_TIMEOUT) as s:
             if use_tls:
                 s.starttls()
-            if cfg.get("smtp_user") and password:
-                s.login(cfg["smtp_user"], password)
+            s.login(cfg["smtp_user"], password)
             s.sendmail(from_addr, to_addrs, msg.as_string())
         return True, f"SMTP delivered to {len(to_addrs)} recipient(s)"
     except Exception as exc:

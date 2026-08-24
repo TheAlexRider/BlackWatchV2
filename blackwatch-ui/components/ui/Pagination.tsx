@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "./Button";
+import { TABLE_PAGE_SIZES } from "./TablePreferences";
 
 export function TablePagination({
   page,
@@ -37,7 +38,7 @@ export function TablePagination({
             onChange={(event) => onPageSizeChange(Number(event.target.value))}
             className="h-7 border border-line-soft bg-canvas px-1.5 text-xs text-fg"
           >
-            {[10, 25, 50, 100].map((size) => (
+            {TABLE_PAGE_SIZES.map((size) => (
               <option key={size} value={size}>{size}</option>
             ))}
           </select>

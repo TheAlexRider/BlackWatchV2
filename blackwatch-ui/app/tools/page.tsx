@@ -1,14 +1,20 @@
 import Link from "next/link";
-import { Globe, Network } from "lucide-react";
+import { Globe, Network, ShieldCheck } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 
 const TOOLS = [
   {
     href: "/tools/ip-lookup",
-    title: "IP lookup",
-    blurb: "Geolocation, ISP, ASN, reverse DNS, and proxy/hosting flags for any IP.",
+    title: "IP intelligence & lookup",
+    blurb: "Geolocation, ISP, ASN, reverse DNS, and proxy/hosting classification for an IP.",
     icon: Globe,
+  },
+  {
+    href: "/events",
+    title: "Event threat intelligence",
+    blurb: "Review Tor, Bogon, and threat-feed enrichment attached to ingested events.",
+    icon: ShieldCheck,
   },
   {
     href: "/tools/dns-lookup",
@@ -23,7 +29,7 @@ export default function ToolsPage() {
     <>
       <PageHeader
         title="Tools"
-        subtitle="Small utilities the operator reaches for. More land here as we need them."
+        subtitle="Look up an observable or review the intelligence attached to collected events."
       />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {TOOLS.map((t) => (
@@ -44,6 +50,11 @@ export default function ToolsPage() {
           </Link>
         ))}
       </div>
+      <p className="mt-5 max-w-3xl text-xs leading-5 text-fg-subtle">
+        IP lookup uses the configured lookup provider for network context. Tor,
+        Bogon, and feed matches are shown from BlackWatch event enrichment when
+        that evidence exists; they are not silently inferred from the lookup.
+      </p>
     </>
   );
 }

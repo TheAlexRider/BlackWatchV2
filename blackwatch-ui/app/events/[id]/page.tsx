@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchEvent } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -9,6 +7,7 @@ import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { IntelBadge, type IntelData } from "@/components/domain/IntelBadge";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 export default async function EventDetailPage({
   params,
@@ -28,16 +27,16 @@ export default async function EventDetailPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/events"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to events
-        </Link>
-      </div>
-
-      <PageHeader title={event.action} subtitle={event.event_id} />
+      <PageHeader
+        title={event.action}
+        subtitle={
+          <span className="inline-flex max-w-full items-center gap-1">
+            <code className="break-all">{event.event_id}</code>
+            <CopyButton value={event.event_id} label="Copy event ID" />
+          </span>
+        }
+        breadcrumbs={[{ label: "Events", href: "/events" }, { label: event.action }]}
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <DataPanel className="p-4">

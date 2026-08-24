@@ -126,6 +126,7 @@ function BucketsTable({ buckets }: { buckets: BucketStatus[] }) {
       <thead>
         <tr className="border-b border-line-soft text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
           <th className="px-4 py-2 text-left font-normal">Bucket</th>
+          <th className="w-44 px-4 py-2 text-left font-normal">Tags</th>
           <th className="w-24 px-4 py-2 text-left font-normal">Region</th>
           <th className="w-28 px-4 py-2 text-left font-normal">Public</th>
           <th className="w-36 px-4 py-2 text-left font-normal">Encryption</th>
@@ -159,14 +160,18 @@ function BucketRow({ bucket: b }: { bucket: BucketStatus }) {
           />
         )}
         <div className="font-mono text-xs text-fg">{b.bucket_name}</div>
-        {b.tags && Object.keys(b.tags).length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-x-2 font-mono text-[10px] text-fg-subtle">
+      </td>
+      <td className="px-4 py-2.5">
+        {b.tags && Object.keys(b.tags).length > 0 ? (
+          <div className="flex flex-wrap gap-1">
             {Object.entries(b.tags).map(([k, v]) => (
-              <code key={k}>
+              <code key={k} className="max-w-full break-words rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
                 {k}={v}
               </code>
             ))}
           </div>
+        ) : (
+          <span className="text-xs text-fg-disabled">—</span>
         )}
       </td>
       <td className="px-4 py-2.5 font-mono text-xs text-fg-muted">

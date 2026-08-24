@@ -6,7 +6,7 @@ import clsx from "clsx";
 export function DataPanel({
   children,
   className,
-  scrollX = true,
+  scrollX = false,
 }: {
   children: React.ReactNode;
   className?: string;
@@ -19,7 +19,6 @@ export function DataPanel({
         scrollX && "max-w-full overflow-x-auto",
         className,
       )}
-      style={scrollX ? { overflowX: "auto" } : undefined}
     >
       {children}
     </section>

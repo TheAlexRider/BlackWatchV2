@@ -34,13 +34,20 @@ export function ResizableTable({
       table.querySelectorAll<HTMLTableCellElement>("thead th"),
     );
     if (headers.length === 0) return;
+    headers.forEach((header) => {
+      if (!header.hasAttribute("scope")) header.setAttribute("scope", "col");
+    });
 
+    const schemaHash = hashString(
+      headers.map((header) => header.textContent?.trim() ?? "").join("|"),
+    );
     const storageId = tableId
-      ? tableId
-      : `auto-${headers.length}-${hashString(
-          headers.map((header) => header.textContent?.trim() ?? "").join("|"),
-        )}`;
-    const storageKey = `bw-cols-${storageId}`;
+      ? `${tableId}-${schemaHash}`
+      : `${window.location.pathname}-auto-${headers.length}-${schemaHash}`;
+    // v4 uses the independent-column model. The versioned key also
+    // prevents widths saved by that model from making columns unexpectedly
+    // narrow after the resize behavior changes.
+    const storageKey = `bw-cols-v4-${storageId}`;
     const saved = readWidths(storageKey, minColumnWidth);
     const cleanups: Array<() => void> = [];
 
@@ -65,8 +72,22 @@ export function ResizableTable({
       ),
     );
 
-    // Batch initial reads before writes to avoid layout thrashing.
-    initialWidths.forEach((width, index) => setColumnWidth(columns[index], width, minColumnWidth));
+    // Keep an explicit pixel width for every column. Native table layout can
+    // redistribute space when only one <col> is changed, so the width array
+    // is the source of truth during a drag.
+    let widths = initialWidths.slice();
+
+    const applyColumnWidths = () => {
+      widths.forEach((width, index) => {
+        setColumnWidth(columns[index], width, minColumnWidth);
+      });
+      const total = widths.reduce((sum, width) => sum + width, 0);
+      // Exact sum means the final column edge is the table edge. The shell
+      // provides the horizontal scrollbar when this exceeds the viewport.
+      table.style.width = `${Math.ceil(total)}px`;
+      table.style.minWidth = `${Math.ceil(total)}px`;
+    };
+    applyColumnWidths();
 
     table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => {
       Array.from(row.children).forEach((cell, index) => {
@@ -77,7 +98,6 @@ export function ResizableTable({
     });
 
     const persist = () => {
-      const widths = columns.map((column) => Math.round(column.getBoundingClientRect().width));
       try {
         localStorage.setItem(storageKey, JSON.stringify(widths));
       } catch {
@@ -88,28 +108,57 @@ export function ResizableTable({
     headers.forEach((header, index) => {
       const handle = document.createElement("button");
       handle.type = "button";
-      handle.className = "bw-col-resize-handle";
+      handle.className = `bw-col-resize-handle${index === headers.length - 1 ? " bw-col-resize-handle-last" : ""}`;
+      handle.setAttribute("role", "separator");
+      handle.setAttribute("aria-orientation", "vertical");
+      handle.setAttribute("aria-valuemin", String(minColumnWidth));
       handle.setAttribute("aria-label", `Resize ${labels[index]} column`);
       handle.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
       handle.title = "Drag to resize. Use arrow keys for precision.";
 
       let startX = 0;
-      let startWidth = 0;
+      let startWidths: number[] = [];
       let activePointerId: number | null = null;
+      let frame: number | null = null;
+      const updateAria = () => {
+        handle.setAttribute("aria-valuenow", String(Math.round(widths[index])));
+        handle.setAttribute("aria-valuetext", `${Math.round(widths[index])} pixels`);
+      };
+      updateAria();
+
+      const applyWidths = (delta: number) => {
+        const targetStart = startWidths[index];
+        widths[index] = Math.max(minColumnWidth, Math.round(targetStart + delta));
+        applyColumnWidths();
+        updateAria();
+      };
 
       const onPointerMove = (event: PointerEvent) => {
         if (activePointerId !== event.pointerId) return;
-        setColumnWidth(columns[index], startWidth + event.clientX - startX, minColumnWidth);
+        const delta = event.clientX - startX;
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => applyWidths(delta));
       };
 
-      const onPointerUp = (event: PointerEvent) => {
-        if (activePointerId !== event.pointerId) return;
+      const finishPointerResize = (pointerId: number) => {
+        if (activePointerId !== pointerId) return;
         activePointerId = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
         persist();
+      };
+
+      const onPointerUp = (event: PointerEvent) => {
+        finishPointerResize(event.pointerId);
+      };
+
+      const onPointerCancel = (event: PointerEvent) => {
+        finishPointerResize(event.pointerId);
       };
 
       const onPointerDown = (event: PointerEvent) => {
@@ -117,19 +166,21 @@ export function ResizableTable({
         event.stopPropagation();
         activePointerId = event.pointerId;
         startX = event.clientX;
-        startWidth = columns[index].getBoundingClientRect().width;
+        startWidths = widths.slice();
         document.body.style.cursor = "col-resize";
         document.body.style.userSelect = "none";
+        handle.setPointerCapture?.(event.pointerId);
         window.addEventListener("pointermove", onPointerMove);
         window.addEventListener("pointerup", onPointerUp);
+        window.addEventListener("pointercancel", onPointerCancel);
       };
 
       const onKeyDown = (event: KeyboardEvent) => {
         const step = event.shiftKey ? 32 : 8;
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
-        const current = columns[index].getBoundingClientRect().width;
-        setColumnWidth(columns[index], current + (event.key === "ArrowRight" ? step : -step), minColumnWidth);
+        startWidths = widths.slice();
+        applyWidths(event.key === "ArrowRight" ? step : -step);
         persist();
       };
 
@@ -142,6 +193,14 @@ export function ResizableTable({
         handle.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (activePointerId !== null) {
+          try {
+            handle.releasePointerCapture?.(activePointerId);
+          } catch {
+            // Pointer capture may already have been implicitly released.
+          }
+        }
         handle.remove();
       });
     });
@@ -152,6 +211,8 @@ export function ResizableTable({
       cleanups.forEach((cleanup) => cleanup());
       colgroup.remove();
       table.style.tableLayout = "";
+      table.style.width = "";
+      table.style.minWidth = "";
     };
   }, [tableId, minColumnWidth]);
 

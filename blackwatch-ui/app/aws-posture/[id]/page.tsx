@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { fetchPostureFinding } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -8,6 +6,7 @@ import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { SeverityBadge } from "@/components/domain/SeverityBadge";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 export default async function PostureFindingDetailPage({
   params,
@@ -23,18 +22,15 @@ export default async function PostureFindingDetailPage({
 
   return (
     <>
-      <div className="mb-4">
-        <Link
-          href="/aws-posture"
-          className="inline-flex items-center gap-1.5 text-xs text-fg-muted transition-colors hover:text-fg"
-        >
-          <ArrowLeft size={12} /> back to posture
-        </Link>
-      </div>
-
       <PageHeader
         title={finding.finding_type}
-        subtitle={finding.resource_id}
+        subtitle={
+          <span className="inline-flex max-w-full items-center gap-1">
+            <code className="break-all">{finding.resource_id}</code>
+            <CopyButton value={finding.resource_id} label="Copy resource ID" />
+          </span>
+        }
+        breadcrumbs={[{ label: "AWS posture", href: "/aws-posture" }, { label: finding.finding_type }]}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

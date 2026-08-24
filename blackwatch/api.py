@@ -4,6 +4,7 @@ event meaning beyond authenticating the source and routing to its module."""
 from __future__ import annotations
 
 import uuid
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -22,6 +23,43 @@ from .rules import engine as rule_engine
 from .rules.model import Condition
 
 router = APIRouter()
+
+
+class InvestigationCreate(BaseModel):
+    ip: str
+    title: str | None = None
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    time_start: datetime | None = None
+    time_end: datetime | None = None
+
+
+class InvestigationNoteCreate(BaseModel):
+    body: str
+
+
+class InvestigationStatusUpdate(BaseModel):
+    status: Literal[
+        "ready", "investigating", "contained", "confirmed_malicious",
+        "confirmed_expected", "false_positive", "inconclusive", "closed",
+    ]
+
+
+def _current_user(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return str(user)
+
+
+def _owned_investigation(request: Request, investigation_id: str) -> tuple[uuid.UUID, dict[str, Any]]:
+    try:
+        parsed = uuid.UUID(investigation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid investigation id") from exc
+    row = storage.get_investigation(parsed)
+    if not row or row["owner"] != _current_user(request):
+        raise HTTPException(status_code=404, detail="investigation not found")
+    return parsed, row
 
 
 # ---------- Auth --------------------------------------------------------------
@@ -192,6 +230,126 @@ def list_events(
         limit=limit,
     )
     return {"count": len(results), "events": results}
+
+
+@router.get("/events/options")
+def event_filter_options() -> dict[str, list[str]]:
+    """Return selectable values for the Events filter bar.
+
+    The values come from stored events, so the UI never invents provider
+    names. A bounded read keeps this endpoint cheap on large installations.
+    """
+    events = storage.query_events(limit=5000)
+    categories: set[str] = set()
+    modules: set[str] = set()
+    actions: set[str] = set()
+    severities: set[str] = set()
+    for event in events:
+        for value, bucket in (
+            (event.get("category"), categories),
+            ((event.get("source") or {}).get("module"), modules),
+            (event.get("action"), actions),
+            (event.get("severity"), severities),
+        ):
+            if value:
+                bucket.add(str(value))
+    return {
+        "categories": sorted(categories),
+        "modules": sorted(modules),
+        "actions": sorted(actions),
+        "severities": sorted(severities),
+    }
+
+
+# ---------- Investigations --------------------------------------------------
+
+@router.get("/investigations")
+def investigations_list(request: Request) -> dict[str, Any]:
+    user = _current_user(request)
+    return {"investigations": storage.list_investigations(owner=user)}
+
+
+@router.post("/investigations", status_code=201)
+def investigations_create(request: Request, payload: InvestigationCreate) -> dict[str, Any]:
+    user = _current_user(request)
+    try:
+        ip = str(ipaddress.ip_address(payload.ip.strip()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ip must be a valid IPv4 or IPv6 address") from exc
+    now = datetime.now(timezone.utc)
+    start = payload.time_start or (now - timedelta(days=30))
+    end = payload.time_end or now
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=400, detail="time range must be valid and no longer than 365 days")
+    title = (payload.title or f"Investigate {ip}").strip()[:160]
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    row = storage.create_investigation(
+        investigation_id=uuid.uuid4(), title=title, owner=user,
+        time_start=start, time_end=end, priority=payload.priority,
+        observable_value=ip,
+    )
+    return row
+
+
+@router.get("/investigations/{investigation_id}")
+def investigations_get(request: Request, investigation_id: str) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    return {
+        **row,
+        "notes": storage.list_investigation_notes(parsed),
+        "results": storage.list_investigation_results(parsed),
+        "scan": storage.get_active_investigation_scan(parsed),
+    }
+
+
+@router.post("/investigations/{investigation_id}/scan", status_code=202)
+def investigations_scan(request: Request, investigation_id: str) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    if row["status"] == "closed":
+        raise HTTPException(status_code=409, detail="closed investigations cannot be scanned")
+    observable = next((value.split(":", 1)[1] for value in row["observables"] if value.startswith("ip:")), None)
+    if not observable:
+        raise HTTPException(status_code=400, detail="investigation has no IP observable")
+    storage.update_investigation_status(parsed, "investigating")
+    scan = storage.create_investigation_scan(scan_id=uuid.uuid4(), investigation_id=parsed, requested_by=_current_user(request))
+    return {"status": scan["status"], "scan_id": scan["id"], "investigation": storage.get_investigation(parsed)}
+
+
+class InvestigationRangeUpdate(BaseModel):
+    time_start: datetime
+    time_end: datetime
+
+
+@router.patch("/investigations/{investigation_id}/range")
+def investigations_range(request: Request, investigation_id: str, payload: InvestigationRangeUpdate) -> dict[str, Any]:
+    parsed, _ = _owned_investigation(request, investigation_id)
+    start = payload.time_start
+    end = payload.time_end
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=400, detail="time range must be valid and no longer than 365 days")
+    storage.update_investigation_range(parsed, start, end)
+    return storage.get_investigation(parsed) or {}
+
+
+@router.post("/investigations/{investigation_id}/notes", status_code=201)
+def investigations_note(
+    request: Request, investigation_id: str, payload: InvestigationNoteCreate,
+) -> dict[str, Any]:
+    parsed, row = _owned_investigation(request, investigation_id)
+    body = payload.body.strip()
+    if not body or len(body) > 10000:
+        raise HTTPException(status_code=400, detail="note must be between 1 and 10000 characters")
+    return storage.add_investigation_note(parsed, row["owner"], body)
+
+
+@router.patch("/investigations/{investigation_id}/status")
+def investigations_status(
+    request: Request, investigation_id: str, payload: InvestigationStatusUpdate,
+) -> dict[str, Any]:
+    parsed, _ = _owned_investigation(request, investigation_id)
+    storage.update_investigation_status(parsed, payload.status)
+    return storage.get_investigation(parsed) or {}
 
 
 @router.get("/events/{event_id}")
@@ -2102,6 +2260,30 @@ def _build_preview_sample(kind: str, payload: dict[str, Any]):
             },
         )
 
+    if kind == "service_unknown":
+        return Event(
+            source=Source(module="ecs.probe", transport="api", account="095899260107",
+                          vendor="aws", region="us-west-1"),
+            category=Category.other,
+            action=sample_action or "service.unknown",
+            outcome=Outcome.failure,
+            severity=Severity.high,
+            target=Target(id="prod/keycloak", type="ecs.service", name="keycloak"),
+            extra={
+                "vpc": "prod", "name": "keycloak", "tier": "http_alive",
+                "target_id": "prod/keycloak", "status": "unknown",
+                "error": "timed out", "tags": {"env": "prod", "tier": "http_alive"},
+                "message": (
+                    "*Unable to verify keycloak*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• *VPC:* prod\n"
+                    "• *Signal:* probe could not determine service availability\n"
+                    "• *Reason:* timeout\n"
+                    "• *Env:* prod"
+                ),
+            },
+        )
+
     if kind == "service_up":
         return Event(
             source=Source(module="ecs.probe", transport="api", account="095899260107",
@@ -2925,6 +3107,35 @@ def _classify_storage(action: str) -> str | None:
     return None
 
 
+def _s3_security_signal(event: dict[str, Any]) -> str | None:
+    """Return a label for high-value S3 object activity.
+
+    Normal S3 request volume stays in the canonical Events stream. The
+    Storage page only surfaces requests that need investigation.
+    """
+    action = event.get("action") or ""
+    if action == "s3.object.access.anonymous":
+        return "Anonymous access"
+    if action != "s3.object.access":
+        return None
+    intel = (event.get("extra") or {}).get("intel") or {}
+    if intel.get("is_tor") is True:
+        return "Tor exit node"
+    if intel.get("feeds"):
+        return "Threat-intel match"
+    return None
+
+
+def _s3_security_reason(event: dict[str, Any], signal: str) -> str:
+    if signal == "Anonymous access":
+        return "S3 access log Requester was '-' (no authenticated AWS requester)."
+    if signal == "Tor exit node":
+        return "The source IP was identified as a Tor exit node."
+    if signal == "Threat-intel match":
+        return "The source IP matched one or more configured threat-intelligence feeds."
+    return "S3 access matched a security signal."
+
+
 @router.get("/storage/summary")
 def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, Any]:
     """Unified counts across all storage domains + a small recent-critical list.
@@ -2942,6 +3153,7 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
 
     per_group = {g: {"total": 0, "critical": 0, "high": 0} for g, _ in _STORAGE_GROUPS}
     recent_critical: list[dict[str, Any]] = []
+    s3_security_groups: dict[tuple[str, str], dict[str, Any]] = {}
     for ev in events:
         action = ev.get("action") or ""
         group = _classify_storage(action)
@@ -2951,6 +3163,32 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
         sev = (ev.get("severity") or "").lower()
         if sev in ("critical", "high"):
             per_group[group][sev] += 1
+            if group == "s3":
+                signal = _s3_security_signal(ev)
+                if signal:
+                    extra = ev.get("extra") or {}
+                    target = ev.get("target") or {}
+                    actor = ev.get("actor") or {}
+                    target_id = str(target.get("id") or "unknown target")
+                    key = (signal, target_id)
+                    bucket = s3_security_groups.setdefault(key, {
+                        "event_id": ev.get("event_id"),
+                        "event_time": ev.get("event_time"),
+                        "action": action,
+                        "signal": signal,
+                        "group": group,
+                        "severity": sev,
+                        "message": extra.get("message"),
+                        "reason": _s3_security_reason(ev, signal),
+                        "target_id": target_id,
+                        "principal": actor.get("principal"),
+                        "source_ips": [],
+                        "count": 0,
+                    })
+                    bucket["count"] += 1
+                    source_ip = actor.get("source_ip")
+                    if source_ip and source_ip not in bucket["source_ips"]:
+                        bucket["source_ips"].append(source_ip)
             if sev == "critical" and len(recent_critical) < 20:
                 extra = ev.get("extra") or {}
                 target = ev.get("target") or {}
@@ -2974,6 +3212,11 @@ def storage_summary(hours: int = Query(default=24, ge=1, le=168)) -> dict[str, A
             "public": public_count,
         },
         "groups": per_group,
+        "recent_s3_security": sorted(
+            s3_security_groups.values(),
+            key=lambda item: item.get("event_time") or "",
+            reverse=True,
+        )[:50],
         "recent_critical": recent_critical,
     }
 
