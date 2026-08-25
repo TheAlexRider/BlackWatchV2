@@ -3,7 +3,8 @@
 Migrations run at most ONCE per file. Every migration must be idempotent at
 the DDL level (CREATE TABLE IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT
 EXISTS) and guarded at the DML level (INSERT ... ON CONFLICT DO NOTHING,
-UPDATE ... WHERE <sentinel>, DO block with an existence check for TRUNCATE).
+UPDATE ... WHERE <sentinel>). Destructive SQL is rejected before execution by
+the data-safety guard.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 from psycopg_pool import ConnectionPool
 
 from .config import settings
+from .db_safety import assert_migration_safe
 
 _pool: ConnectionPool | None = None
 _SQL_DIR = Path(__file__).parent / "sql"
@@ -77,7 +79,9 @@ def _run_migrations() -> None:
         for sql_file in sorted(_SQL_DIR.glob("*.sql")):
             if sql_file.name in applied:
                 continue
-            conn.execute(sql_file.read_text(encoding="utf-8"))
+            sql = sql_file.read_text(encoding="utf-8")
+            assert_migration_safe(sql, source=sql_file.name)
+            conn.execute(sql)
             conn.execute(
                 "INSERT INTO schema_migrations (filename) VALUES (%s) "
                 "ON CONFLICT (filename) DO NOTHING",

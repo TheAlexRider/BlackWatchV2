@@ -1,15 +1,15 @@
--- Drop cpu_load_norm as a user-facing perf metric. Everything now uses
--- cpu_utilization_pct (true /proc/stat CPU %, matches CloudWatch).
+-- Retire cpu_load_norm as the default user-facing perf metric. Everything new
+-- uses cpu_utilization_pct (true /proc/stat CPU %, matches CloudWatch).
 --
 -- Steps:
 --   1. Rewrite any existing rules that reference cpu_load_norm to use
 --      cpu_utilization_pct. Preserves rule identity and channels; the
 --      threshold may need operator review since the semantics differ
 --      (queue-depth 90 != utilization 90).
---   2. Drop cpu_load_norm from the metric CHECK constraint.
---   3. Truncate host_metrics_hourly. Existing rows stored queue-depth
---      values in the cpu_* columns (chart showed >100%). Fresh data
---      populated by the projection rollup will be true utilization %.
+--   2. Keep cpu_load_norm in the metric CHECK constraint for existing rules.
+--   3. Preserve host_metrics_hourly. Existing rows are historical evidence;
+--      fresh data populated by the projection rollup will be true utilization
+--      %. No automatic migration may delete those rows.
 
 BEGIN;
 
@@ -22,17 +22,6 @@ ALTER TABLE perf_alert_rules
 
 ALTER TABLE perf_alert_rules
     ADD CONSTRAINT perf_alert_rules_metric_ck
-    CHECK (metric IN ('memory_pct', 'cpu_utilization_pct', 'disk_pct_max'));
-
--- One-shot cleanup: wipe rows that stored queue-depth (>100) in the cpu_*
--- columns. Guarded so this doesn't nuke healthy data if the migration ever
--- gets executed a second time (e.g. an operator restores an old DB without
--- the schema_migrations tracker).
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM host_metrics_hourly WHERE cpu_avg > 100 LIMIT 1) THEN
-        TRUNCATE TABLE host_metrics_hourly;
-    END IF;
-END $$;
+    CHECK (metric IN ('memory_pct', 'cpu_load_norm', 'cpu_utilization_pct', 'disk_pct_max'));
 
 COMMIT;

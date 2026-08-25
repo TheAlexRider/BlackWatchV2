@@ -1,11 +1,11 @@
 id: BW-005
-status: proposed
-title: Pilot contextual notifications for service and probe-agent events
+status: review
+title: Complete contextual notification profiles across all modules
 area: full-stack
 source: notification-r-and-d-and-qa
 severity: high
 confidence: high
-implementation_allowed: false
+implementation_allowed: true
 evidence:
   - file: blackwatch/services/projection.py
     location: "100-196"
@@ -16,19 +16,21 @@ evidence:
   - file: rules/ecs.yaml
     location: "1-84"
     observation: "Service and probe-agent event kinds already have separate detection/routing semantics and severity tiers."
-impact: "A service-down alert can explain what failed, how it is monitored, the evidence, blast radius, and the first remediation steps; recovery and monitoring-silence alerts can be distinct instead of generic."
+impact: "Every supported module and alert kind can explain what happened, how it is monitored, the evidence, blast radius, and the first remediation steps; service/probe alerts validate the model against rich operational context."
 acceptance_criteria:
-  - "Create separate profiles for service.down, service.degraded, service.up, probe.agent.stale, probe.agent.recovered, and probe.agent.first_seen."
-  - "Expose monitor method/tier, VPC, service, error signal, consecutive-failure evidence, latency, last report, downtime, impact, and next steps as safe template fields."
-  - "Move human-facing wording out of the projection/staleness helpers where a profile exists, while preserving structured facts and a fallback message for unmigrated installations."
-  - "Allow different channels, thresholds, throttle/digest policy, and recovery behavior for outage, degradation, recovery, and monitoring-silence events."
-  - "Include a preview/test-send example for each event kind and verify that a service-down template cannot render for a degraded event unless explicitly configured."
-  - "Add regression tests for hysteresis, stale-agent context, profile selection, and fallback rendering."
+  - "Keep one explicit Notification Studio profile for every supported module and alert kind, including EC2/FIM, RDS, IAM/CloudTrail, S3, API Gateway, posture, backup, EFS, network, secrets, VPN, services/probes, certificates, UEBA, and future catalog additions."
+  - "Create separate profiles for service.down, service.degraded, service.unknown, service.up, probe.agent.stale, probe.agent.recovered, and probe.agent.first_seen."
+  - "Expose safe module-specific context fields, including monitor method/tier, VPC, service, error signal, consecutive-failure evidence, latency, last report, downtime, impact, and next steps."
+  - "Move human-facing wording out of projection/staleness helpers whenever a profile exists, while preserving structured facts and a fallback message for unmigrated installations."
+  - "Allow different channels, thresholds, throttle/digest policy, and recovery behavior for every alert kind without changing the shared delivery worker."
+  - "Include a preview/test-send example for every cataloged event kind and explain available fields in the UI."
+  - "Verify an event-kind profile cannot render for another event kind unless the operator explicitly creates that scope."
+  - "Add regression tests for hysteresis, stale-agent context, complete catalog coverage, profile selection, profile-specific rendering, and fallback behavior."
 dependencies:
   - BW-004
 risks:
   - "Availability alerts are operationally sensitive; migration must not change existing severity or notification delivery unintentionally."
   - "Runbook text may become stale; support links and versioned profile changes rather than embedding long procedures in every message."
 proposed_role: coder-backend + coder-ui + coder-tests
-approved_by: null
-notes: "This is only the first validation example for the cross-module Notification Studio; it does not define the overall product scope."
+approved_by: user
+notes: "Broadened and approved by the user. Implement complete module/event-kind coverage using the BW-004 compatibility layer; services/probes remain the rich validation set, not the product boundary."

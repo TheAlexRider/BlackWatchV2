@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from . import auth, coverage, noise, storage
 from .intel import db as intel_db
+from .intel import enrich as intel_enrich
 from .connectors import runner as connector_runner
 from .config import settings
 from .notify import router as notify_router
@@ -3083,6 +3084,17 @@ def api_gw_failures(
 @router.get("/intel/status")
 def intel_status() -> dict[str, Any]:
     return {"feeds": intel_db.feed_meta()}
+
+
+@router.get("/intel/lookup")
+def intel_lookup(ip: str) -> dict[str, Any]:
+    """Read local feed and optional GeoIP context for a single IP."""
+    candidate = ip.strip()
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="ip must be a valid IPv4 or IPv6 address") from exc
+    return {"ip": str(parsed), "intel": intel_enrich.lookup_ip(str(parsed))}
 
 
 # ---------- Storage overview (S3 / EBS / RDS / EFS / Backup / Secrets) -------

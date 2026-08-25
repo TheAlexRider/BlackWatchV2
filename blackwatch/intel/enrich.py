@@ -89,6 +89,20 @@ def _lookup(ip_str: str) -> dict[str, Any] | None:
     return val
 
 
+def lookup_ip(ip_str: str) -> dict[str, Any]:
+    """Return the cached local feed/GeoIP context for one validated IP.
+
+    This is intentionally read-only. Manual tool lookups share the same
+    separate intel database and cache as event enrichment, without writing to
+    the events database or refreshing feeds on demand.
+    """
+    return _lookup(ip_str) or {
+        "feeds": [],
+        "is_tor": False,
+        "is_bogon": False,
+    }
+
+
 def enrich_event(event: Event) -> None:
     """Add {'intel': {...}} to event.extra for the first useful IP observable.
 

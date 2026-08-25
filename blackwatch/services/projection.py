@@ -238,6 +238,12 @@ def _project_heartbeat(event: Event) -> list[Event]:
             event, "probe.agent.first_seen", vpc,
             {
                 "vpc": vpc,
+                "service_name": vpc,
+                "monitor_tier": "probe",
+                "monitoring_method": "probe heartbeat",
+                "monitoring_impact": "Probe coverage for this environment is now established.",
+                "last_report": when.isoformat(),
+                "agent_version": event.extra.get("agent_version"),
                 "message": _friendly_service_message(
                     "probe.agent.first_seen", vpc, vpc, None, when=when,
                 ),
@@ -249,6 +255,12 @@ def _project_heartbeat(event: Event) -> list[Event]:
             event, "probe.agent.recovered", vpc,
             {
                 "vpc": vpc,
+                "service_name": vpc,
+                "monitor_tier": "probe",
+                "monitoring_method": "probe heartbeat",
+                "monitoring_impact": "Probe coverage for this environment is available again.",
+                "last_report": when.isoformat(),
+                "agent_version": event.extra.get("agent_version"),
                 "message": _friendly_service_message(
                     "probe.agent.recovered", vpc, vpc, None, when=when,
                 ),
@@ -393,9 +405,21 @@ def _project_result(event: Event) -> list[Event]:
 
             extras = {
                 "vpc": vpc, "name": name, "tier": tier,
+                "service_name": name, "monitor_tier": tier,
                 "target_id": target_id, "prev_status": prev_status,
                 "status": effective, "latency_ms": latency_ms,
                 "error": e.get("error"),
+                "error_signal": _down_hint(e.get("error")),
+                "monitoring_method": e.get("monitoring_method") or "service probe",
+                "monitoring_impact": e.get("monitoring_impact") or (
+                    "Service availability may be affected." if action in ("service.down", "service.degraded")
+                    else "Service state is being monitored."
+                ),
+                "consecutive_failures": fails,
+                "consecutive_successes": succs,
+                "last_report": when.isoformat(),
+                "downtime_seconds": int(down_seconds) if down_seconds is not None else 0,
+                "unknown_seconds": int(unknown_seconds) if unknown_seconds is not None else int(unknown_duration),
                 # Pre-formatted body — the Slack/Discord/Teams channel
                 # templates use this verbatim (see notify/channels.py).
                 "message": _friendly_service_message(

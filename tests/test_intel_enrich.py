@@ -71,3 +71,17 @@ def test_enrich_marks_bogon(isolated_intel_db):
     enrich.enrich_event(ev)
     assert ev.extra["intel"]["is_bogon"] is True
     assert ev.extra["intel"]["feeds"] == []
+
+
+def test_lookup_ip_returns_local_feed_context(isolated_intel_db):
+    from blackwatch.intel import db, enrich
+
+    bad_ip = "8.8.8.42"
+    s, e = _range_of("8.8.8.0/24")
+    db.replace_feed("test_feed", "test://", [(s, e, "test")])
+
+    result = enrich.lookup_ip(bad_ip)
+
+    assert result["feeds"] == ["test_feed"]
+    assert result["is_tor"] is False
+    assert result["is_bogon"] is False

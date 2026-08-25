@@ -477,6 +477,7 @@ export interface NotificationProfileEvent {
   label: string;
   description: string;
   default_severities: string[];
+  available_fields: string[];
   defaults: NotificationProfileContent;
 }
 
@@ -553,11 +554,36 @@ export interface ModuleCatalogEntry {
   key: string;
   label: string;
   blurb: string;
+  event_count?: number;
+}
+
+export type NotificationCoverageState = "configured" | "fallback" | "muted" | "unconfigured";
+
+export interface NotificationCoverageEvent {
+  event_kind: string;
+  label: string;
+  description: string;
+  default_severities: SeverityKey[];
+  profile_id: string;
+  state: NotificationCoverageState;
+  covered_severities: SeverityKey[];
+  high_critical_gap: boolean;
+}
+
+export interface NotificationCoverageModule {
+  key: string;
+  label: string;
+  blurb: string;
+  event_count: number;
+  counts: Record<NotificationCoverageState, number>;
+  gap_count: number;
+  events: NotificationCoverageEvent[];
 }
 
 export interface RoutesResponse {
   routes: Route[];
   catalog: ModuleCatalogEntry[];
+  coverage: NotificationCoverageModule[];
   custom_bucket_key: string;
   channels: Array<{ id: string; name: string; type: string; enabled: boolean }>;
 }

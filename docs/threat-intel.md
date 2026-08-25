@@ -63,3 +63,25 @@ Stored on `event.extra.intel`:
 
 `GET /api/intel/status` returns per-feed `last_success`, `last_status`, and
 `entries` counts.
+
+## On-demand IP intelligence
+
+The Tools → IP lookup page keeps the no-key path as its default. It uses the
+existing `ip-api.com` fast lookup, local feed matches, reverse DNS, observed
+BlackWatch events, and certificate-transparency pivots when a reverse-DNS
+domain is available. Optional provider failures and quotas never hide those
+results.
+
+The optional provider keys are server-only environment variables:
+
+| Provider | Account / key page | Environment variable | Notes |
+|---|---|---|---|
+| GreyNoise Community | https://viz.greynoise.io/ | `GREYNOISE_API_KEY` | Anonymous Community lookups may work with a limited quota. |
+| AbuseIPDB | https://www.abuseipdb.com/register | `ABUSEIPDB_API_KEY` | Free account checks are quota-limited. |
+| VirusTotal | https://www.virustotal.com/gui/join-us | `VIRUSTOTAL_API_KEY` | Public API use is account-, quota-, and terms-limited. |
+
+For Docker Compose, copy `.env.example` to `.env`, add only the keys you
+choose, and rebuild/restart the `ui` service. Never paste keys into the
+browser, `NEXT_PUBLIC_*` variables, event payloads, or the database. The UI
+labels every provider as available, optional, rate-limited, or unavailable so
+an operator can tell exactly what contributed to a result.

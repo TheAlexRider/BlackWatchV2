@@ -28,7 +28,27 @@ class NotificationProfileTests(unittest.TestCase):
                 "ecs.probe",
                 "cert",
                 "ueba",
+                "aws.compute",
+                "aws.storage",
+                "findings",
             }.issubset(modules)
+        )
+
+    def test_catalog_has_one_editable_profile_for_each_alert_kind(self):
+        events = [event["key"] for module in NOTIFICATION_CATALOG for event in module["events"]]
+        self.assertEqual(len(events), len(set(events)))
+        self.assertTrue(
+            {
+                "host.cpu.anomaly",
+                "rds.parameter_group.modify",
+                "s3.bucket.bpa.delete",
+                "backup.copy_job.start",
+                "compute.imds.modify",
+                "storage.snapshot.modify",
+                "vpn.cert.expiring.warning",
+                "aws.posture.finding.resolved",
+                "finding.malware.detected",
+            }.issubset(events)
         )
 
     def test_profile_match_is_scoped_to_one_alert_kind(self):
@@ -55,6 +75,48 @@ class NotificationProfileTests(unittest.TestCase):
                 "host.fim.owner_changed",
             }.issubset(kinds)
         )
+
+    def test_service_and_probe_alert_kinds_have_separate_contextual_profiles(self):
+        module = next(entry for entry in NOTIFICATION_CATALOG if entry["key"] == "ecs.probe")
+        events = {event["key"]: event for event in module["events"]}
+        self.assertTrue(
+            {
+                "service.down",
+                "service.degraded",
+                "service.unknown",
+                "service.up",
+                "probe.agent.stale",
+                "probe.agent.recovered",
+                "probe.agent.first_seen",
+            }.issubset(events)
+        )
+        self.assertIn("{service_name}", events["service.down"]["available_fields"])
+        self.assertIn("{downtime}", events["service.up"]["available_fields"])
+        self.assertIn("{last_report}", events["probe.agent.stale"]["available_fields"])
+
+    def test_context_tokens_compile_to_event_extra_fields(self):
+        template = compile_message_template(
+            {
+                "title": "{service_name} in {vpc}",
+                "what_happened": "Signal: {error_signal}; latency {latency_ms} ms.",
+                "evidence": "{consecutive_failures} consecutive failures.",
+                "monitoring_method": "{monitoring_method} / tier {monitor_tier}.",
+                "impact": "{monitoring_impact}; downtime {downtime}.",
+                "recovery": "Last report: {last_report}; recovery after {consecutive_successes} successes.",
+            }
+        )
+        self.assertIn("event.extra.service_name", template)
+        self.assertIn("event.extra.error_signal", template)
+        self.assertIn("event.extra.consecutive_failures", template)
+        self.assertIn("event.extra.monitoring_impact", template)
+        self.assertIn("event.extra.downtime_seconds", template)
+
+    def test_every_catalog_event_exposes_safe_template_fields(self):
+        for module in NOTIFICATION_CATALOG:
+            for event in module["events"]:
+                self.assertTrue(event["available_fields"], f"{module['key']}/{event['key']}")
+                self.assertIn("{evidence}", event["available_fields"])
+                self.assertIn("{monitoring_method}", event["available_fields"])
 
     def test_structured_message_compiles_to_plain_guided_sections(self):
         template = compile_message_template(

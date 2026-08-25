@@ -18,6 +18,7 @@ import type {
   PerfAlertRule,
   Route,
   SeverityKey,
+  NotificationCoverageModule,
 } from "@/lib/types";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -103,6 +104,8 @@ export default async function NotificationsPage({
 
       {acksData.acks.length > 0 && <AcksBanner acks={acksData.acks} />}
       {!channelsAvailable && <ChannelsFirstHint />}
+
+      <CoveragePanel coverage={routesData.coverage} />
 
       {/* CHANNELS */}
       <SectionHeader
@@ -471,6 +474,110 @@ function RouteRow({ route: r }: { route: Route }) {
       </td>
     </tr>
   );
+}
+
+// =========================================================================
+// NOTIFICATION COVERAGE — read-only visibility into every supported event
+// =========================================================================
+
+function CoveragePanel({ coverage }: { coverage: NotificationCoverageModule[] }) {
+  const totalEvents = coverage.reduce((sum, module) => sum + module.event_count, 0);
+  const configured = coverage.reduce((sum, module) => sum + module.counts.configured, 0);
+  const fallback = coverage.reduce((sum, module) => sum + module.counts.fallback, 0);
+  const muted = coverage.reduce((sum, module) => sum + module.counts.muted, 0);
+  const unconfigured = coverage.reduce((sum, module) => sum + module.counts.unconfigured, 0);
+  const gaps = coverage.reduce((sum, module) => sum + module.gap_count, 0);
+
+  return (
+    <section className="mt-6">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <SectionHeaderLabel>Notification coverage</SectionHeaderLabel>
+          <p className="mt-1 text-xs text-fg-subtle">Read-only view of every supported event kind. This does not enable or change notifications.</p>
+        </div>
+        <Link href="/notifications/profiles" className="text-[11px] text-signal hover:underline">Open Notification Studio →</Link>
+      </div>
+      <DataPanel className="overflow-hidden">
+        <div className="grid grid-cols-2 gap-px border-b border-line-soft bg-line-soft sm:grid-cols-5">
+          <CoverageSummary label="Configured" value={configured} tone="configured" />
+          <CoverageSummary label="Fallback" value={fallback} tone="fallback" />
+          <CoverageSummary label="Muted" value={muted} tone="muted" />
+          <CoverageSummary label="Unconfigured" value={unconfigured} tone="unconfigured" />
+          <CoverageSummary label="High / critical gaps" value={gaps} tone={gaps ? "gap" : "configured"} />
+        </div>
+        <div className="border-b border-line-soft px-4 py-2 text-[11px] text-fg-subtle">
+          {coverage.length} modules · {totalEvents} event kinds · fallback means a legacy module route covers the event
+        </div>
+        <div className="divide-y divide-line-soft">
+          {coverage.map((module) => <CoverageModuleRow key={module.key} module={module} />)}
+        </div>
+      </DataPanel>
+    </section>
+  );
+}
+
+function CoverageSummary({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "configured" | "fallback" | "muted" | "unconfigured" | "gap";
+}) {
+  const toneClass = tone === "configured" ? "text-signal" : tone === "gap" ? "text-sev-critical" : tone === "fallback" ? "text-sev-medium" : "text-fg-muted";
+  return <div className="bg-surface-1 px-3 py-3"><p className={clsx("text-lg", toneClass)}>{value}</p><p className="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-fg-subtle">{label}</p></div>;
+}
+
+function CoverageModuleRow({ module }: { module: NotificationCoverageModule }) {
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-surface-2">
+        <div className="min-w-0">
+          <span className="text-fg">{module.label}</span>
+          <span className="ml-2 font-mono text-[10px] text-fg-subtle">{module.key}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+          <CoverageStatePill state="configured" count={module.counts.configured} />
+          <CoverageStatePill state="fallback" count={module.counts.fallback} />
+          <CoverageStatePill state="muted" count={module.counts.muted} />
+          <CoverageStatePill state="unconfigured" count={module.counts.unconfigured} />
+          {module.gap_count > 0 && <span className="border border-sev-critical/30 bg-sev-critical/10 px-1.5 py-0.5 text-sev-critical">{module.gap_count} high/critical gaps</span>}
+        </div>
+      </summary>
+      <div className="border-t border-line-soft bg-surface-2/40 px-4 py-2">
+        <p className="mb-2 text-[11px] text-fg-subtle">{module.blurb}</p>
+        <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+          {module.events.map((event) => (
+            <Link key={event.event_kind} href={`/notifications/profiles/${encodeURIComponent(event.profile_id)}`} className="flex items-center justify-between gap-2 border border-line-soft bg-surface-1 px-2.5 py-2 hover:border-signal">
+              <span className="min-w-0 truncate text-xs text-fg" title={event.description}>{event.label}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                <CoverageStatePill state={event.state} />
+                {event.high_critical_gap && <span className="font-mono text-[9px] text-sev-critical">gap</span>}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function CoverageStatePill({
+  state,
+  count,
+}: {
+  state: "configured" | "fallback" | "muted" | "unconfigured";
+  count?: number;
+}) {
+  const labels = { configured: "configured", fallback: "fallback", muted: "muted", unconfigured: "unconfigured" };
+  const classes = {
+    configured: "border-signal/30 bg-signal/10 text-signal",
+    fallback: "border-sev-medium/30 bg-sev-medium/10 text-sev-medium",
+    muted: "border-line bg-surface-2 text-fg-muted",
+    unconfigured: "border-line bg-surface-1 text-fg-subtle",
+  };
+  return <span className={clsx("border px-1.5 py-0.5", classes[state])}>{labels[state]}{count === undefined ? "" : ` ${count}`}</span>;
 }
 
 function computeRouteState(r: Route): { label: string; className: string } {

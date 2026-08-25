@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Keep standalone tracing inside this UI project. The workspace contains
+  // other lockfiles above it, and allowing Next to infer the parent root can
+  // make builds inspect unrelated paths.
+  outputFileTracingRoot: process.cwd(),
   reactStrictMode: true,
   // Proxy /api/* to the FastAPI backend.
   //

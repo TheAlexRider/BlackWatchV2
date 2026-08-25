@@ -1,11 +1,11 @@
 id: BW-001
-status: proposed
+status: approved
 title: Extend IP lookup with free-source threat enrichment and automated pivots
 area: full-stack
 source: user-directed-scope
 severity: high
 confidence: medium
-implementation_allowed: false
+implementation_allowed: true
 evidence:
   - file: blackwatch-ui/app/tools/ip-lookup/page.tsx
     location: "1-85"
@@ -29,5 +29,5 @@ risks:
   - "Free tiers have strict quotas and some public APIs restrict commercial or automated use; provider adapters must be configurable and terms-aware."
   - "Threat scores are source signals, not verdicts; show provenance and confidence rather than collapsing them into one unexplained score."
 proposed_role: coder-backend + coder-ui + coder-tests
-approved_by: null
-notes: "Potential starting references: https://docs.greynoise.io/docs/using-the-greynoise-community-api, https://www.abuseipdb.com/pricing, https://docs.virustotal.com/docs/api-overview. This remains proposed until the provider set and operating limits are approved."
+approved_by: user
+notes: "Explicitly approved by the user. Implemented no-key-first operation: ip-api.com, local feeds, DNS/reverse DNS, observed BlackWatch events, and Certificate Transparency remain usable without credentials; GreyNoise Community is attempted anonymously when possible; AbuseIPDB and VirusTotal are optional server-side BYO-key adapters."

@@ -19,25 +19,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .. import storage
+from .catalog import MODULE_CARDS
 
 _AUTO_PREFIX = "auto:"
 # Arbitrary but stable namespace so uuid5(module) is idempotent across restarts.
 _AUTO_NAMESPACE = uuid.UUID("6f8b1d0e-d0b0-4a5f-b1a5-1a3e2f9c9c9c")
-
-
-# Curated module list. Order = display order in the UI. `key` is the event
-# source.module id; `label` is the friendly name; `icon` is a hint the UI can
-# map to a lucide icon name.
-MODULE_CARDS: list[dict[str, str]] = [
-    {"key": "aws.rds",        "label": "AWS RDS",         "icon": "database",  "blurb": "PostgreSQL / RDS Proxy auth + query events"},
-    {"key": "aws.cloudtrail", "label": "AWS CloudTrail",  "icon": "shield",    "blurb": "IAM changes, console logins, key events"},
-    {"key": "aws.s3",         "label": "AWS S3",          "icon": "archive",   "blurb": "Bucket policy / ACL / public-access changes"},
-    {"key": "aws.posture",    "label": "AWS Posture",     "icon": "eye",       "blurb": "Drift alerts against your posture baseline"},
-    {"key": "vpn.openvpn",    "label": "OpenVPN",         "icon": "network",   "blurb": "Client connects, disconnects, failed logins"},
-    {"key": "ec2.host",       "label": "EC2 Hosts",       "icon": "server",    "blurb": "Agent-driven host events (login, sudo, file)"},
-    {"key": "ecs.probe",      "label": "ECS Probes",      "icon": "activity",  "blurb": "Container probe findings (ClamAV, config)"},
-    {"key": "cert",           "label": "TLS Certificates","icon": "key-round", "blurb": "Cert expiry warnings"},
-]
 
 
 # Severity threshold presets. Each preset expands to a `severity in [...]`

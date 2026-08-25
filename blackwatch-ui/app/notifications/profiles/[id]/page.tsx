@@ -47,6 +47,10 @@ export default async function NotificationProfilePage({
   ]);
   const profile = data.profiles.find((item) => item.id === decodeURIComponent(id));
   if (!profile) notFound();
+  const eventSpec = data.catalog
+    .find((module) => module.key === profile.module)
+    ?.events.find((event) => event.key === profile.event_kind);
+  const availableFields = eventSpec?.available_fields ?? ["{target_name}", "{severity}", "{evidence}", "{monitoring_method}", "{impact}"];
 
   return (
     <>
@@ -135,7 +139,7 @@ export default async function NotificationProfilePage({
               ))}
             </div>
             <p className="mt-4 border-l-2 border-signal/40 pl-3 font-mono text-[11px] leading-5 text-fg-subtle">
-              Available placeholders: {"{target_name}"} · {"{severity}"} · {"{principal}"} · {"{source_ip}"} · {"{evidence}"} · {"{monitoring_method}"} · {"{impact}"}
+              Available placeholders: {availableFields.join(" · ")}
             </p>
           </DataPanel>
 

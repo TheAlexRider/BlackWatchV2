@@ -44,6 +44,12 @@ def test_sustained_unknown_emits_target_unknown_transition(monkeypatch):
     assert first == []
     assert [event.action for event in second] == ["service.unknown"]
     assert saved[-1]["extra"]["unknown_since"]
+    assert second[0].extra["service_name"] == "keycloak"
+    assert second[0].extra["error_signal"] == "timed out"
+    assert second[0].extra["monitoring_method"] == "service probe"
+    assert second[0].extra["monitoring_impact"]
+    assert second[0].extra["last_report"]
+    assert second[0].extra["unknown_seconds"] >= 600
 
 
 def test_recovery_from_unknown_includes_unknown_duration(monkeypatch):
@@ -76,4 +82,6 @@ def test_recovery_from_unknown_includes_unknown_duration(monkeypatch):
 
     assert [event.action for event in recovered] == ["service.up"]
     assert recovered[0].extra["unknown_seconds"] >= 600
+    assert recovered[0].extra["downtime_seconds"] == 0
+    assert recovered[0].extra["service_name"] == "keycloak"
     assert "monitoring recovered" in recovered[0].extra["message"].lower()

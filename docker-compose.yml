@@ -8,6 +8,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
+      # DATA SAFETY: this volume is the primary BlackWatch database. Rebuilds
+      # and `docker compose up --build` must preserve it. Never run
+      # `docker compose down -v` or change this volume without a verified
+      # backup and an explicit operator decision.
       - bw_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U blackwatch"]
@@ -50,6 +54,11 @@ services:
       # Kept for server-side fetches in Server Components (which use the
       # runtime env via lib/api.ts's API_BASE).
       BW_API_URL: http://app:8000
+      # Optional server-side IP intelligence keys. Do not use NEXT_PUBLIC_*
+      # names: these must never be bundled into the browser.
+      GREYNOISE_API_KEY: ${GREYNOISE_API_KEY:-}
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
     ports:
       - "3000:3000"
     depends_on:
@@ -57,3 +66,5 @@ services:
 
 volumes:
   bw_pgdata:
+    labels:
+      com.blackwatch.data-critical: "true"

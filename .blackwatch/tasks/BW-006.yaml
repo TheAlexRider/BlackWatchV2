@@ -1,11 +1,11 @@
 id: BW-006
-status: proposed
+status: review
 title: Add notification coverage for every supported module and event family
 area: full-stack
 source: notification-r-and-d-and-qa
 severity: medium
 confidence: high
-implementation_allowed: false
+implementation_allowed: true
 evidence:
   - file: blackwatch/notify/routing_matrix.py
     location: "31-40"
@@ -28,5 +28,5 @@ dependencies:
 risks:
   - "Rule files may contain overlapping or intentionally internal actions; catalog generation needs explicit exclusions and ownership metadata."
 proposed_role: coder-backend + coder-ui + coder-tests
-approved_by: null
-notes: "Keep coverage visibility separate from delivery; this task should not auto-enable new notifications."
+approved_by: user
+notes: "Implementation explicitly approved by the user. Keep coverage visibility separate from delivery; this task must not auto-enable new notifications."

@@ -16,7 +16,8 @@ interface IpLookupModalProps {
 }
 
 // Opens an in-page IP lookup. No navigation, no page transition. Fetches via
-// the Next.js /api/tools/ip-lookup route (which proxies to ip-api.com).
+// the Next.js /api/tools/ip-lookup route (which aggregates the fast lookup
+// and optional threat-intelligence sources).
 export function IpLookupModal({ ip, onClose }: IpLookupModalProps) {
   const open = !!ip;
   const [result, setResult] = useState<IpApiResponse | null>(null);

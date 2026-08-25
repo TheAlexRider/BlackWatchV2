@@ -4,31 +4,15 @@ import { ExternalLink } from "lucide-react";
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { KeyValueRow } from "@/components/layout/KeyValueRow";
+import type {
+  IpIndicator,
+  IpLookupResponse,
+  ProviderResult,
+} from "@/lib/ip-intelligence";
 
 // Shared result type — used both by the standalone /tools/ip-lookup server
 // component and by the IpLookupModal client component.
-export interface IpApiResponse {
-  status: "success" | "fail";
-  message?: string;
-  query?: string;
-  country?: string;
-  countryCode?: string;
-  region?: string;
-  regionName?: string;
-  city?: string;
-  zip?: string;
-  lat?: number;
-  lon?: number;
-  timezone?: string;
-  isp?: string;
-  org?: string;
-  as?: string;
-  asname?: string;
-  reverse?: string;
-  mobile?: boolean;
-  proxy?: boolean;
-  hosting?: boolean;
-}
+export type IpApiResponse = IpLookupResponse;
 
 export function IpLookupResult({
   query,
@@ -110,6 +94,8 @@ export function IpLookupResult({
           </div>
         )}
       </DataPanel>
+
+      <IntelligencePanel result={result} compact={compact} />
 
       {/* Info + map — side by side. Map sits as a fixed-size square so it
           doesn't dominate. On narrow viewports we stack. */}
@@ -229,6 +215,130 @@ export function IpLookupResult({
         )}
       </div>
     </div>
+  );
+}
+
+function IntelligencePanel({
+  result,
+  compact,
+}: {
+  result: IpLookupResponse;
+  compact: boolean;
+}) {
+  const providers = result.providers ?? [];
+  const indicators = result.indicators ?? [];
+  const events = result.observedEvents ?? [];
+  return (
+    <section className={clsx("space-y-2", compact && "mt-1")}>
+      <SectionLabel>intelligence sources</SectionLabel>
+      <DataPanel className={compact ? "px-4 py-3" : undefined}>
+        <div className="grid gap-2 md:grid-cols-2">
+          {providers.map((provider) => (
+            <ProviderCard key={provider.id} provider={provider} />
+          ))}
+        </div>
+        {result.investigationMessage && (
+          <p className="mt-3 border-t border-line-soft pt-3 text-xs text-fg-muted">
+            {result.investigationMessage}
+          </p>
+        )}
+      </DataPanel>
+
+      {(indicators.length > 0 || events.length > 0) && (
+        <>
+          <SectionLabel>investigation trail</SectionLabel>
+          <DataPanel className={compact ? "px-4 py-3" : undefined}>
+            {indicators.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {indicators.map((indicator) => (
+                  <IndicatorPill key={`${indicator.kind}:${indicator.value}`} indicator={indicator} />
+                ))}
+              </div>
+            )}
+            {events.length > 0 && (
+              <div className={clsx("space-y-2", indicators.length > 0 && "mt-4 border-t border-line-soft pt-3")}>
+                <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+                  matching BlackWatch events
+                </div>
+                {events.slice(0, compact ? 4 : 12).map((event) => (
+                  <div key={event.eventId} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+                    <a href={`/events/${encodeURIComponent(event.eventId)}`} className="font-mono text-signal hover:underline">
+                      {event.action}
+                    </a>
+                    <span className="text-fg-muted">{event.summary}</span>
+                    <span className="font-mono text-[10px] text-fg-subtle">{event.module}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </DataPanel>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ProviderCard({ provider }: { provider: ProviderResult }) {
+  const status = {
+    success: { label: "available", dot: "bg-sev-low", text: "text-sev-low" },
+    not_configured: { label: "optional", dot: "bg-fg-subtle", text: "text-fg-muted" },
+    rate_limited: { label: "rate limited", dot: "bg-sev-medium", text: "text-sev-medium" },
+    error: { label: "unavailable", dot: "bg-sev-critical", text: "text-sev-critical" },
+  }[provider.status];
+  const details = [provider.reputation, provider.classification]
+    .filter((value): value is string => !!value);
+  const timing = [
+    provider.firstSeen ? `first seen: ${provider.firstSeen}` : null,
+    provider.lastSeen ? `last seen: ${provider.lastSeen}` : null,
+    provider.asn ? `AS${provider.asn}` : null,
+    provider.organization,
+  ].filter((value): value is string => !!value);
+  return (
+    <div className="border border-line-soft px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-fg">{provider.label}</span>
+        <span className={clsx("inline-flex items-center gap-1 text-[10px] uppercase tracking-wider", status.text)}>
+          <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", status.dot)} />
+          {status.label}
+        </span>
+      </div>
+      {details.length > 0 && <div className="mt-1 text-xs text-fg-muted">{details.join(" · ")}</div>}
+      {timing.length > 0 && <div className="mt-1 text-[11px] text-fg-subtle">{timing.join(" · ")}</div>}
+      {provider.confidence !== null && provider.confidence !== undefined && (
+        <div className="mt-1 text-[11px] text-fg-subtle">confidence: {provider.confidence}%</div>
+      )}
+      {provider.message && <div className="mt-1 text-[11px] text-fg-subtle">{provider.message}</div>}
+      <a
+        href={provider.source}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-1 inline-flex items-center gap-1 text-[10px] text-signal hover:underline"
+      >
+        source <ExternalLink size={9} />
+      </a>
+    </div>
+  );
+}
+
+function IndicatorPill({ indicator }: { indicator: IpIndicator }) {
+  const isUrl = indicator.kind === "url";
+  const href = isUrl
+    ? indicator.value
+    : indicator.kind === "domain"
+      ? `https://${indicator.value}`
+      : undefined;
+  const content = (
+    <span className="inline-flex max-w-full items-center gap-1 border border-line-soft bg-surface-2 px-2 py-1 text-[10px] text-fg-muted">
+      <span className="uppercase text-fg-subtle">{indicator.kind}</span>
+      <span className="max-w-64 truncate font-mono">{indicator.value}</span>
+    </span>
+  );
+  return href ? (
+    <a href={href} target="_blank" rel="noopener noreferrer" title={`${indicator.relation} · ${indicator.source}`}>
+      {content}
+    </a>
+  ) : (
+    <span title={`${indicator.relation} · ${indicator.source}`}>{content}</span>
   );
 }
 

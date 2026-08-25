@@ -25,19 +25,7 @@ from typing import Any
 
 from .. import storage
 from ..event import _SEVERITY_ORDER  # noqa: F401 — used by list_routes()
-
-# Curated module catalog — same list the UI shows so unrouted modules
-# remain visible as coverage gaps.
-MODULE_CATALOG: list[dict[str, str]] = [
-    {"key": "aws.rds",        "label": "AWS RDS",         "blurb": "PostgreSQL / RDS Proxy auth + query events"},
-    {"key": "aws.cloudtrail", "label": "AWS CloudTrail",  "blurb": "IAM changes, console logins, key events"},
-    {"key": "aws.s3",         "label": "AWS S3",          "blurb": "Bucket policy / ACL / public-access changes"},
-    {"key": "aws.posture",    "label": "AWS Posture",     "blurb": "Drift alerts against your posture baseline"},
-    {"key": "vpn.openvpn",    "label": "OpenVPN",         "blurb": "Client connects, disconnects, failed logins"},
-    {"key": "ec2.host",       "label": "EC2 Hosts",       "blurb": "Agent-driven host events (login, sudo, file)"},
-    {"key": "ecs.probe",      "label": "ECS Probes",      "blurb": "Container probe findings (ClamAV, config)"},
-    {"key": "cert",           "label": "TLS Certificates","blurb": "Cert expiry warnings"},
-]
+from .catalog import MODULE_CATALOG, build_coverage, module_for_event_kind
 
 CUSTOM_BUCKET_KEY = "__custom__"
 
@@ -71,6 +59,10 @@ def _module_from_action_value(value: Any) -> str | None:
         values = [str(v) for v in value if isinstance(v, (str, int))]
     modules = set()
     for v in values:
+        canonical_module = module_for_event_kind(v)
+        if canonical_module:
+            modules.add(canonical_module)
+            continue
         for prefix, mod in _ACTION_PREFIX_TO_MODULE:
             if v.startswith(prefix):
                 modules.add(mod)
@@ -96,6 +88,8 @@ def _extract_module_from_match(match: dict[str, Any] | None) -> str | None:
     if match.get("field") == "source.module" and match.get("op") == "equals":
         val = match.get("value")
         if isinstance(val, str):
+            if val == "aws.cloudtrail":
+                return "aws.iam"
             return val
     if match.get("field") == "action":
         op = match.get("op")
@@ -201,6 +195,10 @@ def list_routes() -> dict[str, Any]:
         all_channels = storage.list_notification_channels()
     except Exception:
         all_channels = []
+    try:
+        saved_profiles = storage.list_notification_profiles()
+    except Exception:
+        saved_profiles = []
     channel_names_by_id = {str(c["id"]): str(c["name"]) for c in all_channels}
     now_utc = datetime.utcnow()
 
@@ -241,6 +239,7 @@ def list_routes() -> dict[str, Any]:
     return {
         "routes": rows,
         "catalog": MODULE_CATALOG,
+        "coverage": build_coverage(saved_profiles, all_rules),
         "custom_bucket_key": CUSTOM_BUCKET_KEY,
     }
 

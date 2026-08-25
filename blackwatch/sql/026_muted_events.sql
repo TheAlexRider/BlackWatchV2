@@ -25,13 +25,22 @@ CREATE TABLE IF NOT EXISTS muted_events (
 );
 CREATE INDEX IF NOT EXISTS idx_muted_events_action ON muted_events (action);
 
--- Migrate legacy action-only mutes into the new shape.
+-- Migrate legacy action-only mutes into the new shape. The legacy table is
+-- intentionally retained so this migration can never remove operator data.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'muted_actions') THEN
         INSERT INTO muted_events (action, note)
-        SELECT action, 'migrated from muted_actions' FROM muted_actions;
-        DROP TABLE muted_actions;
+        SELECT legacy.action, 'migrated from muted_actions'
+          FROM muted_actions AS legacy
+         WHERE NOT EXISTS (
+             SELECT 1
+               FROM muted_events AS current
+              WHERE current.action = legacy.action
+                AND current.note = 'migrated from muted_actions'
+         );
+        -- Do not drop muted_actions. It is retained as a compatibility
+        -- backup until an operator explicitly archives it outside migrations.
     END IF;
 END $$;
 

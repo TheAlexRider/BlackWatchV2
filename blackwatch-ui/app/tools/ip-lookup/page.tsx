@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { ArrowLeft } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -14,17 +15,35 @@ import {
 async function lookup(ip: string): Promise<IpApiResponse | null> {
   try {
     const base = process.env.BW_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    const cookie = (await headers()).get("cookie");
     const res = await fetch(
       `${base}/api/tools/ip-lookup?ip=${encodeURIComponent(ip)}`,
-      { cache: "no-store" },
+      {
+        cache: "no-store",
+        headers: cookie ? { cookie } : undefined,
+      },
     );
     if (!res.ok) {
       const j = (await res.json().catch(() => null)) as IpApiResponse | null;
-      return j ?? { status: "fail", message: `HTTP ${res.status}` };
+      return j ?? {
+        status: "fail",
+        message: `HTTP ${res.status}`,
+        providers: [],
+        indicators: [],
+        observedEvents: [],
+        investigationStatus: "error",
+      };
     }
     return (await res.json()) as IpApiResponse;
   } catch (exc) {
-    return { status: "fail", message: String(exc) };
+    return {
+      status: "fail",
+      message: String(exc),
+      providers: [],
+      indicators: [],
+      observedEvents: [],
+      investigationStatus: "error",
+    };
   }
 }
 
@@ -51,7 +70,7 @@ export default async function IpLookupPage({
 
       <PageHeader
         title="IP lookup"
-        subtitle="Geolocation, ISP, ASN, reverse DNS, proxy/hosting flags. Data from ip-api.com."
+        subtitle="Fast geolocation plus optional threat sources, local feeds, related indicators, and matching BlackWatch events."
       />
 
       <form
