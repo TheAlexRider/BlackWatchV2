@@ -1,14 +1,24 @@
 import clsx from "clsx";
+import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 
 import { DataPanel } from "@/components/layout/DataPanel";
 import { SectionLabel } from "@/components/layout/SectionLabel";
 import { KeyValueRow } from "@/components/layout/KeyValueRow";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { TimestampCell } from "@/components/domain/TimestampCell";
+import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import type {
   IpIndicator,
   IpLookupResponse,
   ProviderResult,
 } from "@/lib/ip-intelligence";
+import {
+  groupIndicators,
+  providerEvidence,
+  providerStatusPresentation,
+} from "@/lib/ip-intelligence-presentation";
+import { investigationStartHref } from "@/lib/investigation-flow";
 
 // Shared result type — used both by the standalone /tools/ip-lookup server
 // component and by the IpLookupModal client component.
@@ -59,8 +69,16 @@ export function IpLookupResult({
     <div className={clsx("space-y-4", compact && "space-y-3")}>
       {/* Header — IP + reverse + flags */}
       <DataPanel className={clsx(compact ? "px-4 py-3" : "px-6 py-5")}>
-        <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-          {result.query === query ? "Resolved IP" : "Looked up"}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+            {result.query === query ? "Resolved IP" : "Looked up"}
+          </div>
+          <Link
+            href={investigationStartHref(result.query ?? query)}
+            className="inline-flex items-center gap-1 border border-signal/40 px-2 py-1 text-[11px] text-signal transition-colors hover:bg-signal/10"
+          >
+            open as investigation <ExternalLink size={10} aria-hidden />
+          </Link>
         </div>
         <div
           className={clsx(
@@ -226,96 +244,124 @@ function IntelligencePanel({
   compact: boolean;
 }) {
   const providers = result.providers ?? [];
-  const indicators = result.indicators ?? [];
+  const indicators = (result.indicators ?? []).filter((indicator) => indicator.kind !== "event");
   const events = result.observedEvents ?? [];
+  const indicatorGroups = groupIndicators(indicators);
   return (
-    <section className={clsx("space-y-2", compact && "mt-1")}>
-      <SectionLabel>intelligence sources</SectionLabel>
-      <DataPanel className={compact ? "px-4 py-3" : undefined}>
-        <div className="grid gap-2 md:grid-cols-2">
-          {providers.map((provider) => (
-            <ProviderCard key={provider.id} provider={provider} />
-          ))}
+    <section className={clsx("space-y-4", compact && "mt-1 space-y-3")}>
+      <section className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <SectionLabel>intelligence sources</SectionLabel>
+          <span className="font-mono text-[10px] text-fg-subtle">
+            {providers.length} checked
+          </span>
         </div>
+        <DataPanel className="overflow-hidden">
+          <div className="divide-y divide-line-soft">
+            {providers.map((provider) => (
+              <ProviderRow key={provider.id} provider={provider} />
+            ))}
+          </div>
+        </DataPanel>
         {result.investigationMessage && (
-          <p className="mt-3 border-t border-line-soft pt-3 text-xs text-fg-muted">
+          <p className="text-xs text-fg-subtle">
             {result.investigationMessage}
           </p>
         )}
-      </DataPanel>
+      </section>
 
-      {(indicators.length > 0 || events.length > 0) && (
-        <>
-          <SectionLabel>investigation trail</SectionLabel>
-          <DataPanel className={compact ? "px-4 py-3" : undefined}>
-            {indicators.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {indicators.map((indicator) => (
-                  <IndicatorPill key={`${indicator.kind}:${indicator.value}`} indicator={indicator} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <SectionLabel>related indicators</SectionLabel>
+            <span className="font-mono text-[10px] text-fg-subtle">
+              {indicators.length} found
+            </span>
+          </div>
+          <DataPanel className="overflow-hidden">
+            {indicatorGroups.length > 0 ? (
+              <div className="divide-y divide-line-soft">
+                {indicatorGroups.map((group) => (
+                  <IndicatorGroupRow key={group.kind} label={group.label} indicators={group.items} />
                 ))}
               </div>
-            )}
-            {events.length > 0 && (
-              <div className={clsx("space-y-2", indicators.length > 0 && "mt-4 border-t border-line-soft pt-3")}>
-                <div className="text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-                  matching BlackWatch events
-                </div>
-                {events.slice(0, compact ? 4 : 12).map((event) => (
-                  <div key={event.eventId} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-                    <a href={`/events/${encodeURIComponent(event.eventId)}`} className="font-mono text-signal hover:underline">
-                      {event.action}
-                    </a>
-                    <span className="text-fg-muted">{event.summary}</span>
-                    <span className="font-mono text-[10px] text-fg-subtle">{event.module}</span>
-                  </div>
-                ))}
-              </div>
+            ) : (
+              <EmptyTrail> No related domains, URLs, hashes, or certificates were found.</EmptyTrail>
             )}
           </DataPanel>
-        </>
-      )}
+        </section>
+
+        <section className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <SectionLabel>matching events</SectionLabel>
+            <span className="font-mono text-[10px] text-fg-subtle">
+              {events.length} found
+            </span>
+          </div>
+          <DataPanel className="overflow-hidden">
+            {events.length > 0 ? (
+              <div className="divide-y divide-line-soft">
+                {events.slice(0, compact ? 4 : 12).map((event) => (
+                  <EventTrailRow key={event.eventId} event={event} />
+                ))}
+              </div>
+            ) : (
+              <EmptyTrail>No matching BlackWatch events were found for this IP.</EmptyTrail>
+            )}
+          </DataPanel>
+        </section>
+      </div>
     </section>
   );
 }
 
-function ProviderCard({ provider }: { provider: ProviderResult }) {
-  const status = {
-    success: { label: "available", dot: "bg-sev-low", text: "text-sev-low" },
-    not_configured: { label: "optional", dot: "bg-fg-subtle", text: "text-fg-muted" },
-    rate_limited: { label: "rate limited", dot: "bg-sev-medium", text: "text-sev-medium" },
-    error: { label: "unavailable", dot: "bg-sev-critical", text: "text-sev-critical" },
-  }[provider.status];
-  const details = [provider.reputation, provider.classification]
-    .filter((value): value is string => !!value);
-  const timing = [
-    provider.firstSeen ? `first seen: ${provider.firstSeen}` : null,
-    provider.lastSeen ? `last seen: ${provider.lastSeen}` : null,
-    provider.asn ? `AS${provider.asn}` : null,
-    provider.organization,
-  ].filter((value): value is string => !!value);
+function ProviderRow({ provider }: { provider: ProviderResult }) {
+  const status = providerStatusPresentation(provider.status);
+  const evidence = providerEvidence(provider);
   return (
-    <div className="border border-line-soft px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-fg">{provider.label}</span>
-        <span className={clsx("inline-flex items-center gap-1 text-[10px] uppercase tracking-wider", status.text)}>
-          <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", status.dot)} />
-          {status.label}
-        </span>
+    <div className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(10rem,0.8fr)_minmax(0,2fr)_auto] md:items-center">
+      <div className="min-w-0">
+        <div className="truncate text-sm text-fg">{provider.label}</div>
+        <StatusPill label={status.label} severity={status.severity} className="mt-1" />
       </div>
-      {details.length > 0 && <div className="mt-1 text-xs text-fg-muted">{details.join(" · ")}</div>}
-      {timing.length > 0 && <div className="mt-1 text-[11px] text-fg-subtle">{timing.join(" · ")}</div>}
-      {provider.confidence !== null && provider.confidence !== undefined && (
-        <div className="mt-1 text-[11px] text-fg-subtle">confidence: {provider.confidence}%</div>
-      )}
-      {provider.message && <div className="mt-1 text-[11px] text-fg-subtle">{provider.message}</div>}
+      <div className="min-w-0">
+        {evidence.length > 0 ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
+            {evidence.map((line) => <span key={line}>{line}</span>)}
+          </div>
+        ) : (
+          <span className="text-xs text-fg-subtle">{provider.message ?? "No provider output."}</span>
+        )}
+        {evidence.length > 0 && provider.message && (
+          <div className="mt-1 text-[11px] text-fg-subtle">{provider.message}</div>
+        )}
+      </div>
       <a
         href={provider.source}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-1 inline-flex items-center gap-1 text-[10px] text-signal hover:underline"
+        aria-label={`Open ${provider.label} provenance`}
+        title={`Open ${provider.label} provenance`}
+        className="inline-flex h-7 w-7 items-center justify-center text-fg-subtle transition-colors hover:text-signal"
       >
-        source <ExternalLink size={9} />
+        <ExternalLink size={12} />
       </a>
+    </div>
+  );
+}
+
+function IndicatorGroupRow({ label, indicators }: { label: string; indicators: IpIndicator[] }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-xs text-fg-muted">{label}</span>
+        <span className="font-mono text-[10px] text-fg-subtle">{indicators.length}</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {indicators.map((indicator) => (
+          <IndicatorPill key={`${indicator.kind}:${indicator.value}`} indicator={indicator} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -328,9 +374,9 @@ function IndicatorPill({ indicator }: { indicator: IpIndicator }) {
       ? `https://${indicator.value}`
       : undefined;
   const content = (
-    <span className="inline-flex max-w-full items-center gap-1 border border-line-soft bg-surface-2 px-2 py-1 text-[10px] text-fg-muted">
-      <span className="uppercase text-fg-subtle">{indicator.kind}</span>
+    <span className="inline-flex max-w-full items-center gap-2 border border-line-soft bg-surface-2 px-2 py-1 text-[10px] text-fg-muted transition-colors hover:border-signal/50 hover:text-fg">
       <span className="max-w-64 truncate font-mono">{indicator.value}</span>
+      {href && <ExternalLink size={9} className="shrink-0 text-fg-subtle" />}
     </span>
   );
   return href ? (
@@ -340,6 +386,27 @@ function IndicatorPill({ indicator }: { indicator: IpIndicator }) {
   ) : (
     <span title={`${indicator.relation} · ${indicator.source}`}>{content}</span>
   );
+}
+
+function EventTrailRow({ event }: { event: IpLookupResponse["observedEvents"][number] }) {
+  return (
+    <a
+      href={`/events/${encodeURIComponent(event.eventId)}`}
+      className="grid gap-2 px-4 py-3 transition-colors hover:bg-surface-2 md:grid-cols-[7rem_5.5rem_minmax(0,1fr)_8rem] md:items-start"
+    >
+      <span>{event.eventTime ? <TimestampCell value={event.eventTime} /> : <span className="font-mono text-xs text-fg-disabled">—</span>}</span>
+      <SeverityBadge severity={event.severity} />
+      <span className="min-w-0">
+        <span className="block truncate font-mono text-xs text-fg">{event.action}</span>
+        <span className="mt-1 block text-xs text-fg-muted">{event.summary}</span>
+      </span>
+      <span className="font-mono text-[10px] text-fg-subtle">{event.module}</span>
+    </a>
+  );
+}
+
+function EmptyTrail({ children }: { children: React.ReactNode }) {
+  return <p className="px-4 py-5 text-xs text-fg-subtle">{children}</p>;
 }
 
 function FlagPill({ on }: { on: boolean }) {

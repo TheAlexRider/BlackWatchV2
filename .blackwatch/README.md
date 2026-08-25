@@ -9,6 +9,7 @@ BLACKWATCH CYCLE
   -> coordinator
   -> research + QA in parallel
   -> reports and proposed BW tasks
+  -> Graphify refresh agent (last step; updates the map for the next cycle)
   -> explicit user approval
 IMPLEMENT BW-###
   -> one gated coding role in an isolated worktree
@@ -48,3 +49,9 @@ The coordinator should inspect `blackwatch/`, `blackwatch-ui/`, `tests/`,
 Reports and task proposals are safe autonomous outputs. Application changes,
 cloud changes, deployment, merging, and notification delivery require a
 separate explicit instruction.
+
+Graphify is a separate analysis role, not a coding role. It runs only after
+R&D and QA reports have been reconciled so the next cycle always starts with
+the latest repository graph. If Graphify cannot refresh, the cycle must record
+the failure explicitly and retain the previous graph rather than pretending it
+is current.

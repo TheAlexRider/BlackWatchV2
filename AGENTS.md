@@ -35,12 +35,15 @@ When the user says `BLACKWATCH CYCLE`, start one analysis cycle:
 
 1. Read `.blackwatch/roles/coordinator.md`, the current cycle state, and the
    existing Graphify context.
-2. Refresh Graphify with `graphify update .` when its report is stale or when
-   the repository has changed since the last cycle.
+2. Check the current Git status and preserve unrelated user changes.
 3. Start the Research & Development and QA roles in parallel.
 4. Reconcile their reports into durable, evidence-backed proposed tasks under
    `.blackwatch/tasks/`.
-5. Summarize findings and task IDs for the user.
+5. Write the cycle metadata and task IDs to `.blackwatch/state/cycle.json`.
+6. Start the dedicated Graphify role as the final step. It refreshes the
+   repository graph after all R&D, QA, and task-reconciliation work is done.
+7. Record the Graphify result in cycle state, then summarize findings, risks,
+   Graphify status, and task IDs for the user.
 
 The cycle must not start a coding role.
 
@@ -52,7 +55,19 @@ During `BLACKWATCH CYCLE`, Research & Development and QA may:
 - inspect Git history and the Graphify output;
 - run safe local tests, typechecks, builds, and static diagnostics;
 - write only reports, proposed task files, and cycle state under `.blackwatch/`;
-- refresh generated Graphify output when needed.
+- produce reports, proposed task files, and cycle-state updates only.
+
+The dedicated Graphify role may:
+
+- read the repository and existing Graphify output;
+- run the required Graphify refresh after R&D, QA, and task reconciliation;
+- write only generated Graphify output and its refresh result to the approved
+  Graphify/cycle-state locations;
+- report a blocked refresh without modifying application code or inventing
+  findings.
+
+Graphify is deliberately the last analysis role in every cycle. R&D and QA
+must use the previous graph as context; they must not refresh it early.
 
 They must not:
 

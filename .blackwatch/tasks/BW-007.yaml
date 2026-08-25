@@ -1,0 +1,46 @@
+id: BW-007
+status: review
+title: Make IP intelligence a first-class Investigation flow while retaining Tools access
+area: full-stack
+source: research-and-qa
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: blackwatch-ui/app/tools/ip-lookup/page.tsx
+    location: "1-120"
+    observation: "The rich IP lookup form and normalized provider result are currently owned by the Tools route, which links back to Tools and has no durable-investigation handoff."
+  - file: blackwatch-ui/app/investigations/page.tsx
+    location: "1-30"
+    observation: "Investigations is already the durable surface for preserving evidence and connecting related BlackWatch events, but it has no direct IP-start action."
+  - file: blackwatch-ui/app/investigations/InvestigationNotebook.tsx
+    location: "53-275"
+    observation: "The investigation notebook already supports IP observables, scan lifecycle, status, notes, evidence, timeline, and follow-up actions."
+  - file: blackwatch/api.py
+    location: "267-353"
+    observation: "The backend already validates IP investigation creation and provides owned retrieval, scan, range, notes, and status endpoints."
+  - file: blackwatch-ui/components/domain/IpCell.tsx
+    location: "80-170"
+    observation: "Event IP cells expose both Add to investigation and Open in IP tool, confirming the need to preserve both durable and quick-entry paths."
+  - file: blackwatch-ui/components/domain/IpLookupResult.tsx
+    location: "220-330"
+    observation: "The lookup result now contains normalized provider evidence, related indicators, and matching events that should be reused in the Investigation experience."
+impact: "Operators can begin from the investigation workflow, preserve IP intelligence as a durable case, and still perform quick disposable lookups from Tools without duplicated or inconsistent provider output."
+acceptance_criteria:
+  - "Add a clear, accessible IP investigation entry action to /investigations that validates the IP and opens or creates the durable investigation notebook."
+  - "Use the existing investigation ownership, scan, evidence, timeline, notes, and status lifecycle rather than creating a parallel IP case system."
+  - "Keep /tools/ip-lookup available as a fast lookup and add an explicit Open as investigation/Add to investigation handoff."
+  - "Preserve event-cell IP actions and make their durable-investigation path land on the same investigation experience."
+  - "Share one normalized presentation/data boundary for provider evidence, related indicators, matching events, status, and provenance across Tools and Investigations."
+  - "Handle invalid input, loading, partial provider failure, empty evidence, scan failure, ownership, and repeated scan/reopen behavior explicitly."
+  - "Do not silently create duplicate investigations for the same IP; define and test reuse/open behavior or make duplication explicit to the operator."
+  - "Add focused UI/API/storage tests plus data-safety verification; any schema change must be additive and must not remove existing investigation or provider data."
+dependencies:
+  - BW-001
+risks:
+  - "Two enrichment paths could drift or duplicate provider requests unless the normalization boundary is shared."
+  - "Automatically creating cases from every quick lookup could pollute the investigation list; the handoff must be explicit or reuse an existing case."
+  - "Rescans could replace evidence history; preserve prior results or version scan output before refresh."
+proposed_role: coder-ui + coder-backend + coder-tests
+approved_by: user
+notes: "Explicitly approved by the user via IMPLEMENT BW-007. Automatic IP intelligence lookup and initial investigation scan are now triggered from the Investigation flow; the existing notebook rescan workflow and Tools lookup remain available. Verification passed; review/deployment remain separate decisions."

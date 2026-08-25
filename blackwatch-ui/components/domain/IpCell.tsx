@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { Search, Copy, Check, ExternalLink, ClipboardPlus } from "lucide-react";
 
 import { IpLookupModal } from "./IpLookupModal";
+import { investigationDetailHref } from "@/lib/investigation-flow";
 
 // Renders an IP (or hostname) with a right-click context menu offering
 // "Lookup IP" (opens a modal in-place) plus "Copy" and "Open in IP tool"
@@ -97,7 +98,7 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
       });
       if (!response.ok) return;
       const investigation = await response.json() as { id: string };
-      window.location.href = `/investigations/${encodeURIComponent(investigation.id)}`;
+      window.location.href = investigationDetailHref(investigation.id);
     } catch {
       // The menu is deliberately fail-closed if the request is unavailable.
     }

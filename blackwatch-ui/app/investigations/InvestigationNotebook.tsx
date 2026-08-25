@@ -26,6 +26,7 @@ import { SeverityBadge } from "@/components/domain/SeverityBadge";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { Table } from "@/components/ui/Table";
 import { formatStatus } from "./InvestigationList";
+import { InvestigationIpIntelligence } from "./InvestigationIpIntelligence";
 
 const STATUSES: InvestigationStatus[] = [
   "ready",
@@ -227,6 +228,7 @@ export function InvestigationNotebook({
             results={data.results}
             scanning={scanning}
         />
+        <InvestigationIpIntelligence ip={ip} />
         <EvidenceChain
           results={data.results}
           onReviewEvidence={(moduleName) => {

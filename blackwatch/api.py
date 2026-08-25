@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Cookie, Depends, Header, HTTPException, Que
 from .auth import require_role
 from pydantic import BaseModel
 
-from . import auth, coverage, noise, storage
+from . import auth, coverage, investigation_flow, noise, storage
 from .intel import db as intel_db
 from .intel import enrich as intel_enrich
 from .connectors import runner as connector_runner
@@ -285,12 +285,18 @@ def investigations_create(request: Request, payload: InvestigationCreate) -> dic
     title = (payload.title or f"Investigate {ip}").strip()[:160]
     if not title:
         raise HTTPException(status_code=400, detail="title is required")
+    investigation_id = uuid.uuid4()
     row = storage.create_investigation(
-        investigation_id=uuid.uuid4(), title=title, owner=user,
+        investigation_id=investigation_id, title=title, owner=user,
         time_start=start, time_end=end, priority=payload.priority,
         observable_value=ip,
     )
-    return row
+    return investigation_flow.create_initial_scan(
+        storage,
+        investigation_id=investigation_id,
+        requested_by=user,
+        row=row,
+    )
 
 
 @router.get("/investigations/{investigation_id}")

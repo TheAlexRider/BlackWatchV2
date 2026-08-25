@@ -1,125 +1,79 @@
-# BlackWatch Cycle — Notification QA Report
+# BlackWatch Cycle — IP investigation flow QA report
 
-**Cycle:** 2026-08-24
-**Focus:** module-by-module notification customization
-
-## Baseline verification
-
-| Check | Result | Evidence |
-|---|---|---|
-| Python syntax compilation | PASS | Bundled Python `compileall -q blackwatch scripts tests` |
-| UI typecheck | PASS | Bundled TypeScript `tsc --noEmit --incremental false` |
-| `pytest -q` | BLOCKED | `pytest` is not available in the current shell; the project interpreter remains inaccessible |
-| `npm run typecheck` | BLOCKED | `npm` is not available in the current shell; bundled TypeScript check passed instead |
-| `npm run build` | BLOCKED | `npm` is not available in the current shell; prior bundled Next build hit local workspace-root `EPERM/readlink` |
-| Graphify refresh | BLOCKED | Saved Graphify interpreter returns `Access is denied`; existing report is stale |
+**Cycle:** 2026-08-25
+**Trigger:** `BLACKWATCH CYCLE`
+**Focus:** IP investigation as the primary Investigation workflow, with Tools retained.
+**HEAD inspected:** `9cfb8a06b3aa6c298054012f23ff7cc38c6e7000`
 
 ## Reproducible findings
 
-### QA-001 — Module cards cannot save module-specific message templates
+### QA-001 — The rich IP workflow is currently owned by Tools
 
 **Severity:** high
 
-**Reproduction:** Open the module-routing path, choose a module, channel, and
-threshold, then save. The API endpoint `notif_card_save` calls
-`routing_matrix.save_card` with only `enabled`, `channel`, and `threshold`.
-`routing_matrix.save_card` writes the generated `auto:<module>` rule without a
-`message_template`.
+**Evidence:** `blackwatch-ui/app/tools/ip-lookup/page.tsx` owns the IP form,
+fetches the enriched result, and links back to `/tools`. The current
+`IpLookupResult` includes provider evidence, related indicators, and matching
+events, so the most valuable investigative output is nested under the Tools
+route.
 
-**Observed:** The card can customize routing policy but not its wording or
-explanation. The general alert wizard can save a rule-level template, but that
-is a separate workflow and does not make the module card itself complete.
+**Expected:** Investigations should own the durable IP evidence workflow;
+Tools should remain a quick lookup surface.
 
-**Expected:** A module profile should be able to configure its event kinds,
-message content, monitoring explanation, next steps, recovery behavior, and
-runbook links without requiring a raw advanced rule.
+### QA-002 — Investigations already has the required durable lifecycle
 
-**Affected files:**
+**Severity:** observation
 
-- `blackwatch/api.py` around `notif_card_save`
-- `blackwatch/notify/routing_matrix.py` around `save_card`
-- `blackwatch/sql/007_notification_rules.sql`
-- `blackwatch/sql/021_notification_rule_template.sql`
+**Evidence:** `blackwatch-ui/app/investigations/InvestigationNotebook.tsx`
+already handles scan requests, polling, status, notes, evidence tables,
+timeline/activity, and follow-up actions. `blackwatch/api.py` provides
+validated IP creation plus scan, range, notes, and status endpoints.
 
-**Proposed test:** Save a module profile with a template, reload it through the
-API, render a matching event, and assert the saved module-specific body is
-used.
+**Implication:** This is primarily a routing/entry-point and data-presentation
+integration task, not a reason to build a parallel IP case system.
 
-### QA-002 — The alert wizard's event samples do not control matching
+### QA-003 — Tools and event-cell actions need an explicit handoff contract
 
 **Severity:** high
 
-**Reproduction:** Create an alert for `ecs.probe`, choose the
-`service.down` sample in the message step, and save the route. The saved match
-is still only `source.module` plus selected severity values; the sample choice
-is not included in the condition.
+**Evidence:** `IpCell.tsx` currently offers `Add to investigation` and
+`Open in IP tool` as separate actions. The standalone Tools result has no
+visible durable-investigation handoff in the inspected page.
 
-**Observed:** A template previewed for `service.down` can be delivered for
-`service.degraded`, `service.up`, or `probe.agent.stale` when they share the
-same module and severity range. This is precisely the cross-kind confusion the
-user wants to avoid.
+**Expected:** Every quick IP lookup should make the next action obvious:
+`Open as investigation` or `Add to investigation`, with reuse behavior that
+does not create accidental duplicate cases.
 
-**Expected:** The operator chooses the event kind/action explicitly, or the UI
-clearly labels the template as applying to every selected event kind.
-
-**Affected files:**
-
-- `blackwatch-ui/app/notifications/AlertWizard.tsx`
-- `blackwatch-ui/app/notifications/wizard-actions.ts`
-- `blackwatch/notify/routes_view.py`
-- `blackwatch/api.py` notification route save endpoint
-
-**Proposed test:** Save a route for `service.down` and assert a
-`service.degraded` event does not use that route/template unless the operator
-explicitly selected both actions.
-
-### QA-003 — Producer-formatted messages bypass the central customization model
+### QA-004 — The two flows must not drift in enrichment output
 
 **Severity:** medium
 
-**Reproduction:** Generate a service transition or probe-agent stale event.
-`services/projection.py` and `services/staleness.py` populate
-`event.extra.message`. The default channel templates render that field
-verbatim.
+**Evidence:** The Tools route calls `/api/tools/ip-lookup`, while the
+Investigation scan is handled by the investigation worker and result tables.
+These paths need a defined shared normalization boundary or explicit mapping.
 
-**Observed:** Message wording is split between producer code and notification
-configuration. A channel-level preset cannot independently reshape these
-messages, and the source of truth is not visible in the notification UI.
+**Expected:** Provider evidence, related indicators, matching events, status,
+and provenance should have the same labels and semantics regardless of entry
+point. A provider failure must remain isolated and must not fail the case.
 
-**Expected:** Producer code should emit structured facts; a selected
-module/event profile should own the human-facing wording. A compatibility
-fallback may keep current messages until a profile exists.
+## Proposed verification
 
-**Affected files:**
+- Render `/investigations` with the IP-start action and verify valid/invalid
+  IPv4 and IPv6 behavior.
+- Create an investigation from Tools and from an event-cell action; verify
+  the user lands on the same owned investigation notebook.
+- Run a scan and verify queued/running/completed/failed states, provider
+  partial failure, empty evidence, notes, and matching events.
+- Reopen or rescan the same investigation and verify no duplicate case or
+  destructive replacement of prior evidence.
+- Verify direct Tools lookup still works without creating a case unless the
+  user chooses the handoff.
+- Run UI typecheck/build and focused API/storage/data-safety tests.
 
-- `blackwatch/services/projection.py`
-- `blackwatch/services/staleness.py`
-- `blackwatch/notify/channels.py`
+## Baseline limitations
 
-**Proposed test:** Render the same structured service-down event with two
-profiles and assert the output changes without changing the projection code.
-
-### QA-004 — Notification module catalogs under-report active event families
-
-**Severity:** medium
-
-**Reproduction:** Compare `MODULE_CARDS`/`MODULE_CATALOG` with the rule files
-under `rules/`. The catalogs cover RDS, CloudTrail, S3, posture, VPN, hosts,
-ECS probes, and certificates, while the repository also has API Gateway,
-backup, EFS, network, secrets, UEBA, and broader IAM/auth event families.
-
-**Observed:** Operators cannot tell whether an event family is intentionally
-unrouted, using a fallback, or simply absent from the module notification UI.
-
-**Expected:** A notification catalog should expose configured, fallback, and
-unconfigured states for every supported module/event kind.
-
-**Proposed test:** Build the catalog from the supported event registry/rules
-and assert every supported action has a discoverable coverage state.
-
-## QA recommendation
-
-Implement `BW-004` as the cross-module, beginner-friendly Notification Studio
-and compatibility layer, then use `BW-005` as the first production pilot. Do
-not rewrite every producer message in one pass; the fallback path should keep
-existing notifications working while profiles are added module by module.
+- Graphify refresh was attempted but the saved interpreter returned
+  `Access is denied`; the existing report is stale relative to HEAD.
+- The delegated R&D and QA workers did not return within the bounded cycle
+  window; this report was reconciled by the coordinator from direct repository
+  evidence. No application files were changed by the cycle.
