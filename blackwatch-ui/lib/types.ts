@@ -444,11 +444,13 @@ export interface NotificationRulesResponse {
 export interface NotificationProfileContent {
   title: string;
   what_happened: string;
+  facts: string;
+  decision: string;
+  next_steps: string;
   why_it_matters: string;
   evidence: string;
   monitoring_method: string;
   impact: string;
-  next_steps: string;
   recovery: string;
   runbook_url: string;
 }
@@ -468,6 +470,9 @@ export interface NotificationProfile {
   content: NotificationProfileContent;
   advanced_template: string | null;
   message_template: string;
+  content_fields: Array<keyof NotificationProfileContent>;
+  content_status: "generic" | "rolled_out" | string;
+  preview_sample: Record<string, unknown>;
   updated_at: string | null;
   source: "saved" | "default" | string;
 }
@@ -478,6 +483,9 @@ export interface NotificationProfileEvent {
   description: string;
   default_severities: string[];
   available_fields: string[];
+  content_fields: Array<keyof NotificationProfileContent>;
+  content_status: "generic" | "rolled_out" | string;
+  preview_sample: Record<string, unknown>;
   defaults: NotificationProfileContent;
 }
 
@@ -485,6 +493,9 @@ export interface NotificationProfileModule {
   key: string;
   label: string;
   description: string;
+  content_status: "generic" | "rolled_out" | string;
+  content_rollout_stage: string;
+  content_gap_count: number;
   events: NotificationProfileEvent[];
 }
 
@@ -555,6 +566,9 @@ export interface ModuleCatalogEntry {
   label: string;
   blurb: string;
   event_count?: number;
+  content_status?: "generic" | "rolled_out" | string;
+  content_rollout_stage?: string;
+  content_gap_count?: number;
 }
 
 export type NotificationCoverageState = "configured" | "fallback" | "muted" | "unconfigured";
@@ -568,6 +582,9 @@ export interface NotificationCoverageEvent {
   state: NotificationCoverageState;
   covered_severities: SeverityKey[];
   high_critical_gap: boolean;
+  content_status: "generic" | "rolled_out" | string;
+  rollout_stage: string;
+  content_gap: boolean;
 }
 
 export interface NotificationCoverageModule {
@@ -577,6 +594,9 @@ export interface NotificationCoverageModule {
   event_count: number;
   counts: Record<NotificationCoverageState, number>;
   gap_count: number;
+  content_status: "generic" | "rolled_out" | string;
+  content_rollout_stage: string;
+  content_gap_count: number;
   events: NotificationCoverageEvent[];
 }
 

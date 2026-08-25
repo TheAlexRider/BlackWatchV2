@@ -1,0 +1,49 @@
+id: BW-014
+status: review
+title: "Define unique OpenVPN notification contracts beyond authentication"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/modules/vpn_openvpn.py"
+    location: "event producers and notification catalog"
+    observation: "The module emits event-specific facts that require a dedicated notification contract: server/state/heartbeat; identity/source/count/window; certificate identity/issuer/expiry/revocation; session identity and duration."
+  - file: "blackwatch/notify/profiles.py"
+    location: "NOTIFICATION_CATALOG and rollout metadata"
+    observation: "The current catalog or rollout status does not yet provide a unique contract for every event in this module."
+impact: "Recipients may miss the decision-critical facts or take the wrong response when different event types are rendered with shared generic prose."
+scope_events:
+  - "vpn.service.down"
+  - "vpn.auth.failure"
+  - "vpn.bruteforce"
+  - "vpn.session.concurrent"
+  - "vpn.cert.expired"
+  - "vpn.cert.probe.failed"
+  - "vpn.cert.expiring.critical"
+  - "vpn.cert.expiring.high"
+  - "vpn.cert.expiring.warning"
+  - "vpn.auth.success"
+  - "vpn.bruteforce.user"
+  - "vpn.service.up"
+  - "vpn.session.start"
+  - "vpn.session.end"
+acceptance_criteria:
+  - "Keep the shared outer notification structure and define event-specific headline, What happened, Facts, Decision, Next steps, Evidence, and Recovery semantics."
+  - "Inventory every event key emitted by the producer and either add a unique profile contract or explicitly classify the producer action as non-notifying/future; do not silently treat missing catalog entries as covered."
+  - "Source every rendered fact from a normalized envelope field or a named producer extra field; omit unavailable values and never invent identities, thresholds, impact, or recovery."
+  - "Add representative complete and partial fixtures plus golden rendering tests for email/plain text and one chat channel, including recovery or manual-resolution behavior where applicable."
+  - "Preserve event identifiers, saved profile IDs, routes, channels, throttling, silence settings, advanced templates, audit history, and all existing database data. Any producer additions must be additive."
+  - "Expose event-specific field guidance, preview data, rollout status, and content gaps in Notification Studio before marking the module rolled out."
+  - "Recovery rule: Explicitly pair service down/up and session start/end; certificates recover on healthy probe/renewal; auth and brute-force use no automatic recovery unless a detector emits one."
+  - "Module-specific requirement: Add the producer-supported vpn.session.end event to the catalog or explicitly classify it as non-notifying before rollout."
+dependencies:
+  - BW-012
+  - BW-013
+risks:
+  - "Producer payloads may be incomplete or differ between live and derived events; missing-field behavior must be explicit."
+  - "A broad module contains security, operational, and recovery events; do not approve the module until each event family has separate tests."
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: user
+notes: "Implemented event-level VPN contracts, added vpn.session.end coverage, and added the Decision field to the guided profile/editor. Focused tests pass; review the complete/partial producer fixtures before deployment."

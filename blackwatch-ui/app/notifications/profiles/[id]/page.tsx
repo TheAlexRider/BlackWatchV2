@@ -23,11 +23,13 @@ const CONTENT_FIELDS: Array<{
 }> = [
   { key: "title", label: "Message title", hint: "A short sentence people can scan quickly." },
   { key: "what_happened", label: "What happened", hint: "Explain the signal in plain language.", multiline: true },
+  { key: "facts", label: "Key facts", hint: "Show the values someone needs to decide quickly, such as user, source, target, and time.", multiline: true },
+  { key: "decision", label: "Decision", hint: "State what the receiver should determine first.", multiline: true },
+  { key: "next_steps", label: "Next steps", hint: "Give the first one or two actions in the order the receiver should take.", multiline: true },
   { key: "why_it_matters", label: "Why it matters", hint: "Give the receiver enough context to decide what to do.", multiline: true },
   { key: "evidence", label: "Evidence", hint: "Point to the observed value, actor, target, or event.", multiline: true },
   { key: "monitoring_method", label: "How we monitor it", hint: "Name the check, collector, or signal that produced it.", multiline: true },
   { key: "impact", label: "Possible impact", hint: "Describe the customer or technical consequence.", multiline: true },
-  { key: "next_steps", label: "Recommended next steps", hint: "Give a short, ordered response for the on-call person.", multiline: true },
   { key: "recovery", label: "Recovery", hint: "Explain how recovery will be recognized.", multiline: true },
   { key: "runbook_url", label: "Runbook link", hint: "Optional URL to the team’s response guide." },
 ];
@@ -51,6 +53,7 @@ export default async function NotificationProfilePage({
     .find((module) => module.key === profile.module)
     ?.events.find((event) => event.key === profile.event_kind);
   const availableFields = eventSpec?.available_fields ?? ["{target_name}", "{severity}", "{evidence}", "{monitoring_method}", "{impact}"];
+  const contentFields = new Set(eventSpec?.content_fields ?? profile.content_fields ?? CONTENT_FIELDS.map((field) => field.key));
 
   return (
     <>
@@ -124,9 +127,9 @@ export default async function NotificationProfilePage({
           </DataPanel>
 
           <DataPanel className="p-5" scrollX={false}>
-            <SectionTitle title="What people should understand" subtitle="These fields become the notification. Use the supplied placeholders when you want live event details." />
+            <SectionTitle title="What people should understand" subtitle="Start with the facts and next action. Optional context can stay short; advanced templates are available below." />
             <div className="mt-5 space-y-4">
-              {CONTENT_FIELDS.map((field) => (
+              {CONTENT_FIELDS.filter((field) => contentFields.has(field.key)).map((field) => (
                 <label key={field.key} className="block text-xs text-fg-muted">
                   <span>{field.label}</span>
                   <span className="ml-2 text-fg-subtle">{field.hint}</span>
@@ -140,6 +143,9 @@ export default async function NotificationProfilePage({
             </div>
             <p className="mt-4 border-l-2 border-signal/40 pl-3 font-mono text-[11px] leading-5 text-fg-subtle">
               Available placeholders: {availableFields.join(" · ")}
+            </p>
+            <p className="mt-3 text-[11px] text-fg-subtle">
+              Contract status: <span className="text-fg-muted">{eventSpec?.content_status ?? profile.content_status}</span>. Preview and delivery use the same event-specific contract.
             </p>
           </DataPanel>
 

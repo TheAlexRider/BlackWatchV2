@@ -1,0 +1,38 @@
+id: BW-012
+status: review
+title: "Make VPN authentication notifications compact and actionable"
+area: full-stack
+source: user
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/modules/vpn_openvpn.py"
+    location: "198-264"
+    observation: "VPN auth events already contain principal, source IP, event time, server target, outcome, action, and the original log line."
+  - file: "blackwatch/notify/profiles.py"
+    location: "282-296"
+    observation: "vpn.auth.failure currently uses the generic event defaults and has no VPN-specific content fields or wording."
+  - file: "blackwatch/notify/channels.py"
+    location: "52-73, 77-97"
+    observation: "Existing channel presets can produce concise or factual messages, but profile rule templates now bypass them."
+  - file: "tests/test_vpn.py"
+    location: "116-153"
+    observation: "The parser tests establish the failure event action and its source data, but do not verify notification rendering."
+impact: "A VPN failure notification should let a technical recipient identify the account, source, time, server, and first response immediately; the current generic message makes that slower."
+acceptance_criteria:
+  - "The default vpn.auth.failure notification clearly states the failed VPN login and includes the real user, source IP, time, and VPN server when present."
+  - "The default response is short and ordered, for example: verify whether the user initiated the login; if unexpected, investigate or escalate according to the configured runbook."
+  - "The output does not include generic placeholder prose such as 'Impact depends on...' or 'sample evidence' in a delivered alert."
+  - "Unavailable fields are omitted cleanly; a malformed or partial journal line does not produce fabricated identity or network facts."
+  - "The Notification Studio preview can use a real recent VPN failure or a representative VPN fixture and shows the same output delivered by the notifier."
+  - "Add golden rendering tests for VPN failure, VPN success, and a failure with missing source IP across at least email and one chat channel."
+  - "Preserve existing VPN event ingestion, deduplication, routing, throttling, and user-configured templates."
+dependencies:
+  - BW-011
+risks:
+  - "Security guidance must remain operationally safe and configurable; do not hard-code account revocation without an approved runbook/action model."
+  - "Existing users may depend on the old channel template; custom templates must remain authoritative."
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: user
+notes: "Implemented VPN-specific facts, ordered response guidance, representative preview data, and compact success/failure defaults while preserving custom templates and routing."

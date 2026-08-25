@@ -10,15 +10,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from ..event import Actor, Event, Outcome, Severity, Source, Target
+from .content_contracts import apply_event_contracts
+
 
 PROFILE_CONTENT_FIELDS = (
     "title",
     "what_happened",
+    "facts",
+    "decision",
+    "next_steps",
     "why_it_matters",
     "evidence",
     "monitoring_method",
     "impact",
-    "next_steps",
     "recovery",
     "runbook_url",
 )
@@ -55,6 +60,48 @@ _SERVICE_AVAILABLE_FIELDS = [
     "{monitoring_impact}",
 ]
 
+_VPN_AUTH_AVAILABLE_FIELDS = [
+    "{principal}",
+    "{source_ip}",
+    "{target_name}",
+    "{event_time}",
+    "{evidence}",
+    "{severity}",
+    "{monitoring_method}",
+    "{impact}",
+]
+
+_VPN_FAILURE_FACTS = (
+    "{% if event.actor.principal %}User: {{ event.actor.principal }}\n{% endif %}"
+    "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+    "VPN server: {{ event.target.name or event.target.id or 'unknown server' }}\n"
+    "When: {{ event.event_time }}\n"
+    "{% if event.extra.message %}Evidence: {{ event.extra.message }}{% endif %}"
+)
+
+_VPN_FAILURE_NEXT_STEPS = (
+    "{% if event.actor.principal %}1. Confirm whether {{ event.actor.principal }} initiated this login.\n"
+    "{% else %}1. Identify the account associated with this login.\n{% endif %}"
+    "{% if event.actor.source_ip %}2. If unexpected, investigate {{ event.actor.source_ip }} and follow the configured credential-response runbook."
+    "{% else %}2. If unexpected, investigate the source and follow the configured credential-response runbook.{% endif %}"
+)
+
+_VPN_SUCCESS_FACTS = (
+    "{% if event.actor.principal %}User: {{ event.actor.principal }}\n{% endif %}"
+    "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+    "VPN server: {{ event.target.name or event.target.id or 'unknown server' }}\n"
+    "When: {{ event.event_time }}"
+)
+
+_COMMON_FACTS_TEMPLATE = (
+    "{% if event.actor.principal %}Actor: {{ event.actor.principal }}\n{% endif %}"
+    "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+    "{% if event.target.name or event.target.id %}Target: {{ event.target.name or event.target.id }}\n{% endif %}"
+    "When: {{ event.event_time }}\n"
+    "{% if event.extra.message %}Signal: {{ event.extra.message }}\n{% endif %}"
+    "{% if event.severity %}Severity: {{ event.severity }}{% endif %}"
+)
+
 
 def _event(
     key: str,
@@ -64,16 +111,20 @@ def _event(
     *,
     available_fields: list[str] | None = None,
     defaults: dict[str, str] | None = None,
+    content_status: str = "generic",
+    preview_sample: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     default_content = {
         "title": label,
         "what_happened": f"BlackWatch detected {label.lower()}.",
-        "why_it_matters": "Review the evidence and confirm whether this activity was expected.",
-        "evidence": "Observed signal: {evidence}.",
-        "monitoring_method": "Monitored by {monitoring_method}.",
-        "impact": "Impact depends on the affected resource and environment.",
-        "next_steps": "Verify the resource, owner, and recent changes, then follow the runbook if action is needed.",
-        "recovery": "Recovery is reported by the matching recovery event when available.",
+        "facts": _COMMON_FACTS_TEMPLATE,
+        "decision": "Decide whether this event is expected and whether the owner needs to act.",
+        "next_steps": "Verify the affected resource, owner, and recent changes.",
+        "why_it_matters": "",
+        "evidence": "",
+        "monitoring_method": "",
+        "impact": "",
+        "recovery": "",
         "runbook_url": "",
     }
     if defaults:
@@ -84,6 +135,35 @@ def _event(
         "description": description,
         "default_severities": [severity],
         "available_fields": list(available_fields or _COMMON_AVAILABLE_FIELDS),
+        "content_fields": list(PROFILE_CONTENT_FIELDS),
+        "content_status": content_status,
+        "preview_sample": dict(preview_sample or {
+            "target_id": "sample-target",
+            "target_name": "sample-target",
+            "principal": "sample-user",
+            "source_ip": "192.0.2.10",
+            "event_time": "2026-08-25T10:00:00Z",
+            "message": "sample monitored signal",
+            "extra": {
+                "service_name": "sample-service",
+                "vpc": "sample-vpc",
+                "monitor_tier": "service",
+                "error": "sample evidence from the monitored signal",
+                "error_signal": "sample health-check failure",
+                "observation": "sample observation",
+                "latency_ms": 240,
+                "consecutive_failures": 3,
+                "consecutive_successes": 4,
+                "downtime_seconds": 180,
+                "unknown_seconds": 90,
+                "last_report": "2026-08-25T10:00:00+00:00",
+                "agent_version": "sample-agent-1.0",
+                "monitoring_method": "the configured module monitor",
+                "monitoring_impact": "sample monitoring impact",
+                "impact": "sample technical impact",
+                "recovery_event": "the matching recovery event",
+            },
+        }),
         "defaults": default_content,
     }
 
@@ -95,6 +175,8 @@ def _service_event(
     severity: str = "high",
     *,
     defaults: dict[str, str] | None = None,
+    content_status: str = "generic",
+    preview_sample: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _event(
         key,
@@ -103,11 +185,197 @@ def _service_event(
         severity,
         available_fields=_SERVICE_AVAILABLE_FIELDS,
         defaults=defaults,
+        content_status=content_status,
+        preview_sample=preview_sample,
     )
 
 
+_MODULE_ROLLOUT: dict[str, dict[str, str]] = {
+    # Rollout order is intentional: complete the operationally important
+    # authentication/availability batches before expanding to the remaining
+    # AWS and security-finding modules.
+    "vpn.openvpn": {
+        "stage": "1-vpn",
+        "status": "rolled_out",
+        "why": "Unexpected VPN activity can indicate credential misuse or an account takeover attempt.",
+        "next_steps": "Verify the account, source, VPN server, and recent authentication changes; follow the configured runbook if unexpected.",
+        "monitoring": "OpenVPN authentication, session, and service logs on the monitored VPN server.",
+        "impact": "A failed login may be benign, or may indicate an unauthorized access attempt when the user or source is unfamiliar.",
+        "recovery": "A matching VPN recovery or successful-authentication event is reported separately when available.",
+    },
+    "ec2.host": {
+        "stage": "2-ec2-ssh",
+        "status": "rolled_out",
+        "why": "Host authentication, privilege, and integrity changes can indicate unauthorized access or host compromise.",
+        "next_steps": "Verify the host, account, process, and recent privileged changes; contain the host according to the runbook if unexpected.",
+        "monitoring": "EC2 host-agent telemetry, SSH/authentication logs, process activity, and file-integrity signals.",
+        "impact": "The host may be exposed, unavailable, or running an unauthorized change until the signal is explained.",
+        "recovery": "A matching host recovery or normal-state event is reported separately when available.",
+    },
+    "aws.rds": {
+        "stage": "3-rds",
+        "status": "rolled_out",
+        "why": "Unexpected database access, schema, or configuration changes can expose data or interrupt application workloads.",
+        "next_steps": "Verify the database, actor, source, and recent change window; check dependent applications and follow the database runbook.",
+        "monitoring": "RDS, database-session, proxy, and CloudTrail database activity for the monitored account.",
+        "impact": "The database may be exposed, degraded, or changed in a way that affects data access and application availability.",
+        "recovery": "A matching database recovery or resolved-state event is reported separately when available.",
+    },
+    "ecs.probe": {
+        "stage": "4-ecs",
+        "status": "rolled_out",
+        "why": "A service health change can affect customers or dependent systems before the condition becomes a full outage.",
+        "next_steps": "Check the service logs, health check, dependencies, and latest deployment; follow the service runbook.",
+        "monitoring": "The configured service/probe health checks and heartbeat telemetry.",
+        "impact": "The service may be unavailable, degraded, or outside reliable monitoring coverage.",
+        "recovery": "BlackWatch reports the matching service or probe recovery event when the healthy condition returns.",
+    },
+    "aws.iam": {
+        "stage": "5-iam",
+        "status": "planned",
+        "why": "Identity and trust-policy changes can expand access or weaken account protections.",
+        "next_steps": "Verify the principal, affected identity, policy or trust change, and approved change window before escalating.",
+        "monitoring": "AWS CloudTrail identity, IAM, KMS, and CloudTrail-management events.",
+        "impact": "An unapproved identity change may grant access, remove a control, or reduce audit visibility.",
+        "recovery": "A matching identity-control recovery or follow-up change is reported separately when available.",
+    },
+    "aws.s3": {
+        "stage": "6-s3",
+        "status": "planned",
+        "why": "Bucket policy, public-access, and object-access changes can expose or alter stored data.",
+        "next_steps": "Verify the bucket, actor, object, and access path; remove unintended exposure according to the storage runbook.",
+        "monitoring": "S3 data and bucket-management events from the configured AWS telemetry.",
+        "impact": "Stored data may be publicly readable, modified, deleted, or inaccessible to expected workloads.",
+        "recovery": "A matching access-restored or exposure-resolved event is reported separately when available.",
+    },
+    "cert": {
+        "stage": "7-certificates",
+        "status": "planned",
+        "why": "An expired or failing certificate can break secure connections and create an avoidable outage.",
+        "next_steps": "Verify the endpoint, certificate chain, expiry window, and renewal owner; follow the certificate runbook.",
+        "monitoring": "Configured TLS certificate probes and expiry checks.",
+        "impact": "Clients may reject the endpoint or monitoring may lose confidence in the secure connection.",
+        "recovery": "A matching certificate renewal or probe-recovered event is reported separately when available.",
+    },
+    "ueba": {
+        "stage": "8-ueba",
+        "status": "planned",
+        "why": "Behavior that departs from the established baseline may indicate compromised credentials or an unusual workflow.",
+        "next_steps": "Verify the entity, baseline deviation, source, and recent changes with the owner before escalating.",
+        "monitoring": "BlackWatch behavioral baseline and anomaly analysis.",
+        "impact": "The activity may represent account misuse or an unreviewed operational change.",
+        "recovery": "A matching baseline-normalized event is reported separately when available.",
+    },
+    "findings": {
+        "stage": "9-findings",
+        "status": "planned",
+        "why": "A security finding identifies a condition that may require containment or owner action.",
+        "next_steps": "Verify the affected resource and owner, preserve evidence, and follow the approved response runbook.",
+        "monitoring": "BlackWatch security-finding ingestion and correlation.",
+        "impact": "Impact depends on the affected resource and finding evidence; the finding should remain traceable until resolved.",
+        "recovery": "A matching finding-resolved event is reported separately when available.",
+    },
+    "aws.posture": {
+        "stage": "10-posture",
+        "status": "planned",
+        "why": "Posture drift or resource exposure can weaken preventive controls even when no incident is confirmed.",
+        "next_steps": "Verify the resource, control, owner, and approved exception; remediate or document the condition according to policy.",
+        "monitoring": "AWS posture checks, configuration signals, and resource-exposure findings.",
+        "impact": "A preventive control may be missing or a resource may be more exposed than intended.",
+        "recovery": "A matching posture-resolved event is reported separately when the control returns to the expected state.",
+    },
+    "aws.backup": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "Backup or vault changes can reduce the ability to recover systems after an incident.",
+        "next_steps": "Verify the vault, recovery point, actor, retention policy, and last known-good backup.",
+        "monitoring": "AWS Backup recovery-point, vault, and policy events.",
+        "impact": "Recovery coverage may be reduced or a recovery point may be unavailable when needed.",
+        "recovery": "A matching backup-completed or recovery-point-restored event is reported separately when available.",
+    },
+    "aws.efs": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "File-system policy and mount changes can expose shared data or interrupt dependent workloads.",
+        "next_steps": "Verify the file system, mount target, security group, actor, and approved change window.",
+        "monitoring": "AWS EFS file-system, mount-target, policy, and security-group events.",
+        "impact": "Shared data may be exposed, inaccessible, or unavailable to connected workloads.",
+        "recovery": "A matching EFS configuration-restored event is reported separately when available.",
+    },
+    "aws.network": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "Network topology or ingress changes can unexpectedly expose services or break traffic paths.",
+        "next_steps": "Verify the route, gateway, peering, security-group rule, actor, and approved change window.",
+        "monitoring": "AWS network, gateway, peering, transit, and security-group events.",
+        "impact": "Traffic may become exposed, blocked, redirected, or unavailable to dependent systems.",
+        "recovery": "A matching network-change reversal or healthy-path event is reported separately when available.",
+    },
+    "aws.secrets": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "Secret lifecycle changes can break consumers or alter the credentials used to access systems.",
+        "next_steps": "Verify the secret, actor, consuming service, version, and approved rotation or deletion window.",
+        "monitoring": "AWS Secrets Manager lifecycle and access-management events.",
+        "impact": "Applications may fail authentication or an important credential may be exposed, replaced, or unavailable.",
+        "recovery": "A matching secret-restored or consumer-recovered event is reported separately when available.",
+    },
+    "aws.compute": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "Compute metadata, image-sharing, or instance changes can alter host access and workload trust.",
+        "next_steps": "Verify the instance or image, actor, metadata setting, sharing scope, and deployment window.",
+        "monitoring": "AWS EC2 instance, AMI, and metadata-management events.",
+        "impact": "A workload may be exposed to credential theft, run an unexpected image, or become unavailable.",
+        "recovery": "A matching compute-configuration-restored event is reported separately when available.",
+    },
+    "aws.storage": {
+        "stage": "11-platform",
+        "status": "planned",
+        "why": "Snapshot or volume-sharing changes can expose recovery data or affect restoration plans.",
+        "next_steps": "Verify the snapshot or volume, sharing scope, actor, retention policy, and approved change window.",
+        "monitoring": "AWS volume, snapshot, and resource-sharing events.",
+        "impact": "Stored data may be exposed, deleted, or unavailable for recovery.",
+        "recovery": "A matching storage-access-restored event is reported separately when available.",
+    },
+}
+
+
 def _module(key: str, label: str, description: str, *events: dict[str, Any]) -> dict[str, Any]:
-    return {"key": key, "label": label, "description": description, "events": list(events)}
+    rollout = _MODULE_ROLLOUT.get(key, {})
+    stage = str(rollout.get("stage") or "backlog")
+    status = "rolled_out" if rollout.get("status") == "rolled_out" else "generic"
+    module_events: list[dict[str, Any]] = []
+    for event in events:
+        event["rollout_stage"] = stage
+        if status == "rolled_out" and event.get("content_status") != "rolled_out":
+            defaults = event["defaults"]
+            defaults.update({
+                "why_it_matters": rollout["why"],
+                "next_steps": rollout["next_steps"],
+                "monitoring_method": rollout["monitoring"],
+                "impact": rollout["impact"],
+                "recovery": rollout["recovery"],
+            })
+            event["content_status"] = "rolled_out"
+            sample = dict(event.get("preview_sample") or {})
+            sample["target_name"] = sample.get("target_name") or f"{label} target"
+            sample["message"] = sample.get("message") or event["description"]
+            sample_extra = dict(sample.get("extra") or {})
+            sample_extra.setdefault("monitoring_method", rollout["monitoring"])
+            sample_extra.setdefault("impact", rollout["impact"])
+            sample["extra"] = sample_extra
+            event["preview_sample"] = sample
+        module_events.append(event)
+    return {
+        "key": key,
+        "label": label,
+        "description": description,
+        "content_status": status,
+        "content_rollout_stage": stage,
+        "content_gap_count": sum(item.get("content_status") == "generic" for item in module_events),
+        "events": module_events,
+    }
 
 
 NOTIFICATION_CATALOG: list[dict[str, Any]] = [
@@ -181,22 +449,51 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     _module(
         "aws.iam", "AWS IAM", "Identity, access-key, MFA, trust-policy, KMS, and CloudTrail security events.",
         _event("iam.access_key.create", "IAM access key created", "A new IAM access key was created.", "high"),
+        _event("iam.access_key.update", "IAM access key changed", "An IAM access key was changed.", "high"),
+        _event("iam.access_key.delete", "IAM access key deleted", "An IAM access key was deleted.", "high"),
         _event("iam.mfa.deactivate", "IAM MFA disabled", "Multi-factor authentication was disabled.", "critical"),
+        _event("iam.mfa.enable", "IAM MFA enabled", "Multi-factor authentication was enabled.", "informational"),
+        _event("iam.mfa.delete", "IAM MFA device deleted", "An MFA device was deleted.", "high"),
         _event("iam.role.update_trust", "Role trust policy changed", "An IAM role trust policy was changed.", "critical"),
         _event("iam.user.create", "IAM user created", "A new IAM user was created.", "medium"),
+        _event("iam.user.update", "IAM user changed", "An IAM user was changed.", "high"),
         _event("iam.user.delete", "IAM user deleted", "An IAM user was deleted.", "high"),
         _event("iam.role.create", "IAM role created", "A new IAM role was created.", "medium"),
         _event("iam.role.delete", "IAM role deleted", "An IAM role was deleted.", "high"),
+        _event("iam.group.create", "IAM group created", "An IAM group was created.", "medium"),
+        _event("iam.group.delete", "IAM group deleted", "An IAM group was deleted.", "high"),
+        _event("iam.group.add_user", "IAM user added to group", "A user was added to an IAM group.", "high"),
+        _event("iam.group.remove_user", "IAM user removed from group", "A user was removed from an IAM group.", "high"),
         _event("iam.login_profile.create", "IAM login profile created", "A console login profile was created for an IAM user.", "high"),
+        _event("iam.login_profile.update", "IAM login profile changed", "An IAM console login profile was changed.", "high"),
+        _event("iam.login_profile.delete", "IAM login profile deleted", "An IAM console login profile was deleted.", "high"),
         _event("iam.policy.attach", "IAM policy attached", "A policy was attached to an IAM principal.", "high"),
+        _event("iam.policy.detach", "IAM policy detached", "A policy was detached from an IAM principal.", "high"),
         _event("iam.policy.put_inline", "Inline IAM policy changed", "An inline IAM policy was added or changed.", "high"),
+        _event("iam.policy.delete_inline", "Inline IAM policy deleted", "An inline IAM policy was deleted.", "high"),
+        _event("iam.policy.create", "IAM policy created", "A managed IAM policy was created.", "high"),
+        _event("iam.policy.delete", "IAM policy deleted", "A managed IAM policy was deleted.", "high"),
+        _event("iam.policy.create_version", "IAM policy version created", "A managed IAM policy version was created.", "high"),
+        _event("iam.policy.delete_version", "IAM policy version deleted", "A managed IAM policy version was deleted.", "high"),
+        _event("iam.role.boundary.put", "IAM role permissions boundary changed", "A permissions boundary was attached to a role.", "high"),
+        _event("iam.role.boundary.delete", "IAM role permissions boundary removed", "A permissions boundary was removed from a role.", "critical"),
+        _event("iam.user.boundary.put", "IAM user permissions boundary changed", "A permissions boundary was attached to a user.", "high"),
+        _event("iam.user.boundary.delete", "IAM user permissions boundary removed", "A permissions boundary was removed from a user.", "critical"),
         _event("kms.key.disable", "KMS key disabled", "A KMS key was disabled.", "critical"),
+        _event("kms.key.create", "KMS key created", "A KMS key was created.", "high"),
+        _event("kms.key.enable", "KMS key enabled", "A KMS key was enabled.", "informational"),
         _event("kms.key.delete_scheduled", "KMS key deletion scheduled", "Deletion was scheduled for a KMS key.", "critical"),
+        _event("kms.key.delete_cancelled", "KMS key deletion cancelled", "Scheduled KMS key deletion was cancelled.", "informational"),
         _event("kms.policy.put", "KMS key policy changed", "A KMS key policy was changed.", "high"),
         _event("kms.grant.create", "KMS grant created", "A grant was created for a KMS key.", "high"),
+        _event("kms.grant.retire", "KMS grant retired", "A KMS grant was retired.", "informational"),
+        _event("kms.grant.revoke", "KMS grant revoked", "A KMS grant was revoked.", "high"),
         _event("kms.rotation.disable", "KMS key rotation disabled", "Automatic KMS key rotation was disabled.", "critical"),
+        _event("kms.rotation.enable", "KMS key rotation enabled", "Automatic KMS key rotation was enabled.", "informational"),
         _event("cloudtrail.trail.delete", "CloudTrail trail deleted", "A CloudTrail trail was deleted.", "critical"),
         _event("cloudtrail.logging.stop", "CloudTrail logging stopped", "CloudTrail logging was stopped.", "critical"),
+        _event("cloudtrail.logging.start", "CloudTrail logging started", "CloudTrail logging was started.", "informational"),
+        _event("cloudtrail.trail.create", "CloudTrail trail created", "A CloudTrail trail was created.", "medium"),
         _event("cloudtrail.trail.update", "CloudTrail trail changed", "A CloudTrail trail configuration changed.", "high"),
         _event("auth.console.login", "AWS console login", "An AWS console login was observed.", "informational"),
         _event("auth.federated.login", "Federated AWS login", "A federated AWS login was observed.", "informational"),
@@ -214,9 +511,19 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
         _event("s3.bucket.public", "S3 bucket became public", "A bucket public-access control changed.", "critical"),
         _event("s3.bucket.public_removed", "S3 bucket public access removed", "A bucket was no longer publicly accessible.", "informational"),
         _event("s3.bucket.encryption.delete", "S3 bucket encryption removed", "Default encryption was removed from an S3 bucket.", "high"),
+        _event("s3.bucket.encryption.put", "S3 bucket encryption changed", "Default encryption was changed on an S3 bucket.", "medium"),
+        _event("s3.bucket.encryption_added", "S3 bucket encryption restored", "A bucket returned from no default encryption to an encrypted state.", "informational"),
         _event("s3.bucket.versioning.put", "S3 bucket versioning changed", "S3 bucket versioning was enabled or changed.", "medium"),
+        _event("s3.bucket.versioning_suspended", "S3 bucket versioning suspended", "S3 bucket versioning was suspended.", "high"),
+        _event("s3.bucket.versioning_enabled", "S3 bucket versioning enabled", "S3 bucket versioning was enabled.", "informational"),
         _event("s3.bucket.versioning_off", "S3 bucket versioning disabled", "S3 bucket versioning was disabled.", "high"),
         _event("s3.bucket.logging.put", "S3 bucket logging changed", "S3 bucket access logging changed.", "high"),
+        _event("s3.bucket.logging_disabled", "S3 bucket logging disabled", "S3 bucket access logging was disabled.", "high"),
+        _event("s3.bucket.policy.delete", "S3 bucket policy deleted", "An S3 bucket policy was deleted.", "high"),
+        _event("s3.bucket.lifecycle.put", "S3 bucket lifecycle changed", "An S3 bucket lifecycle configuration changed.", "medium"),
+        _event("s3.bucket.replication.put", "S3 bucket replication changed", "An S3 bucket replication configuration changed.", "high"),
+        _event("s3.bucket.replication.delete", "S3 bucket replication removed", "An S3 bucket replication configuration was removed.", "high"),
+        _event("s3.bucket.object_lock.put", "S3 object lock changed", "An S3 object-lock configuration changed.", "high"),
         _event("s3.bucket.unencrypted", "Unencrypted S3 bucket detected", "An S3 bucket was observed without expected encryption.", "high"),
         _event("s3.bucket.first_seen", "S3 bucket first seen", "An S3 bucket was observed for the first time.", "low"),
         _event("s3.bucket.disappeared", "S3 bucket disappeared", "A previously observed S3 bucket was not found.", "high"),
@@ -281,7 +588,29 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     _module(
         "vpn.openvpn", "OpenVPN", "VPN service, authentication, sessions, and brute-force activity.",
         _event("vpn.service.down", "VPN service down", "The VPN service reported a down state.", "critical"),
-        _event("vpn.auth.failure", "VPN login failed", "A VPN authentication attempt failed.", "medium"),
+        _event(
+            "vpn.auth.failure",
+            "VPN login failed",
+            "A VPN authentication attempt failed.",
+            "medium",
+            available_fields=_VPN_AUTH_AVAILABLE_FIELDS,
+            content_status="rolled_out",
+            preview_sample={
+                "principal": "atharva.kale",
+                "source_ip": "107.197.154.253",
+                "target_name": "VPN server vpn-1",
+                "event_time": "2026-08-25T04:06:21.424277Z",
+                "message": "VPN authentication FAILED",
+            },
+            defaults={
+                "title": "VPN login failed · {severity}",
+                "what_happened": "A VPN login failed.",
+                "facts": _VPN_FAILURE_FACTS,
+                "next_steps": _VPN_FAILURE_NEXT_STEPS,
+                "why_it_matters": "An unexpected failure can indicate credential misuse or an attempted account takeover.",
+                "monitoring_method": "OpenVPN authentication logs on the monitored VPN server.",
+            },
+        ),
         _event("vpn.bruteforce", "VPN brute-force activity", "Repeated VPN authentication failures were detected.", "high"),
         _event("vpn.session.concurrent", "Concurrent VPN sessions high", "Concurrent VPN sessions crossed the configured threshold.", "medium"),
         _event("vpn.cert.expired", "VPN certificate expired", "A VPN certificate expired.", "critical"),
@@ -289,10 +618,31 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
         _event("vpn.cert.expiring.critical", "VPN certificate expires soon", "A VPN certificate is critically close to expiry.", "critical"),
         _event("vpn.cert.expiring.high", "VPN certificate expiry warning", "A VPN certificate is approaching expiry.", "high"),
         _event("vpn.cert.expiring.warning", "VPN certificate expiry notice", "A VPN certificate entered its warning window.", "medium"),
-        _event("vpn.auth.success", "VPN login succeeded", "A VPN authentication attempt succeeded.", "informational"),
+        _event(
+            "vpn.auth.success",
+            "VPN login succeeded",
+            "A VPN authentication attempt succeeded.",
+            "informational",
+            available_fields=_VPN_AUTH_AVAILABLE_FIELDS,
+            content_status="rolled_out",
+            preview_sample={
+                "principal": "atharva.kale",
+                "source_ip": "107.197.154.253",
+                "target_name": "VPN server vpn-1",
+                "event_time": "2026-08-25T04:06:21.424277Z",
+            },
+            defaults={
+                "title": "VPN login succeeded",
+                "what_happened": "A VPN login succeeded.",
+                "facts": _VPN_SUCCESS_FACTS,
+                "next_steps": "No action is required unless this login was unexpected; verify the user and source if it was not planned.",
+                "monitoring_method": "OpenVPN authentication logs on the monitored VPN server.",
+            },
+        ),
         _event("vpn.bruteforce.user", "VPN brute-force activity against a user", "Repeated VPN authentication failures targeted one user.", "high"),
         _event("vpn.service.up", "VPN service recovered", "The VPN service recovered.", "informational"),
         _event("vpn.session.start", "VPN session started", "A VPN session started.", "informational"),
+        _event("vpn.session.end", "VPN session ended", "A VPN session ended.", "informational"),
     ),
     _module(
         "ecs.probe", "Services and Probes", "Service availability, degradation, recovery, and monitoring-agent health.",
@@ -386,6 +736,13 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
 ]
 
 
+# Module-level rollout metadata supplies navigation and backwards-compatible
+# defaults. These event contracts are the final content authority for the
+# three approved modules, so every message has its own facts, decision,
+# actions, evidence, impact, and recovery semantics.
+apply_event_contracts(NOTIFICATION_CATALOG, PROFILE_CONTENT_FIELDS)
+
+
 _TOKEN_MAP = {
     "{module}": "{{ event.source.module }}",
     "{alert_type}": "{{ event.action }}",
@@ -408,9 +765,72 @@ _TOKEN_MAP = {
     "{consecutive_successes}": "{{ event.extra.consecutive_successes if event.extra.consecutive_successes is not none else 'unknown' }}",
     "{downtime}": "{{ event.extra.downtime_seconds if event.extra.downtime_seconds is not none else 'unknown' }} seconds",
     "{unknown_duration}": "{{ event.extra.unknown_seconds if event.extra.unknown_seconds is not none else 'unknown' }} seconds",
+    "{age_seconds}": "{{ event.extra.age_seconds if event.extra.age_seconds is not none else 'not reported' }} seconds",
     "{last_report}": "{{ event.extra.last_report or 'unknown' }}",
     "{agent_version}": "{{ event.extra.agent_version or 'unknown' }}",
     "{monitoring_impact}": "{{ event.extra.monitoring_impact or event.extra.impact or 'monitoring impact not specified' }}",
+    "{server}": "{{ event.extra.server or event.target.name or event.target.id or 'unknown server' }}",
+    "{previous_state}": "{{ event.extra.prev_active if event.extra.prev_active is not none else 'not reported' }}",
+    "{current_state}": "{{ event.extra.active if event.extra.active is not none else 'not reported' }}",
+    "{common_name}": "{{ event.extra.common_name or 'not reported' }}",
+    "{identity}": "{{ event.extra.identity or event.actor.principal or 'not reported' }}",
+    "{source_ips}": "{{ event.extra.source_ips | join(', ') if event.extra.source_ips else 'not reported' }}",
+    "{count_in_window}": "{{ event.extra.count_in_window or event.extra.failure_count or 'not reported' }}",
+    "{threshold}": "{{ event.extra.threshold or 'not reported' }}",
+    "{window_seconds}": "{{ event.extra.window_seconds or 'not reported' }}",
+    "{window_minutes}": "{{ event.extra.window_minutes or 'not reported' }}",
+    "{certificate_subject}": "{{ event.extra.subject or 'not reported' }}",
+    "{days_remaining}": "{{ event.extra.days_remaining if event.extra.days_remaining is not none else 'not reported' }}",
+    "{not_after}": "{{ event.extra.not_after or 'not reported' }}",
+    "{certificate_path}": "{{ event.extra.path or 'not reported' }}",
+    "{certificate_error}": "{{ event.extra.error or 'not reported' }}",
+    "{instance_id}": "{{ event.extra.instance_id or 'not reported' }}",
+    "{last_report}": "{{ event.extra.last_report or 'not reported' }}",
+    "{agent_version}": "{{ event.extra.agent_version or 'not reported' }}",
+    "{collector}": "{{ event.extra.collector or 'not reported' }}",
+    "{user}": "{{ event.extra.user or event.actor.principal or 'not reported' }}",
+    "{path}": "{{ event.extra.path or 'not reported' }}",
+    "{change_type}": "{{ event.extra.change_type or 'not reported' }}",
+    "{hash}": "{{ event.extra.hash or 'not reported' }}",
+    "{owner}": "{{ event.extra.owner or 'not reported' }}",
+    "{value}": "{{ event.extra.value if event.extra.value is not none else 'not reported' }}",
+    "{baseline}": "{{ event.extra.baseline if event.extra.baseline is not none else 'not reported' }}",
+    "{duration_seconds}": "{{ event.extra.duration_seconds if event.extra.duration_seconds is not none else 'not reported' }}",
+    "{mount}": "{{ event.extra.mount or 'not reported' }}",
+    "{process}": "{{ event.extra.process or 'not reported' }}",
+    "{pid}": "{{ event.extra.pid or 'not reported' }}",
+    "{kernel_module}": "{{ event.extra.module or 'not reported' }}",
+    "{package}": "{{ event.extra.package or 'not reported' }}",
+    "{error}": "{{ event.extra.error or 'not reported' }}",
+    "{port}": "{{ event.extra.port or 'not reported' }}",
+    "{service_name}": "{{ event.extra.service_name or event.extra.service or 'not reported' }}",
+    "{state}": "{{ event.extra.state or 'not reported' }}",
+    "{db_instance}": "{{ event.extra.db_instance or event.target.name or event.target.id or 'not reported' }}",
+    "{database}": "{{ event.extra.database or event.extra.db_name or 'not reported' }}",
+    "{session_id}": "{{ event.extra.session_id or 'not reported' }}",
+    "{idle_hours}": "{{ event.extra.idle_hours if event.extra.idle_hours is not none else 'not reported' }}",
+    "{reason}": "{{ event.extra.reason or 'not reported' }}",
+    "{source_port}": "{{ event.extra.source_port or 'not reported' }}",
+    "{change}": "{{ event.extra.change or event.extra.message or 'not reported' }}",
+    "{query}": "{{ event.extra.query or 'not captured' }}",
+    "{function}": "{{ event.extra.function or 'not reported' }}",
+    "{role}": "{{ event.extra.role or 'not reported' }}",
+    "{object}": "{{ event.extra.object or 'not reported' }}",
+    "{trigger}": "{{ event.extra.trigger or 'not reported' }}",
+    "{account}": "{{ event.source.account or event.extra.account or 'not reported' }}",
+    "{region}": "{{ event.source.region or event.extra.region or 'not reported' }}",
+    "{event_name}": "{{ event.extra.event_name or event.action }}",
+    "{error_code}": "{{ event.extra.error_code or 'not reported' }}",
+    "{mfa_used}": "{{ event.extra.mfa_used or 'not reported' }}",
+    "{user_agent}": "{{ event.actor.user_agent or event.extra.user_agent or 'not reported' }}",
+    "{operation}": "{{ event.extra.operation or 'not reported' }}",
+    "{http_status}": "{{ event.extra.http_status or 'not reported' }}",
+    "{bytes_sent}": "{{ event.extra.bytes_sent if event.extra.bytes_sent is not none else 'not reported' }}",
+    "{auth_type}": "{{ event.extra.auth_type or 'not reported' }}",
+    "{public}": "{{ event.extra.public if event.extra.public is not none else 'not reported' }}",
+    "{public_reasons}": "{{ event.extra.public_reasons | join(', ') if event.extra.public_reasons else 'not reported' }}",
+    "{encryption}": "{{ event.extra.encryption or 'not reported' }}",
+    "{versioning}": "{{ event.extra.versioning or 'not reported' }}",
 }
 
 
@@ -437,11 +857,13 @@ def compile_message_template(content: dict[str, Any]) -> str:
     """Turn guided message fields into a safe, readable Jinja template."""
     labels = {
         "what_happened": "What happened",
+        "facts": "Facts",
+        "decision": "Decision",
+        "next_steps": "Next steps",
         "why_it_matters": "Why it matters",
         "evidence": "Evidence",
         "monitoring_method": "Monitoring",
         "impact": "Impact",
-        "next_steps": "Next steps",
         "recovery": "Recovery",
         "runbook_url": "Runbook",
     }
@@ -498,5 +920,50 @@ def normalize_profile(payload: dict[str, Any]) -> dict[str, Any]:
         "content": content,
         "advanced_template": advanced,
         "message_template": advanced or compile_message_template(content),
+        "content_fields": list(spec.get("content_fields") or PROFILE_CONTENT_FIELDS[2:]),
+        "content_status": str(spec.get("content_status") or "generic"),
+        "preview_sample": dict(spec.get("preview_sample") or {}),
         "updated_at": payload.get("updated_at"),
     }
+
+
+def build_preview_event(profile: dict[str, Any]) -> Event:
+    """Build a representative event from the selected catalog contract.
+
+    Preview data is deliberately kept in the catalog so the UI and notifier
+    exercise the same event-specific fields. It is never used for delivery.
+    """
+    sample = profile.get("preview_sample") or {}
+    event_time = sample.get("event_time")
+    parsed_time = None
+    if isinstance(event_time, str) and event_time.strip():
+        try:
+            parsed_time = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
+        except ValueError:
+            parsed_time = None
+
+    severity_value = str((profile.get("severities") or [""])[-1])
+    severity = Severity(severity_value) if severity_value in _SEVERITIES else None
+    outcome_value = str(sample.get("outcome") or "unknown")
+    outcome = Outcome(outcome_value) if outcome_value in {item.value for item in Outcome} else Outcome.unknown
+    extra = dict(sample.get("extra") or {}) if isinstance(sample.get("extra"), dict) else {}
+    for key in ("message", "log_line", "server"):
+        if sample.get(key) is not None:
+            extra[key] = sample[key]
+
+    return Event(
+        source=Source(module=str(profile.get("module") or "unknown")),
+        action=str(profile.get("event_kind") or "generic.event"),
+        event_time=parsed_time or datetime.now().astimezone(),
+        severity=severity,
+        outcome=outcome,
+        actor=Actor(
+            principal=sample.get("principal"),
+            source_ip=sample.get("source_ip"),
+        ),
+        target=Target(
+            id=sample.get("target_id") or "sample-target",
+            name=sample.get("target_name") or "sample target",
+        ),
+        extra=extra,
+    )

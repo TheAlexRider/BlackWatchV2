@@ -487,6 +487,7 @@ function CoveragePanel({ coverage }: { coverage: NotificationCoverageModule[] })
   const muted = coverage.reduce((sum, module) => sum + module.counts.muted, 0);
   const unconfigured = coverage.reduce((sum, module) => sum + module.counts.unconfigured, 0);
   const gaps = coverage.reduce((sum, module) => sum + module.gap_count, 0);
+  const contentGaps = coverage.reduce((sum, module) => sum + module.content_gap_count, 0);
 
   return (
     <section className="mt-6">
@@ -498,15 +499,16 @@ function CoveragePanel({ coverage }: { coverage: NotificationCoverageModule[] })
         <Link href="/notifications/profiles" className="text-[11px] text-signal hover:underline">Open Notification Studio →</Link>
       </div>
       <DataPanel className="overflow-hidden">
-        <div className="grid grid-cols-2 gap-px border-b border-line-soft bg-line-soft sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-px border-b border-line-soft bg-line-soft sm:grid-cols-6">
           <CoverageSummary label="Configured" value={configured} tone="configured" />
           <CoverageSummary label="Fallback" value={fallback} tone="fallback" />
           <CoverageSummary label="Muted" value={muted} tone="muted" />
           <CoverageSummary label="Unconfigured" value={unconfigured} tone="unconfigured" />
           <CoverageSummary label="High / critical gaps" value={gaps} tone={gaps ? "gap" : "configured"} />
+          <CoverageSummary label="Content gaps" value={contentGaps} tone={contentGaps ? "gap" : "configured"} />
         </div>
         <div className="border-b border-line-soft px-4 py-2 text-[11px] text-fg-subtle">
-          {coverage.length} modules · {totalEvents} event kinds · fallback means a legacy module route covers the event
+          {coverage.length} modules · {totalEvents} event kinds · content gaps are not-yet-rolled-out message contracts · fallback means a legacy module route covers the event
         </div>
         <div className="divide-y divide-line-soft">
           {coverage.map((module) => <CoverageModuleRow key={module.key} module={module} />)}
@@ -542,17 +544,20 @@ function CoverageModuleRow({ module }: { module: NotificationCoverageModule }) {
           <CoverageStatePill state="fallback" count={module.counts.fallback} />
           <CoverageStatePill state="muted" count={module.counts.muted} />
           <CoverageStatePill state="unconfigured" count={module.counts.unconfigured} />
+          <ContentRolloutPill status={module.content_status} stage={module.content_rollout_stage} />
           {module.gap_count > 0 && <span className="border border-sev-critical/30 bg-sev-critical/10 px-1.5 py-0.5 text-sev-critical">{module.gap_count} high/critical gaps</span>}
+          {module.content_gap_count > 0 && <span className="border border-sev-medium/30 bg-sev-medium/10 px-1.5 py-0.5 text-sev-medium">{module.content_gap_count} content gaps</span>}
         </div>
       </summary>
       <div className="border-t border-line-soft bg-surface-2/40 px-4 py-2">
-        <p className="mb-2 text-[11px] text-fg-subtle">{module.blurb}</p>
+        <p className="mb-2 text-[11px] text-fg-subtle">{module.blurb} <span className="font-mono text-[10px]">rollout: {module.content_rollout_stage}</span></p>
         <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
           {module.events.map((event) => (
             <Link key={event.event_kind} href={`/notifications/profiles/${encodeURIComponent(event.profile_id)}`} className="flex items-center justify-between gap-2 border border-line-soft bg-surface-1 px-2.5 py-2 hover:border-signal">
               <span className="min-w-0 truncate text-xs text-fg" title={event.description}>{event.label}</span>
               <span className="flex shrink-0 items-center gap-1">
                 <CoverageStatePill state={event.state} />
+                <ContentRolloutPill status={event.content_status} stage={event.rollout_stage} />
                 {event.high_critical_gap && <span className="font-mono text-[9px] text-sev-critical">gap</span>}
               </span>
             </Link>
@@ -578,6 +583,29 @@ function CoverageStatePill({
     unconfigured: "border-line bg-surface-1 text-fg-subtle",
   };
   return <span className={clsx("border px-1.5 py-0.5", classes[state])}>{labels[state]}{count === undefined ? "" : ` ${count}`}</span>;
+}
+
+function ContentRolloutPill({
+  status,
+  stage,
+}: {
+  status: string;
+  stage: string;
+}) {
+  const rolledOut = status === "rolled_out";
+  return (
+    <span
+      className={clsx(
+        "border px-1.5 py-0.5",
+        rolledOut
+          ? "border-signal/30 bg-signal/5 text-signal"
+          : "border-sev-medium/30 bg-sev-medium/10 text-sev-medium",
+      )}
+      title={`Message contract rollout stage: ${stage}`}
+    >
+      {rolledOut ? "content ready" : "content gap"}
+    </span>
+  );
 }
 
 function computeRouteState(r: Route): { label: string; className: string } {

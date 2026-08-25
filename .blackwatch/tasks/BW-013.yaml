@@ -1,0 +1,36 @@
+id: BW-013
+status: review
+title: "Roll out module-specific actionable notifications with coverage safeguards"
+area: full-stack
+source: research
+severity: high
+confidence: medium
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/notify/profiles.py"
+    location: "113-330"
+    observation: "The catalog covers many modules and alert kinds, but most events inherit the same generic defaults."
+  - file: "blackwatch-ui/app/notifications/page.tsx"
+    location: "480-574"
+    observation: "Notification coverage already exposes per-module/per-event states and can become the rollout control surface."
+  - file: "tests/test_notification_profiles.py"
+    location: "89-119"
+    observation: "Current tests enforce generic field presence rather than module-specific factual and action quality."
+impact: "Without a staged rollout and coverage guard, some modules will improve while others silently continue sending verbose filler, creating inconsistent operator experience."
+acceptance_criteria:
+  - "Define and document a rollout order beginning with VPN, then EC2/SSH auth, RDS auth, ECS service state, IAM, S3, certificates, UEBA, and findings."
+  - "Each rolled-out event kind has an explicit content contract, representative fixture, compact default, and recovery behavior where applicable."
+  - "Notification coverage distinguishes rolled out, configured, muted, and not-yet-rolled-out states without silently treating generic fallback as complete coverage."
+  - "Add golden rendering and missing-field tests for every completed module batch."
+  - "The UI profile editor presents module/event-specific field guidance and preview samples rather than one universal set of prose prompts."
+  - "Existing routes, channel configuration, audit records, delivery history, and custom templates remain intact during rollout."
+  - "All storage and migration changes are additive and pass the data-safety contract checks."
+dependencies:
+  - BW-011
+  - BW-012
+risks:
+  - "The catalog is broad; each module may require different facts and safe response language."
+  - "Changing many defaults at once makes regressions difficult to isolate, so rollout must remain batch-based."
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: user
+notes: "Implemented staged rollout metadata and coverage safeguards. VPN, EC2/SSH, RDS, and ECS are rolled out; later modules remain visible as planned content gaps for the next reviewed batch."

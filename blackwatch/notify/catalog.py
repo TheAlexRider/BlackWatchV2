@@ -60,6 +60,9 @@ def _build_module_catalog() -> list[dict[str, Any]]:
             "label": module["label"],
             "blurb": _module_blurb(module),
             "event_count": len(module.get("events") or []),
+            "content_status": str(module.get("content_status") or "generic"),
+            "content_rollout_stage": str(module.get("content_rollout_stage") or "backlog"),
+            "content_gap_count": int(module.get("content_gap_count") or 0),
         }
         for module in NOTIFICATION_CATALOG
     ]
@@ -195,6 +198,9 @@ def build_coverage(
                 "state": state,
                 "covered_severities": covered_severities,
                 "high_critical_gap": high_critical_gap,
+                "content_status": str(event.get("content_status") or "generic"),
+                "rollout_stage": str(event.get("rollout_stage") or "backlog"),
+                "content_gap": str(event.get("content_status") or "generic") == "generic",
             })
 
         counts = {state: sum(row["state"] == state for row in event_rows) for state in ("configured", "fallback", "muted", "unconfigured")}
@@ -202,6 +208,7 @@ def build_coverage(
             **next(item for item in MODULE_CATALOG if item["key"] == module["key"]),
             "counts": counts,
             "gap_count": sum(row["high_critical_gap"] for row in event_rows),
+            "content_gap_count": sum(row["content_gap"] for row in event_rows),
             "events": event_rows,
         })
     return output

@@ -1,0 +1,39 @@
+id: BW-025
+status: proposed
+title: "Define unique AWS Backup deletion, policy, and copy-job notifications"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "CloudTrail normalization"
+    location: "event producers and notification catalog"
+    observation: "The module emits event-specific facts that require a dedicated notification contract: vault/recovery-point; plan/resource; actor/account/region; retention/immutability; policy summary; destination account/region; job ID; destructive/cross-account flag."
+  - file: "blackwatch/notify/profiles.py"
+    location: "NOTIFICATION_CATALOG and rollout metadata"
+    observation: "The current catalog or rollout status does not yet provide a unique contract for every event in this module."
+impact: "Recipients may miss the decision-critical facts or take the wrong response when different event types are rendered with shared generic prose."
+scope_events:
+  - "backup.recovery_point.delete"
+  - "backup.vault.delete"
+  - "backup.vault.policy.delete"
+  - "backup.vault.policy.put"
+  - "backup.copy_job.start"
+acceptance_criteria:
+  - "Keep the shared outer notification structure and define event-specific headline, What happened, Facts, Decision, Next steps, Evidence, and Recovery semantics."
+  - "Inventory every event key emitted by the producer and either add a unique profile contract or explicitly classify the producer action as non-notifying/future; do not silently treat missing catalog entries as covered."
+  - "Source every rendered fact from a normalized envelope field or a named producer extra field; omit unavailable values and never invent identities, thresholds, impact, or recovery."
+  - "Add representative complete and partial fixtures plus golden rendering tests for email/plain text and one chat channel, including recovery or manual-resolution behavior where applicable."
+  - "Preserve event identifiers, saved profile IDs, routes, channels, throttling, silence settings, advanced templates, audit history, and all existing database data. Any producer additions must be additive."
+  - "Expose event-specific field guidance, preview data, rollout status, and content gaps in Notification Studio before marking the module rolled out."
+  - "Recovery rule: Deletion has no automatic recovery; recovery means operator restoration or a later verified backup event."
+  - "Module-specific requirement: The first response must verify the last known-good recovery point and retention policy, not merely the resource owner."
+dependencies:
+  - BW-024
+risks:
+  - "Producer payloads may be incomplete or differ between live and derived events; missing-field behavior must be explicit."
+  - "A broad module contains security, operational, and recovery events; do not approve the module until each event family has separate tests."
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Proposed from the event-level R&D and QA audit. Implement sequentially after explicit approval; no coding is authorized by this cycle."

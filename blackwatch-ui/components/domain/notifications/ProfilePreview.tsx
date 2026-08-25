@@ -9,11 +9,13 @@ import { Button } from "@/components/ui/Button";
 const CONTENT_FIELDS = [
   "title",
   "what_happened",
+  "facts",
+  "decision",
+  "next_steps",
   "why_it_matters",
   "evidence",
   "monitoring_method",
   "impact",
-  "next_steps",
   "recovery",
   "runbook_url",
 ] as const;

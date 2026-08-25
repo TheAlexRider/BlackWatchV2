@@ -1,0 +1,37 @@
+id: BW-011
+status: review
+title: "Create an action-first, module-specific notification content contract"
+area: full-stack
+source: user
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/notify/profiles.py"
+    location: "59-87, 436-464"
+    observation: "Every alert kind receives the same generic guided fields, and those fields compile into a labelled multi-section rule template."
+  - file: "blackwatch/notify/profile_service.py"
+    location: "51-70, 123"
+    observation: "Default profiles are generated from the generic catalog and rendered as rule-level templates."
+  - file: "blackwatch/notify/channels.py"
+    location: "422-430"
+    observation: "Rule-level profile templates take precedence over channel templates, replacing the older compact/detailed defaults."
+  - file: "blackwatch-ui/app/notifications/profiles/[id]/page.tsx"
+    location: "profile content editor"
+    observation: "The UI presents the same explanatory fields for every module and alert kind."
+impact: "Recipients receive longer, less actionable alerts and can lose the facts needed to decide or respond quickly. The problem is repeated across all modules."
+acceptance_criteria:
+  - "Define an event-specific notification content contract with a compact headline, factual fields, ordered response guidance, optional escalation/runbook information, and recovery semantics."
+  - "Default output prioritizes what happened, the facts needed for a decision, and the next action; generic filler such as 'impact depends...' is not emitted when an event-specific value is available."
+  - "Missing event facts are omitted or clearly marked unavailable without inventing sample values in delivered notifications."
+  - "Preserve existing channels, routing, throttling, silence, custom advanced templates, and saved notification profiles."
+  - "Keep channel-specific formatting available without allowing the new default to silently regress compact/detailed channel behavior."
+  - "Add rendering tests that exercise default profile, channel template, advanced template, and at least Slack/email/plain-text output."
+  - "Any database change is additive and data-preserving; existing notification profiles, rules, audit history, and delivery configuration remain intact."
+dependencies: []
+risks:
+  - "Changing default rendering can alter the appearance of existing alerts; preserve explicit custom templates and provide a compatibility path for saved profiles."
+  - "A contract that is too generic will recreate the current problem; module-specific fields must remain explicit."
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: user
+notes: "Architecture task. Begin with the VPN pilot in BW-012 after the contract is agreed."

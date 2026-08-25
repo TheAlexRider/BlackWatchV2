@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .. import storage
-from ..event import Event, Severity, Source, Target
+from ..event import Event
 from . import channels as channels_module
 from . import profiles as profile_model
 from .model import Channel
@@ -82,38 +82,7 @@ def get_profile(profile_id: str) -> dict[str, Any] | None:
 
 
 def _profile_event(profile: dict[str, Any]) -> Event:
-    severity = None
-    severities = profile.get("severities") or []
-    if severities:
-        try:
-            severity = Severity(str(severities[-1]))
-        except ValueError:
-            severity = None
-    return Event(
-        source=Source(module=str(profile["module"])),
-        action=str(profile["event_kind"]),
-        severity=severity,
-        target=Target(id="sample-target", name="sample-target"),
-        extra={
-            "service_name": "sample-service",
-            "vpc": "sample-vpc",
-            "monitor_tier": "service",
-            "error": "sample evidence from the monitored signal",
-            "error_signal": "sample health-check failure",
-            "observation": "sample observation",
-            "latency_ms": 240,
-            "consecutive_failures": 3,
-            "consecutive_successes": 4,
-            "downtime_seconds": 180,
-            "unknown_seconds": 90,
-            "last_report": "2026-08-25T10:00:00+00:00",
-            "agent_version": "sample-agent-1.0",
-            "monitoring_method": "the configured module monitor",
-            "monitoring_impact": "sample monitoring impact",
-            "impact": "sample technical impact",
-            "recovery_event": "the matching recovery event",
-        },
-    )
+    return profile_model.build_preview_event(profile)
 
 
 def render_preview(profile: dict[str, Any], channel_type: str = "slack") -> str:

@@ -81,6 +81,27 @@ class NotificationCatalogTests(unittest.TestCase):
         self.assertTrue(gaps)
         self.assertTrue(all(event["state"] == "unconfigured" for event in gaps))
 
+    def test_coverage_exposes_content_rollout_separately_from_delivery_state(self):
+        coverage = build_coverage([], [])
+        vpn = next(item for item in coverage if item["key"] == "vpn.openvpn")
+        failure = next(item for item in vpn["events"] if item["event_kind"] == "vpn.auth.failure")
+
+        self.assertEqual(failure["state"], "unconfigured")
+        self.assertEqual(failure["content_status"], "rolled_out")
+        self.assertEqual(failure["rollout_stage"], "1-vpn")
+        self.assertFalse(failure["content_gap"])
+        self.assertEqual(vpn["content_status"], "rolled_out")
+        self.assertEqual(vpn["content_rollout_stage"], "1-vpn")
+
+    def test_every_catalog_module_has_rollout_metadata_and_backlog_visibility(self):
+        coverage = build_coverage([], [])
+
+        self.assertTrue(coverage)
+        self.assertTrue(all(item["content_status"] in {"generic", "rolled_out"} for item in coverage))
+        self.assertTrue(all(item["content_rollout_stage"] for item in coverage))
+        self.assertTrue(all("content_gap_count" in item for item in coverage))
+        self.assertTrue(any(item["content_status"] == "generic" for item in coverage))
+
 
 if __name__ == "__main__":
     unittest.main()
