@@ -9,9 +9,11 @@ const read = (relativePath: string) =>
 
 test("app shell keeps page overflow inside a shrinkable vertical content region", () => {
   const source = read("components/layout/AppShell.tsx");
+  const css = read("app/globals.css");
   assert.match(source, /flex h-dvh min-w-0 .* flex-col overflow-hidden/);
   assert.match(source, /flex min-h-0 min-w-0 flex-1 overflow-hidden/);
   assert.match(source, /min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto/);
+  assert.match(css, /html, body \{[\s\S]*overflow: hidden;/);
 });
 
 test("mobile card tables do not keep a desktop width or horizontal scrollbar", () => {
