@@ -10,7 +10,7 @@ export function ReviewGrid({
   return (
     <dl
       className={clsx(
-        "grid grid-cols-[140px_1fr] gap-y-3 text-sm",
+        "grid min-w-0 grid-cols-1 gap-y-2 text-sm sm:grid-cols-[minmax(140px,1fr)_minmax(0,2fr)] sm:gap-y-3",
         className,
       )}
     >

@@ -1,79 +1,84 @@
-# BlackWatch Cycle — IP investigation flow QA report
+# BlackWatch Cycle — responsive UI QA report
 
 **Cycle:** 2026-08-25
 **Trigger:** `BLACKWATCH CYCLE`
-**Focus:** IP investigation as the primary Investigation workflow, with Tools retained.
-**HEAD inspected:** `9cfb8a06b3aa6c298054012f23ff7cc38c6e7000`
+**Focus:** UI responsiveness, normal layout behavior, and elimination of nested scrollbars.
+**HEAD inspected:** `a3b1a4813206264d8bed33855d2c0c249cd7737d`
 
-## Reproducible findings
+## Findings
 
-### QA-001 — The rich IP workflow is currently owned by Tools
+### QA-001 — Page and table scrolling overlap
 
-**Severity:** high
+**Severity:** high  **Confidence:** high
 
-**Evidence:** `blackwatch-ui/app/tools/ip-lookup/page.tsx` owns the IP form,
-fetches the enriched result, and links back to `/tools`. The current
-`IpLookupResult` includes provider evidence, related indicators, and matching
-events, so the most valuable investigative output is nested under the Tools
-route.
+The first screenshot shows a wide data surface inside a scrolling main region;
+the second shows a table scrollbar together with separate vertical scrollbars
+and clipped content. This matches the current combination of
+`AppShell`'s `main.overflow-auto` and `.bw-table-shell.overflow-x-auto`, with
+additional `DataPanel.overflow-auto` surfaces on detail pages.
 
-**Expected:** Investigations should own the durable IP evidence workflow;
-Tools should remain a quick lookup surface.
+**Expected:** scrolling ownership is predictable: the page scrolls vertically;
+a wide table may scroll horizontally in one bounded region; a log/JSON viewer
+may scroll internally only when explicitly bounded.
 
-### QA-002 — Investigations already has the required durable lifecycle
+### QA-002 — Resizable table dimensions defeat narrow-layout behavior
 
-**Severity:** observation
+**Severity:** high  **Confidence:** high
 
-**Evidence:** `blackwatch-ui/app/investigations/InvestigationNotebook.tsx`
-already handles scan requests, polling, status, notes, evidence tables,
-timeline/activity, and follow-up actions. `blackwatch/api.py` provides
-validated IP creation plus scan, range, notes, and status endpoints.
+`ResizableTable` writes inline table `width` and `minWidth` from the sum of
+column widths. The mobile card rules in `globals.css` set their own width and
+min-width, but inline styles win. Saved desktop column widths can therefore
+reappear as a wide table on a small viewport. Injected resize handles also do
+not belong in card mode.
 
-**Implication:** This is primarily a routing/entry-point and data-presentation
-integration task, not a reason to build a parallel IP case system.
+### QA-003 — Fixed tracks and action groups are not consistently collapsible
 
-### QA-003 — Tools and event-cell actions need an explicit handoff contract
+**Severity:** high  **Confidence:** medium
 
-**Severity:** high
+The codebase contains fixed grid tracks and dense action groups in shared and
+page-level components. Examples include `FormRow`'s `200px 1fr`, notification
+summary rows, and table action cells. At narrow widths these can force clipping,
+unexpected horizontal overflow, or controls that are only partly visible.
 
-**Evidence:** `IpCell.tsx` currently offers `Add to investigation` and
-`Open in IP tool` as separate actions. The standalone Tools result has no
-visible durable-investigation handoff in the inspected page.
+### QA-004 — Pagination is vulnerable at narrow widths
 
-**Expected:** Every quick IP lookup should make the next action obvious:
-`Open as investigation` or `Add to investigation`, with reuse behavior that
-does not create accidental duplicate cases.
+**Severity:** medium  **Confidence:** high
 
-### QA-004 — The two flows must not drift in enrichment output
+`TablePagination` wraps its outer row but keeps the select/page indicator/
+buttons in a single non-wrapping inner flex group. It can exceed a narrow table
+card or compete with the table's horizontal scroll region.
 
-**Severity:** medium
+### QA-005 — Bounded inner scrolling needs a deliberate exception policy
 
-**Evidence:** The Tools route calls `/api/tools/ip-lookup`, while the
-Investigation scan is handled by the investigation worker and result tables.
-These paths need a defined shared normalization boundary or explicit mapping.
+**Severity:** medium  **Confidence:** high
 
-**Expected:** Provider evidence, related indicators, matching events, status,
-and provenance should have the same labels and semantics regardless of entry
-point. A provider failure must remain isolated and must not fail the case.
+Some bounded log, JSON, and host detail panels use `max-h-* overflow-auto` for
+good reasons. The problem is that the same visual treatment is mixed with
+ordinary data panels, so users cannot tell whether they are scrolling the page,
+the table, or a log viewer. These regions need an explicit primitive or
+documented class with accessible labeling and a test that prevents accidental
+nesting.
 
-## Proposed verification
+## Suggested verification matrix
 
-- Render `/investigations` with the IP-start action and verify valid/invalid
-  IPv4 and IPv6 behavior.
-- Create an investigation from Tools and from an event-cell action; verify
-  the user lands on the same owned investigation notebook.
-- Run a scan and verify queued/running/completed/failed states, provider
-  partial failure, empty evidence, notes, and matching events.
-- Reopen or rescan the same investigation and verify no duplicate case or
-  destructive replacement of prior evidence.
-- Verify direct Tools lookup still works without creating a case unless the
-  user chooses the handoff.
-- Run UI typecheck/build and focused API/storage/data-safety tests.
+- Widths: 320, 375, 768, 1024, 1280, and 1440 CSS pixels.
+- Routes: Overview, Services, Events, Notifications, Rules, Hosts detail,
+  Investigations notebook, Tools/IP lookup, and at least one create/edit form.
+- Verify: no viewport-wide horizontal scroll; sidebar/drawer behavior; table
+  card mode; table horizontal scroll only when required; pagination reachability;
+  long IDs/ARNs; modal height; keyboard focus; and intentional log/JSON scroll.
+- Preserve: table sorting, column visibility, desktop resize persistence,
+  pagination, and action buttons.
 
-## Baseline limitations
+## Proposed task mapping
 
-- Graphify refresh was attempted but the saved interpreter returned
-  `Access is denied`; the existing report is stale relative to HEAD.
-- The delegated R&D and QA workers did not return within the bounded cycle
-  window; this report was reconciled by the coordinator from direct repository
-  evidence. No application files were changed by the cycle.
+- BW-008 covers shell/container sizing and scroll ownership.
+- BW-009 covers tables, mobile card mode, resize handles, and pagination.
+- BW-010 covers fixed-width page layouts plus automated/static responsive QA.
+
+## Cycle execution note
+
+QA was started in parallel with R&D as required, but the delegated worker did
+not return within the bounded window and was shut down. This report was
+reconciled by the coordinator from direct repository evidence and the supplied
+screenshots. No application files were changed during this cycle.

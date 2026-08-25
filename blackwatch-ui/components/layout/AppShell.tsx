@@ -30,20 +30,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [chromeless, pathname]);
 
   if (chromeless) {
-    return <div className="min-h-dvh">{children}</div>;
+    return <div className="min-h-dvh min-w-0 max-w-full overflow-x-hidden">{children}</div>;
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh min-w-0 max-w-full flex-col overflow-hidden">
       <TopNav onMenuClick={() => setNavOpen((v) => !v)} menuOpen={navOpen} />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <SideNav mobileOpen={navOpen} onCloseMobile={() => setNavOpen(false)} />
-        <main id="main-content" tabIndex={-1} aria-label="Main content" className="flex-1 overflow-auto px-3 py-4 md:px-8 md:py-6">
+        <main id="main-content" tabIndex={-1} aria-label="Main content" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 md:px-8 md:py-6">
           <div data-impeccable-variants="e6f6884f" data-impeccable-variant-count="3" style={{ display: "contents" }}>
             {/* impeccable-variants-start e6f6884f */}
             {/* Original */}
             <div data-impeccable-variant="original">
-              <div className="mx-auto w-full max-w-[1280px]">{children}</div>
+              <div className="mx-auto min-w-0 w-full max-w-[1280px]">{children}</div>
             </div>
             {/* Variants: insert below this line */}
             {/* impeccable-variants-end e6f6884f */}

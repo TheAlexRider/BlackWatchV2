@@ -30,6 +30,10 @@ export function ResizableTable({
     const table = wrapper?.querySelector<HTMLTableElement>("table");
     if (!wrapper || !table) return;
 
+    const mobileCardQuery = window.matchMedia("(max-width: 767px)");
+    const isMobileCardMode = () =>
+      table.dataset.responsive === "cards" && mobileCardQuery.matches;
+
     const headers = Array.from(
       table.querySelectorAll<HTMLTableCellElement>("thead th"),
     );
@@ -78,6 +82,18 @@ export function ResizableTable({
     let widths = initialWidths.slice();
 
     const applyColumnWidths = () => {
+      const mobileCardMode = isMobileCardMode();
+      wrapper.classList.toggle("bw-table-shell-cards", mobileCardMode);
+      table.style.tableLayout = mobileCardMode ? "auto" : "fixed";
+      if (mobileCardMode) {
+        columns.forEach((column) => {
+          column.style.width = "";
+          column.style.minWidth = "";
+        });
+        table.style.width = "";
+        table.style.minWidth = "";
+        return;
+      }
       widths.forEach((width, index) => {
         setColumnWidth(columns[index], width, minColumnWidth);
       });
@@ -88,6 +104,8 @@ export function ResizableTable({
       table.style.minWidth = `${Math.ceil(total)}px`;
     };
     applyColumnWidths();
+    const onViewportChange = () => applyColumnWidths();
+    mobileCardQuery.addEventListener("change", onViewportChange);
 
     table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => {
       Array.from(row.children).forEach((cell, index) => {
@@ -206,6 +224,7 @@ export function ResizableTable({
     });
 
     return () => {
+      mobileCardQuery.removeEventListener("change", onViewportChange);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       cleanups.forEach((cleanup) => cleanup());
@@ -213,6 +232,7 @@ export function ResizableTable({
       table.style.tableLayout = "";
       table.style.width = "";
       table.style.minWidth = "";
+      wrapper.classList.remove("bw-table-shell-cards");
     };
   }, [tableId, minColumnWidth]);
 

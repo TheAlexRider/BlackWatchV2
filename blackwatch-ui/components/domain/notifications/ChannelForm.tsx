@@ -237,8 +237,8 @@ function SettingRow({
   defaultValue: number;
 }) {
   return (
-    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-line-soft pb-3 last:border-0 last:pb-0">
-      <div>
+    <div className="grid min-w-0 grid-cols-1 items-start gap-2 border-b border-line-soft pb-3 last:border-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-4">
+      <div className="min-w-0">
         <p className="text-sm text-fg">{label}</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-fg-subtle">
           {hint}

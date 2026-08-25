@@ -823,7 +823,7 @@ function AcksBanner({ acks }: { acks: NotificationAck[] }) {
         {acks.map((a) => (
           <div
             key={a.fingerprint}
-            className="grid grid-cols-[1fr_220px_80px] items-center gap-4 px-4 py-2 text-xs"
+            className="grid min-w-0 grid-cols-1 items-start gap-2 px-4 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_220px_80px] sm:items-center sm:gap-4"
           >
             <div className="truncate">
               <code className="font-mono text-fg">{a.fingerprint.slice(0, 24)}…</code>

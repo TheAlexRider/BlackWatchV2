@@ -570,7 +570,7 @@ function EvidenceTimeline({ results }: { results: InvestigationResult[] }) {
       {results.map((result, index) => {
         const event = result.event;
         return (
-          <article key={`${result.event_id ?? result.source_label}-${index}`} className="relative grid gap-3 px-5 py-4 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
+          <article key={`${result.event_id ?? result.source_label}-${index}`} className="relative grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(6rem,8rem)_minmax(0,1fr)_auto]">
             <div className="flex items-start gap-2 text-xs text-fg-muted">
               <Clock3 size={13} className="mt-0.5 shrink-0 text-fg-subtle" aria-hidden="true" />
               <TimestampCell value={event.event_time ?? result.observed_at ?? ""} />

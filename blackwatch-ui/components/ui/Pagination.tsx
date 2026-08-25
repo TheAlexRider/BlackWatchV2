@@ -29,7 +29,7 @@ export function TablePagination({
       <span aria-live="polite" className="font-mono text-[11px]">
         {first}–{last} <span className="text-fg-disabled">of</span> {total}
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
         <label className="flex items-center gap-1.5">
           <span className="hidden sm:inline">Rows</span>
           <select

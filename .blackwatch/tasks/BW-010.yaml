@@ -1,0 +1,32 @@
+id: BW-010
+status: review
+title: "Remove fixed-width layout traps and add responsive regression coverage"
+area: tests
+source: qa
+severity: high
+confidence: medium
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/components/ui/FormRow.tsx"
+    location: "field row grid"
+    observation: "The shared form row uses a fixed 200px label track that has no narrow-layout fallback."
+  - file: "blackwatch-ui/app/notifications/page.tsx"
+    location: "summary and action layouts"
+    observation: "Several dense action and summary grids use fixed tracks or non-wrapping controls that can widen a narrow panel."
+  - file: "blackwatch-ui/app/globals.css"
+    location: "responsive table rules"
+    observation: "Responsive behavior is implemented globally but has no repository-level viewport matrix or automated overflow assertions."
+impact: "Fixes can regress on less frequently visited modules, leaving users with clipped forms, hidden controls, or recurring scrollbar problems."
+acceptance_criteria:
+  - "Fixed desktop tracks in shared and representative page-level layouts have responsive stack or minmax fallbacks."
+  - "A documented viewport matrix covers 320, 375, 768, 1024, 1280, and 1440 CSS pixels."
+  - "Automated or repeatable UI checks detect document scrollWidth greater than clientWidth on primary routes unless the route explicitly declares a horizontal data surface."
+  - "Checks cover Overview, Services, Events, Notifications, Rules, Hosts detail, Investigations, Tools/IP lookup, and a create/edit form."
+  - "Accessibility checks include keyboard access to clipped-prone actions, dialogs, pagination, and mobile navigation."
+dependencies: ["BW-008", "BW-009"]
+risks:
+  - "Browser-based visual checks may require a stable fixture dataset and a running UI."
+  - "A broad audit can reveal module-specific layout issues that should become follow-up tasks rather than expanding this task indefinitely."
+proposed_role: "UI QA and regression specialist"
+approved_by: user
+notes: "Implemented in the current checkout; verification is tracked by the responsive layout contract test, UI typecheck, and production build."

@@ -153,7 +153,7 @@ export function SideNav({
         aria-label="Primary"
         aria-modal={mobileOpen ? true : undefined}
         className={clsx(
-          "flex shrink-0 flex-col border-r border-line-soft bg-canvas transition-[width,transform] duration-200 ease-out",
+          "flex min-h-0 shrink-0 flex-col border-r border-line-soft bg-canvas transition-[width,transform] duration-200 ease-out",
           // Desktop
           "hidden md:flex",
           collapsed ? "md:w-12" : "md:w-56",
@@ -162,7 +162,7 @@ export function SideNav({
             "!fixed !inset-y-0 !left-0 z-40 !flex w-64 !transition-transform md:!static md:!w-56",
         )}
       >
-        <div className="flex flex-1 flex-col gap-px overflow-y-auto py-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto py-2">
           {primaryNav.map((item) => (
             <NavItem
               key={item.href}

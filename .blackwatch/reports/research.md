@@ -1,86 +1,83 @@
-# BlackWatch Cycle — IP intelligence in the Investigation flow
+# BlackWatch Cycle — responsive UI architecture review
 
 **Cycle:** 2026-08-25
 **Trigger:** `BLACKWATCH CYCLE`
-**Focus:** Make IP investigation a first-class Investigation workflow while retaining Tools access.
-**HEAD inspected:** `9cfb8a06b3aa6c298054012f23ff7cc38c6e7000`
+**Focus:** UI responsiveness, normal layout behavior, and elimination of nested scrollbars.
+**HEAD inspected:** `a3b1a4813206264d8bed33855d2c0c249cd7737d`
 
-## Product conclusion
+## Executive finding
 
-The user's direction is correct. IP intelligence is not merely a utility
-lookup: provider evidence, related indicators, and matching BlackWatch events
-form an investigation record. `/investigations` should be the primary place
-to start, run, review, annotate, and preserve that evidence. `/tools` should
-remain available for a quick, disposable lookup and should offer a clear
-handoff into an investigation.
+The screenshots show a systemic overflow contract problem, not one broken page.
+BlackWatch currently has several independent scrolling owners: the app shell's
+`main`, the table shell, and selected data panels. Wide tables and fixed-width
+controls can therefore create both page-level and component-level scrollbars,
+while narrow layouts clip controls or push content outside the viewport.
 
-The desired flow is:
+## Evidence
 
-```text
-Investigation → Investigate IP → create/open case → run enrichment scan
-  → normalized provider evidence → related indicators → matching events
-  → timeline, notes, status, and follow-up actions
+- `blackwatch-ui/components/layout/AppShell.tsx`: the content region is
+  `flex-1 overflow-auto`, but the flex item and its inner max-width wrapper do
+  not explicitly establish `min-width: 0`. A wide descendant can enlarge the
+  layout before the intended table scroll region owns the overflow.
+- `blackwatch-ui/app/globals.css`: `.bw-table-shell` is always
+  `overflow-x: auto` with vertical overflow visible. This is useful on desktop,
+  but becomes a second scroll context when nested inside the scrolling app main
+  or a panel with its own overflow.
+- `blackwatch-ui/components/ui/ResizableTable.tsx`: every table receives
+  inline pixel `width` and `minWidth` equal to the sum of saved column widths.
+  The mobile card CSS in `globals.css` cannot reliably override those inline
+  dimensions, so tables can retain a wide horizontal surface at narrow
+  viewports even when `data-responsive="cards"` is enabled.
+- `blackwatch-ui/components/ui/Pagination.tsx`: the control group is not
+  independently allowed to wrap, and its fixed `min-w-16` page indicator plus
+  select and buttons can exceed a narrow panel.
+- `blackwatch-ui/components/ui/FormRow.tsx` and notification/dashboard views
+  contain fixed grid tracks such as `200px 1fr`, `1fr 220px 80px`, and other
+  non-collapsing desktop layouts. These need responsive fallbacks or a shared
+  responsive field-row primitive.
+- Several detail pages intentionally use `DataPanel` with `max-h-* overflow-auto`
+  (`hosts/[id]`, event/detail and connector views). These should remain only
+  where a bounded log/JSON viewport is intentional and should be visually
+  identified as an inner scroll region.
 
-Tools → IP lookup → fast result → Open as investigation (optional)
-```
+## Recommended responsive model
 
-## Existing foundation
+1. The app shell owns vertical page scrolling. Every flex/grid ancestor between
+   the shell and a data surface must be shrinkable (`min-w-0`, and
+   `min-h-0` where a bounded vertical region is intentional).
+2. A table owns horizontal scrolling on desktop only when it cannot become a
+   readable card/list on mobile. It must not also own vertical scrolling unless
+   the component explicitly declares a bounded log surface.
+3. Mobile card mode must disable the resizable table's inline fixed widths and
+   resize handles. Desktop column preferences must not force mobile overflow.
+4. Fixed desktop grid tracks need a mobile stack or an adaptive minmax track.
+   Controls should wrap as a group without widening their parent.
+5. Each intentional inner scroll region needs a clear label/affordance and a
+   regression check at representative widths.
 
-- `blackwatch-ui/app/investigations/page.tsx` already provides the durable
-  investigation list and describes investigations as the place to preserve
-  evidence and connect related events.
-- `blackwatch-ui/app/investigations/[id]/page.tsx` and
-  `InvestigationNotebook.tsx` already provide an investigation status,
-  scan lifecycle, evidence tables/timeline, notes, actions, and matching
-  module results.
-- `blackwatch/api.py` already exposes investigation creation, retrieval,
-  scanning, range updates, notes, and status updates, with IP validation and
-  ownership checks.
-- `blackwatch-ui/components/domain/IpLookupResult.tsx` now presents provider
-  evidence, related indicators, and matching events as a normalized result,
-  but the result is still hosted by `/tools/ip-lookup`.
-- `blackwatch-ui/components/domain/IpCell.tsx` already supports both
-  `Add to investigation` and `Open in IP tool`, proving that both entry points
-  are needed.
+## Proposed work
 
-## Proposed task — BW-007
+- BW-008: establish the shell/container overflow contract and eliminate page
+  horizontal overflow caused by shrinkable flex/grid ancestors.
+- BW-009: normalize table and pagination responsiveness, especially the
+  interaction between `ResizableTable` inline widths and mobile card mode.
+- BW-010: audit fixed-width layouts and add a responsive verification matrix
+  for primary pages, tables, forms, dialogs, and intentional bounded logs.
 
-Make IP intelligence a first-class Investigation workflow. Add an obvious,
-accessible IP entry action to the Investigations area, reuse the existing
-investigation scan/evidence model, and keep the Tools lookup as a lightweight
-entry point with an `Open as investigation` handoff. Avoid creating a second
-provider pipeline or duplicating enrichment data.
+All three are proposed only. No application files were changed during this
+analysis cycle.
 
 ## Acceptance direction
 
-- A user can start an IP investigation from `/investigations` without first
-  opening Tools.
-- An IP investigation creates or opens a durable investigation record, runs
-  the existing bounded enrichment scan, and shows normalized provider output,
-  related indicators, matching events, timeline, notes, and status in the
-  Investigation notebook.
-- `/tools/ip-lookup` remains available for quick lookups and includes a clear
-  handoff to the corresponding investigation; existing event-cell actions
-  continue to work.
-- Provider results have one shared presentation model and do not trigger
-  duplicate provider requests merely because the user entered through Tools
-  or Investigations.
-- Loading, unavailable-provider, invalid-IP, empty-evidence, and scan-failure
-  states are understandable in both entry points.
-- The behavior is covered by focused UI/API tests, including creation,
-  handoff, ownership, scan status, and preservation of existing Tools access.
-- Any persistence change is additive and must pass the project's data-safety
-  contract; no compose/build action may remove existing investigation or
-  provider data.
+At narrow, medium, and desktop widths, primary routes should have one clear
+vertical page scroll context; no accidental horizontal viewport scroll; tables
+should either fit, become cards, or expose one deliberate horizontal region;
+pagination and actions must remain reachable; intentional JSON/log scrolling
+must remain bounded and distinguishable. Existing desktop column resize and
+data visibility behavior must be preserved.
 
-## Risks and decisions
+## Cycle execution note
 
-- Do not make the Tools page the canonical case store; disposable lookups and
-  durable investigations have different user intent.
-- Decide whether repeated investigation scans refresh an existing result set,
-  append a new scan version, or both. Preserve the existing evidence history
-  when refreshing.
-- Avoid silently creating duplicate investigations for the same IP; offer
-  reuse/open behavior or make the duplicate decision explicit.
-- Keep provider credentials server-side and keep provider provenance visible,
-  but secondary to the normalized BlackWatch output.
+R&D was started in parallel with QA as required, but the delegated worker did
+not produce a report within the bounded window and was shut down. This report
+was reconciled by the coordinator from direct current-HEAD evidence.

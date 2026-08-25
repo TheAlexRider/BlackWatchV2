@@ -1,0 +1,32 @@
+id: BW-009
+status: review
+title: "Normalize responsive tables, resize behavior, and pagination"
+area: ui
+source: user
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/components/ui/ResizableTable.tsx"
+    location: "applyColumnWidths"
+    observation: "Every table receives inline pixel width and minWidth equal to the sum of column widths, including tables that switch to mobile card mode."
+  - file: "blackwatch-ui/app/globals.css"
+    location: "mobile .bw-table[data-responsive=cards] rules"
+    observation: "Mobile card styles cannot reliably override the inline fixed dimensions and resize behavior."
+  - file: "blackwatch-ui/components/ui/Pagination.tsx"
+    location: "TablePagination control group"
+    observation: "The select, page indicator, and navigation buttons remain in a single flex group that can exceed a narrow panel."
+impact: "Users see clipped rows and actions, an unnecessary horizontal scrollbar on small screens, and pagination controls that can be pushed outside the visible layout."
+acceptance_criteria:
+  - "On narrow viewports, responsive tables become readable cards or use one deliberate horizontal scroll region according to the table's declared mode."
+  - "Mobile card mode disables or bypasses desktop inline column widths, saved desktop widths, and resize handles without deleting desktop preferences."
+  - "Pagination and row actions wrap or stack within the available width and remain keyboard reachable."
+  - "Desktop sorting, column visibility, resize persistence, and table semantics continue to work."
+  - "Representative Services, Events, Notifications, Rules, and Hosts tables are verified at narrow and desktop widths."
+dependencies: ["BW-008"]
+risks:
+  - "Changing table layout can affect long IDs, action columns, and persisted user column widths."
+  - "Card mode must preserve labels and accessible table semantics."
+proposed_role: "UI data-surface specialist"
+approved_by: user
+notes: "Implemented in the current checkout; verification is tracked by the responsive layout contract test and final UI checks."

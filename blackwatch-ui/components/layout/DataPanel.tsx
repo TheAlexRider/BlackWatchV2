@@ -15,7 +15,7 @@ export function DataPanel({
   return (
     <section
       className={clsx(
-        "border border-line-soft bg-surface-1",
+        "min-w-0 border border-line-soft bg-surface-1",
         scrollX && "max-w-full overflow-x-auto",
         className,
       )}

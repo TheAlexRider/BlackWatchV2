@@ -1,0 +1,32 @@
+id: BW-008
+status: review
+title: "Establish a single responsive shell overflow contract"
+area: ui
+source: user
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/components/layout/AppShell.tsx"
+    location: "main content layout"
+    observation: "The shell uses a scrolling main flex item without an explicit min-width shrink contract on the item and its content wrapper."
+  - file: "blackwatch-ui/app/globals.css"
+    location: ".bw-table-shell"
+    observation: "Tables add a horizontal scroll context inside the shell's scrolling main region."
+  - file: "blackwatch-ui/app/hosts/[id]/page.tsx"
+    location: "bounded detail panels"
+    observation: "Some panels add their own max-height and overflow-auto, creating intentional and accidental inner scroll regions with the same visual treatment."
+impact: "Wide descendants can create viewport-level horizontal scrolling, clipped content, and multiple vertical scrollbars on common pages and narrow viewports."
+acceptance_criteria:
+  - "The shell and all shared flex/grid ancestors establish min-width: 0 and min-height: 0 where needed so descendants cannot widen the viewport."
+  - "Vertical page scrolling has one predictable owner; horizontal scrolling is limited to an explicitly designated data surface."
+  - "At 320px, 375px, 768px, 1024px, 1280px, and 1440px widths, primary routes have no accidental viewport-wide horizontal overflow."
+  - "Intentional bounded log/JSON regions remain usable and are distinguishable from ordinary page scrolling."
+  - "No data, routing, table sorting, or desktop navigation behavior is removed."
+dependencies: []
+risks:
+  - "Changing overflow ownership can expose latent fixed-width descendants on detail pages."
+  - "Mobile drawer behavior must remain independent of main-content scrolling."
+proposed_role: "UI layout specialist"
+approved_by: user
+notes: "Implemented in the current checkout; verification is tracked by the responsive layout contract test and final UI checks."

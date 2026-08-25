@@ -60,6 +60,8 @@
   html, body {
     height: 100%;
     margin: 0;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -148,6 +150,21 @@
     scrollbar-gutter: auto;
     -webkit-overflow-scrolling: touch;
     isolation: isolate;
+  }
+
+  @media (max-width: 767px) {
+    .bw-table-shell-cards {
+      overflow-x: hidden;
+    }
+
+    .bw-table-shell-cards .bw-table[data-responsive="cards"] {
+      width: 100% !important;
+      min-width: 0 !important;
+    }
+
+    .bw-table-shell-cards .bw-table[data-responsive="cards"] .bw-col-resize-handle {
+      display: none;
+    }
   }
 
   /* Handle sits fully inside its own cell, flush with the right edge.
