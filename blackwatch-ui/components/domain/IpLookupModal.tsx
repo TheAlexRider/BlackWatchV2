@@ -9,6 +9,7 @@ import {
   IpLookupResult,
   type IpApiResponse,
 } from "./IpLookupResult";
+import { investigationStartHref } from "@/lib/investigation-flow";
 
 interface IpLookupModalProps {
   ip: string | null;
@@ -66,13 +67,22 @@ export function IpLookupModal({ ip, onClose }: IpLookupModalProps) {
             </Dialog.Title>
             <div className="flex items-center gap-3">
               {ip && (
-                <Link
-                  href={`/tools/ip-lookup?ip=${encodeURIComponent(ip)}`}
-                  className="inline-flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg"
-                  onClick={onClose}
-                >
-                  open full page <ExternalLink size={10} />
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={investigationStartHref(ip)}
+                    className="inline-flex items-center gap-1 text-[11px] text-signal hover:text-fg"
+                    onClick={onClose}
+                  >
+                    investigate <ExternalLink size={10} />
+                  </Link>
+                  <Link
+                    href={`/tools/ip-lookup?ip=${encodeURIComponent(ip)}`}
+                    className="inline-flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg"
+                    onClick={onClose}
+                  >
+                    open standalone tool <ExternalLink size={10} />
+                  </Link>
+                </div>
               )}
               <Dialog.Close asChild>
                 <button

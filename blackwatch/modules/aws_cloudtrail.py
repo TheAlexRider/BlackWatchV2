@@ -31,6 +31,30 @@ from .base import Adapter, IngestContext
 
 _IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:]+$")
 
+_SECRET_PAYLOAD_KEYS = {"secretstring", "secretbinary", "secretvalue", "plaintext"}
+
+
+def _redact_secret_payload(value: Any) -> Any:
+    """Return a copy of a CloudTrail payload with secret values removed.
+
+    Secrets Manager may place sensitive fields at different nesting levels in
+    requestParameters or responseElements, and SDK/event producers vary the
+    casing and punctuation of those keys. Keep all surrounding metadata for
+    audit and notification use, but never retain the value under a sensitive
+    field in Event.raw (which is persisted as JSONB).
+    """
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, child in value.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            redacted[key] = "[REDACTED]" if normalized_key in _SECRET_PAYLOAD_KEYS else _redact_secret_payload(child)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_secret_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_secret_payload(item) for item in value)
+    return value
+
 # eventName -> (normalized action, category)
 _ACTION_MAP: dict[str, tuple[str, Category]] = {
     # --- IAM identity ----------------------------------------------------
@@ -926,6 +950,22 @@ class AwsCloudTrailAdapter(Adapter):
             or request_params.get("volumeId")
             # KMS — keyId is the UUID or ARN of the key.
             or request_params.get("keyId")
+            # Secrets Manager — secret name/ARN is carried as SecretId.
+            or request_params.get("secretId")
+            or request_params.get("name")
+            # AWS Backup resources.
+            or request_params.get("backupVaultName")
+            or request_params.get("backupVaultArn")
+            or request_params.get("recoveryPointArn")
+            or request_params.get("recoveryPointId")
+            # EFS — file-system and mount-target identifiers.
+            or request_params.get("fileSystemId")
+            or request_params.get("filesystemId")
+            or request_params.get("mountTargetId")
+            # EFS — file-system and mount-target identifiers.
+            or request_params.get("fileSystemId")
+            or request_params.get("filesystemId")
+            or request_params.get("mountTargetId")
             # CloudTrail — trail mgmt events use `name` for the trail name.
             or (request_params.get("name") if str(event_source).startswith("cloudtrail.") else None)
         )
@@ -954,6 +994,217 @@ class AwsCloudTrailAdapter(Adapter):
             "error_code": detail.get("errorCode"),
             "error_message": detail.get("errorMessage"),
         }
+        if action in {"network.igw.attach", "network.peering.accept", "network.tgw_peering.accept", "network.sg.ingress.add"}:
+            def set_network(name: str, value: Any) -> None:
+                if value is not None and value != "":
+                    extra[name] = value
+
+            set_network("vpc_id", request_params.get("vpcId"))
+            set_network("subnet_id", request_params.get("subnetId"))
+            set_network("gateway_id", request_params.get("internetGatewayId"))
+            set_network("peering_id", request_params.get("vpcPeeringConnectionId") or request_params.get("transitGatewayAttachmentId"))
+            set_network("security_group_id", request_params.get("groupId"))
+            response_network = response.get("vpcPeeringConnection") or response.get("transitGatewayPeeringAttachment") or {}
+            if isinstance(response_network, dict):
+                set_network("peering_id", response_network.get("vpcPeeringConnectionId") or response_network.get("transitGatewayAttachmentId"))
+                requester = response_network.get("requesterVpcInfo") or response_network.get("requesterTgwInfo") or {}
+                accepter = response_network.get("accepterVpcInfo") or response_network.get("accepterTgwInfo") or {}
+                if isinstance(requester, dict):
+                    set_network("source_vpc_id", requester.get("vpcId") or requester.get("transitGatewayId"))
+                    set_network("source_account", requester.get("ownerId") or requester.get("ownerAccountId"))
+                    set_network("source_region", requester.get("region"))
+                if isinstance(accepter, dict):
+                    set_network("destination_vpc_id", accepter.get("vpcId") or accepter.get("transitGatewayId"))
+                    set_network("destination_account", accepter.get("ownerId") or accepter.get("ownerAccountId"))
+                    set_network("destination_region", accepter.get("region"))
+                set_network("destination_account", response_network.get("peerAccountId"))
+                set_network("destination_region", response_network.get("peerRegion"))
+            if action == "network.sg.ingress.add":
+                permissions = request_params.get("ipPermissions") or {}
+                items = permissions.get("items") if isinstance(permissions, dict) else None
+                permission = items[0] if isinstance(items, list) and items else request_params
+                if isinstance(permission, dict):
+                    set_network("protocol", permission.get("ipProtocol"))
+                    set_network("from_port", permission.get("fromPort"))
+                    set_network("to_port", permission.get("toPort"))
+                    from_port, to_port = permission.get("fromPort"), permission.get("toPort")
+                    if from_port is not None:
+                        extra["port_range"] = str(from_port) if to_port in (None, from_port) else f"{from_port}-{to_port}"
+                signals = _sg_ingress_signals(request_params)
+                if signals.get("public_cidrs"):
+                    extra["cidrs"] = signals["public_cidrs"]
+                set_network("public_exposure", signals.get("public_ingress"))
+                set_network("risky_exposure", signals.get("public_ingress_risky_port") or signals.get("public_ingress_all_traffic"))
+                if signals.get("public_ingress"):
+                    extra["exposure_summary"] = "yes · risky" if signals.get("public_ingress_risky_port") or signals.get("public_ingress_all_traffic") else "yes"
+                extra.update(signals)
+        if action.startswith("backup."):
+            backup_fields = {
+                "vault_name": ("backupVaultName", "vaultName"),
+                "vault_arn": ("backupVaultArn", "vaultArn"),
+                "recovery_point_arn": ("recoveryPointArn",),
+                "resource_arn": ("resourceArn",),
+                "source_vault_arn": ("sourceBackupVaultArn", "sourceVaultArn"),
+                "source_vault_name": ("sourceBackupVaultName", "sourceVaultName"),
+                "destination_vault_arn": ("destinationBackupVaultArn", "destinationVaultArn"),
+                "job_id": ("copyJobId", "jobId"),
+                "plan_name": ("backupPlanName", "planName"),
+                "recovery_point_time": ("recoveryPointCreationDate", "creationDate"),
+                "retention_days": ("retentionDays",),
+            }
+            for normalized, provider_keys in backup_fields.items():
+                value = next((request_params.get(key) for key in provider_keys if request_params.get(key) is not None), None)
+                if value is not None:
+                    extra[normalized] = value
+            # Backup APIs return some identifiers in responseElements rather
+            # than requestParameters. Preserve them for the notification.
+            if response:
+                for normalized, provider_keys in {
+                    "vault_arn": ("backupVaultArn",),
+                    "job_id": ("copyJobId", "jobId"),
+                }.items():
+                    if normalized not in extra:
+                        value = next((response.get(key) for key in provider_keys if response.get(key) is not None), None)
+                        if value is not None:
+                            extra[normalized] = value
+            destination = extra.get("destination_vault_arn")
+            if destination and isinstance(destination, str):
+                parts = destination.split(":")
+                if len(parts) > 4:
+                    extra.setdefault("destination_region", parts[3])
+                    extra.setdefault("destination_account", parts[4])
+            if action in ("backup.vault.policy.put", "backup.vault.policy.delete"):
+                policy = request_params.get("policy")
+                if policy is not None:
+                            extra["policy_summary"] = str(policy)[:500]
+        if action.startswith("secrets.secret."):
+            # Keep lifecycle metadata useful to recipients, but never copy
+            # SecretString/SecretBinary or arbitrary provider response data.
+            secret_fields = {
+                "secret_name": ("name", "secretId"),
+                "description": ("description",),
+                "kms_key_id": ("kmsKeyId",),
+                "version_id": ("versionId",),
+                "version_stages": ("versionStages",),
+                "rotation_enabled": ("rotationEnabled",),
+                "rotation_days": ("rotationRules",),
+                "recovery_window_days": ("recoveryWindowInDays",),
+                "force_delete": ("forceDeleteWithoutRecovery",),
+            }
+            for normalized, provider_keys in secret_fields.items():
+                value = next((request_params.get(key) for key in provider_keys if request_params.get(key) is not None), None)
+                if normalized == "rotation_days" and isinstance(value, dict):
+                    value = value.get("automaticallyAfterDays")
+                if value is not None and value != "":
+                    extra[normalized] = value
+            for normalized, provider_keys in {
+                "secret_arn": ("ARN", "arn"),
+                "secret_name": ("name",),
+                "version_id": ("versionId",),
+                "version_stages": ("versionStages",),
+                "kms_key_id": ("kmsKeyId",),
+                "rotation_enabled": ("rotationEnabled",),
+                "rotation_days": ("rotationRules",),
+            }.items():
+                value = next((response.get(key) for key in provider_keys if response.get(key) is not None), None)
+                if normalized == "rotation_days" and isinstance(value, dict):
+                    value = value.get("automaticallyAfterDays")
+                if value is not None and value != "":
+                    extra.setdefault(normalized, value)
+            if action == "secrets.secret.update":
+                extra["change_type"] = "value or metadata updated"
+            elif action == "secrets.secret.create":
+                extra["change_type"] = "secret created"
+            elif action == "secrets.secret.restore":
+                extra["change_type"] = "deletion cancelled"
+            elif action == "secrets.secret.delete":
+                extra["change_type"] = "secret scheduled for deletion"
+        if action.startswith("efs."):
+            efs_fields = {
+                "efs_filesystem_id": ("fileSystemId", "filesystemId"),
+                "efs_mount_target_id": ("mountTargetId",),
+                "efs_subnet_id": ("subnetId",),
+                "efs_availability_zone": ("availabilityZone", "az"),
+                "efs_ip_address": ("ipAddress",),
+                "efs_security_groups": ("securityGroups",),
+                "efs_policy_summary": ("policy", "fileSystemPolicy"),
+                "efs_filesystem_name": ("fileSystemName", "name"),
+            }
+            for normalized, provider_keys in efs_fields.items():
+                value = next((request_params.get(key) for key in provider_keys if request_params.get(key) is not None), None)
+                if value is not None:
+                    if normalized == "efs_policy_summary":
+                        value = str(value)[:500]
+                    extra[normalized] = value
+            if response:
+                for normalized, provider_keys in {
+                    "efs_mount_target_id": ("mountTargetId",),
+                    "efs_filesystem_id": ("fileSystemId", "filesystemId"),
+                    "efs_availability_zone": ("availabilityZone", "az"),
+                }.items():
+                    if normalized not in extra:
+                        value = next((response.get(key) for key in provider_keys if response.get(key) is not None), None)
+                        if value is not None:
+                            extra[normalized] = value
+            if action == "efs.filesystem.policy.put" and _policy_doc_is_wildcard(request_params.get("policy") or request_params.get("fileSystemPolicy")):
+                extra["efs_policy_wildcard"] = True
+        if action.startswith("storage."):
+            for normalized, provider_key in {
+                "snapshot_id": "snapshotId", "volume_id": "volumeId", "encrypted": "encrypted",
+                "kms_key_id": "kmsKeyId", "volume_type": "volumeType", "size_gib": "size",
+                "availability_zone": "availabilityZone",
+            }.items():
+                value = request_params.get(provider_key)
+                if value is not None and value != "":
+                    extra[normalized] = value
+            if action == "storage.snapshot.modify":
+                permission = request_params.get("createVolumePermission") or {}
+                def permission_items(value: Any) -> list[dict[str, Any]]:
+                    value = value.get("items") if isinstance(value, dict) else value
+                    if isinstance(value, dict):
+                        value = [value]
+                    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+                added = permission_items(permission.get("add") if isinstance(permission, dict) else None)
+                removed = permission_items(permission.get("remove") if isinstance(permission, dict) else None)
+                before = permission_items(permission.get("before") if isinstance(permission, dict) else None)
+                current = permission_items(permission.get("current") if isinstance(permission, dict) else None)
+                public = any(isinstance(item, dict) and item.get("group") == "all" for item in added)
+                accounts = [str(item["userId"]) for item in added if isinstance(item, dict) and item.get("userId") not in (None, "all")]
+                removed_accounts = [str(item["userId"]) for item in removed if item.get("userId") not in (None, "all")]
+                before_accounts = [str(item["userId"]) for item in before if item.get("userId") not in (None, "all")]
+                current_accounts = [str(item["userId"]) for item in current if item.get("userId") not in (None, "all")]
+                if removed_accounts:
+                    extra["snapshot_removed_accounts"] = removed_accounts
+                if any(item.get("group") == "all" for item in removed):
+                    extra["snapshot_removed_public"] = True
+                if before:
+                    extra["snapshot_shared_accounts_before"] = before_accounts
+                    extra["snapshot_public_before"] = any(item.get("group") == "all" for item in before)
+                    extra["snapshot_share_scope_before"] = (
+                        "public and cross-account" if extra["snapshot_public_before"] and before_accounts
+                        else "public" if extra["snapshot_public_before"]
+                        else "cross-account" if before_accounts else "private"
+                    )
+                if current:
+                    extra["snapshot_shared_accounts_current"] = current_accounts
+                    extra["snapshot_public_current"] = any(item.get("group") == "all" for item in current)
+                    extra["snapshot_share_scope_current"] = (
+                        "public and cross-account" if extra["snapshot_public_current"] and current_accounts
+                        else "public" if extra["snapshot_public_current"]
+                        else "cross-account" if current_accounts else "private"
+                    )
+                if public:
+                    extra["snapshot_public"] = True
+                if accounts:
+                    extra["snapshot_shared_accounts"] = accounts
+                if public and accounts:
+                    extra["snapshot_share_scope"] = "public and cross-account"
+                elif public:
+                    extra["snapshot_share_scope"] = "public"
+                elif accounts:
+                    extra["snapshot_share_scope"] = "cross-account"
+
         if action in ("iam.policy.put_inline", "iam.policy.create_version") and _wildcard_policy(request_params):
             extra["wildcard_policy"] = True
 
@@ -995,11 +1246,52 @@ class AwsCloudTrailAdapter(Adapter):
             if xac:
                 extra["snapshot_cross_account_share"] = xac
         if action == "compute.ami.modify":
+            if request_params.get("imageId") is not None:
+                extra["image_id"] = request_params.get("imageId")
+            permissions = request_params.get("launchPermission")
+            if isinstance(permissions, dict):
+                added = permissions.get("add")
+                removed = permissions.get("remove")
+                added = added if isinstance(added, list) else ([added] if isinstance(added, dict) else [])
+                removed = removed if isinstance(removed, list) else ([removed] if isinstance(removed, dict) else [])
+                accounts = [str(item["userId"]) for item in added if isinstance(item, dict) and item.get("userId") is not None]
+                if accounts:
+                    extra["ami_shared_accounts"] = accounts
+                if any(isinstance(item, dict) and item.get("group") == "all" for item in added):
+                    extra["ami_public"] = True
+                removed_accounts = [str(item["userId"]) for item in removed if isinstance(item, dict) and item.get("userId") is not None]
+                if removed_accounts:
+                    extra["ami_removed_accounts"] = removed_accounts
             if _ami_made_public(request_params):
                 extra["ami_made_public"] = True
             xac = _ami_cross_account_share(request_params)
             if xac:
                 extra["ami_cross_account_share"] = xac
+        if action == "compute.imds.modify":
+            if request_params.get("instanceId") is not None:
+                extra["instance_id"] = request_params.get("instanceId")
+            metadata = request_params.get("metadataOptions")
+            metadata = metadata if isinstance(metadata, dict) else {}
+            for source_key, extra_key in (("httpTokens", "http_tokens"), ("httpEndpoint", "http_endpoint"),
+                                          ("httpPutResponseHopLimit", "http_put_response_hop_limit"),
+                                          ("httpProtocolIpv4", "http_protocol_ipv4"),
+                                          ("httpProtocolIpv6", "http_protocol_ipv6"),
+                                          ("instanceMetadataTags", "instance_metadata_tags")):
+                if metadata.get(source_key) is not None:
+                    extra[extra_key] = metadata[source_key]
+        if action == "compute.instance.modify":
+            if request_params.get("instanceId") is not None:
+                extra["instance_id"] = request_params.get("instanceId")
+            instance_type = request_params.get("instanceType")
+            if isinstance(instance_type, dict):
+                instance_type = instance_type.get("value")
+            if instance_type is not None:
+                extra["instance_type"] = instance_type
+            source_dest = request_params.get("sourceDestCheck")
+            if isinstance(source_dest, dict):
+                source_dest = source_dest.get("value")
+            if source_dest is not None:
+                extra["source_dest_check"] = source_dest
         if action == "kms.policy.put" and _kms_policy_is_wildcard(request_params):
             extra["kms_wildcard_policy"] = True
 
@@ -1073,6 +1365,7 @@ class AwsCloudTrailAdapter(Adapter):
         if event_id_src:
             kwargs["event_id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, f"cloudtrail:{event_id_src}"))
 
+        raw_for_event = _redact_secret_payload(raw) if action.startswith("secrets.") else raw
         event = Event(
             source=Source(
                 module=self.module,
@@ -1095,7 +1388,7 @@ class AwsCloudTrailAdapter(Adapter):
             target=Target(id=target_id, type=f"aws.{service}"),
             observables=observables,
             extra={k: v for k, v in extra.items() if v is not None},
-            raw=raw,
+            raw=raw_for_event,
             **kwargs,
         )
         return [event]

@@ -70,7 +70,9 @@ class CertExpiryAdapter(Adapter):
             if t.get("error"):
                 extra["error"] = t["error"]
 
-            target_id = t.get("name") or f"{t.get('host')}:{t.get('port')}"
+            host = t.get("host")
+            port = t.get("port")
+            target_id = t.get("name") or host or (f"{host}:{port}" if host is not None and port is not None else None)
             event = Event(
                 source=Source(
                     module="cert",

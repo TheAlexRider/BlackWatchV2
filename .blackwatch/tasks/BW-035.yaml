@@ -1,0 +1,29 @@
+id: BW-035
+status: proposed
+title: "Create a route and link integrity inventory before page deletion"
+area: ui
+source: research
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch-ui/components/layout/SideNav.tsx"
+    location: "primaryNav and secondaryNav"
+    observation: "Sidebar navigation covers top-level pages but not all dynamic, detail, or compatibility routes."
+  - file: "blackwatch-ui/app and blackwatch-ui/components"
+    location: "internal href and redirect usage"
+    observation: "Cross-module links target many dynamic routes, while no visible manifest test verifies all destinations."
+impact: "Page deletion or route consolidation can silently break deep links, action buttons, or back navigation."
+acceptance_criteria:
+  - "Generate a static inventory classifying routes as canonical, detail, compatibility redirect, or candidate for removal."
+  - "Test internal href, form-action, redirect, and dynamic-link destinations against the inventory."
+  - "Normalize breadcrumb and back-link destinations for canonical flows."
+  - "Identify genuinely unused pages with evidence; do not delete a route solely because it is absent from the sidebar."
+  - "Any removal must preserve a safe redirect where external or bookmarked access is plausible."
+dependencies:
+  - BW-031
+risks:
+  - "Static analysis may miss dynamically assembled URLs; supplement with route-level tests."
+proposed_role: "coder-ui + coder-tests"
+approved_by: null
+notes: "This task establishes the deletion safety net for BW-032 through BW-034."

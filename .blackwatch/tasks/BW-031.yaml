@@ -1,0 +1,27 @@
+id: BW-031
+status: approved
+title: "Close the BW-020 through BW-030 notification release gate"
+area: tests
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: ".blackwatch/tasks/BW-020.yaml through BW-030.yaml"
+    location: "metadata"
+    observation: "All eleven task files remain proposed despite implementation and focused-test artifacts in the worktree."
+  - file: ".blackwatch/reports/qa.md"
+    location: "Verification performed"
+    observation: "Earlier full verification was blocked by missing runtime dependencies."
+impact: "Release readiness and notification coverage cannot be audited reliably from durable project state."
+acceptance_criteria:
+  - "Verify producer-to-catalog parity, event contracts, UI metadata, partial rendering, recovery semantics, and email/chat golden coverage for BW-020 through BW-030."
+  - "Run data-safety checks and record exact pass/block evidence without destructive database or deployment operations."
+  - "Record unresolved environment blockers honestly; do not mark a module complete when required verification is blocked."
+  - "Preserve all notification IDs, routes, channels, templates, audit history, and database data."
+dependencies: []
+risks:
+  - "A missing dependency may leave full delivery-path verification incomplete."
+proposed_role: "coder-tests + qa"
+approved_by: user
+notes: "Explicitly approved and implemented as a release audit/test gate. Full delivery-path verification remains blocked by unavailable psycopg/jinja2 runtime dependencies."

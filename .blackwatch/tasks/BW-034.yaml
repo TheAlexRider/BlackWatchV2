@@ -1,0 +1,32 @@
+id: BW-034
+status: approved
+title: "Make Investigations the canonical IP investigation flow"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/app/investigations/InvestigationStartForm.tsx"
+    location: "start handler"
+    observation: "Investigation start already posts an IP to /api/investigations."
+  - file: "blackwatch-ui/components/domain/IpCell.tsx and IpLookupModal.tsx"
+    location: "IP actions"
+    observation: "IP actions still navigate to /tools/ip-lookup even though investigation actions exist."
+  - file: "blackwatch-ui/lib/investigation-flow.ts"
+    location: "URL helpers"
+    observation: "Shared investigation URL helpers exist but are bypassed by some IP controls."
+impact: "Analysts lose investigation context and experience duplicate lookup paths."
+acceptance_criteria:
+  - "Make investigation start/detail automatically perform the existing IP lookup and show its result in the investigation workflow."
+  - "Route event IP actions through the shared investigation URL/helper where investigation intent is selected."
+  - "Keep /tools/ip-lookup as a working standalone utility and clearly label it secondary."
+  - "Add tests for automatic lookup, event-to-investigation navigation, and standalone tool lookup."
+  - "Do not expose secrets or alter stored investigation/event data destructively."
+dependencies:
+  - BW-035
+risks:
+  - "Automatic enrichment can add latency or provider failures to investigation startup; provide loading and partial-result states."
+proposed_role: "coder-ui + coder-backend + coder-tests"
+approved_by: user
+notes: "Explicitly approved and implemented. Investigation actions now use the shared investigation flow; the standalone IP tool remains available as a secondary path."

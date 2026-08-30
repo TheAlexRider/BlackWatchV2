@@ -166,9 +166,9 @@ def _derive_events(
     ua = parsed.get("userAgent") or None
     method = parsed.get("httpMethod") or None
     route_key = parsed.get("routeKey") or None
-    status = _int(parsed.get("status")) or 0
+    status = _int(parsed.get("status"))
     integration_status = _int(parsed.get("integrationStatus"))
-    resp_len = _int(parsed.get("responseLength")) or 0
+    resp_len = _int(parsed.get("responseLength"))
     latency = _int(parsed.get("responseLatency"))
     error_msg = parsed.get("errorMessage") if parsed.get("errorMessage") not in (None, "-", "") else None
     error_type = parsed.get("errorResponseType") if parsed.get("errorResponseType") not in (None, "-", "") else None
@@ -192,7 +192,7 @@ def _derive_events(
     }
     out.append(_mkevent(
         action="api.request",
-        outcome=Outcome.success if 200 <= status < 400 else Outcome.failure,
+        outcome=Outcome.success if status is not None and 200 <= status < 400 else Outcome.failure,
         ts=ts, api_name=api_name,
         ip=ip, ua=ua, method=method, status=status,
         extra=base_extra,
@@ -206,7 +206,7 @@ def _derive_events(
     # them into one bucket; the burst rule fires on any 4xx pattern from
     # one client IP. Rate limiting (429) is server-side throttling, not
     # a client-side failure — kept separate.
-    if 400 <= status < 500 and status != 429:
+    if status in (401, 403):
         reason_default = {
             400: "bad_request", 401: "unauthorized", 403: "forbidden",
             404: "not_found", 405: "method_not_allowed",
@@ -227,7 +227,7 @@ def _derive_events(
         ))
 
     # Server-side error — 5xx
-    elif status >= 500:
+    elif status is not None and status >= 500:
         out.append(_mkevent(
             action="api.error",
             outcome=Outcome.failure,
@@ -276,7 +276,7 @@ def _mkevent(
     *, action: str, outcome: Outcome, ts: datetime,
     api_name: str,
     ip: str | None, ua: str | None,
-    method: str | None, status: int,
+    method: str | None, status: int | None,
     extra: dict[str, Any], transport: Transport,
 ) -> Event:
     observables: list[Observable] = []

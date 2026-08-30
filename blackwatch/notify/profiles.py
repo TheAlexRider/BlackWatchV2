@@ -113,6 +113,9 @@ def _event(
     defaults: dict[str, str] | None = None,
     content_status: str = "generic",
     preview_sample: dict[str, Any] | None = None,
+    producer_status: str | None = None,
+    notification_status: str = "notifying",
+    producer_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     default_content = {
         "title": label,
@@ -129,7 +132,7 @@ def _event(
     }
     if defaults:
         default_content.update(defaults)
-    return {
+    result = {
         "key": key,
         "label": label,
         "description": description,
@@ -166,6 +169,13 @@ def _event(
         }),
         "defaults": default_content,
     }
+    if producer_status:
+        result["producer_status"] = producer_status
+    result["notification_status"] = notification_status
+    result["content_gap"] = notification_status == "notifying" and content_status == "generic"
+    if producer_keys is not None:
+        result["producer_keys"] = list(producer_keys)
+    return result
 
 
 def _service_event(
@@ -250,7 +260,7 @@ _MODULE_ROLLOUT: dict[str, dict[str, str]] = {
     },
     "cert": {
         "stage": "7-certificates",
-        "status": "planned",
+        "status": "rolled_out",
         "why": "An expired or failing certificate can break secure connections and create an avoidable outage.",
         "next_steps": "Verify the endpoint, certificate chain, expiry window, and renewal owner; follow the certificate runbook.",
         "monitoring": "Configured TLS certificate probes and expiry checks.",
@@ -313,7 +323,7 @@ _MODULE_ROLLOUT: dict[str, dict[str, str]] = {
     },
     "aws.secrets": {
         "stage": "11-platform",
-        "status": "planned",
+        "status": "rolled_out",
         "why": "Secret lifecycle changes can break consumers or alter the credentials used to access systems.",
         "next_steps": "Verify the secret, actor, consuming service, version, and approved rotation or deletion window.",
         "monitoring": "AWS Secrets Manager lifecycle and access-management events.",
@@ -322,21 +332,30 @@ _MODULE_ROLLOUT: dict[str, dict[str, str]] = {
     },
     "aws.compute": {
         "stage": "11-platform",
-        "status": "planned",
+        "status": "rolled_out",
         "why": "Compute metadata, image-sharing, or instance changes can alter host access and workload trust.",
         "next_steps": "Verify the instance or image, actor, metadata setting, sharing scope, and deployment window.",
         "monitoring": "AWS EC2 instance, AMI, and metadata-management events.",
         "impact": "A workload may be exposed to credential theft, run an unexpected image, or become unavailable.",
-        "recovery": "A matching compute-configuration-restored event is reported separately when available.",
+        "recovery": "No automatic recovery is claimed; manually resolve after the approved compute configuration, image permissions, or metadata baseline is verified.",
     },
     "aws.storage": {
         "stage": "11-platform",
-        "status": "planned",
+        "status": "rolled_out",
         "why": "Snapshot or volume-sharing changes can expose recovery data or affect restoration plans.",
         "next_steps": "Verify the snapshot or volume, sharing scope, actor, retention policy, and approved change window.",
         "monitoring": "AWS volume, snapshot, and resource-sharing events.",
         "impact": "Stored data may be exposed, deleted, or unavailable for recovery.",
-        "recovery": "A matching storage-access-restored event is reported separately when available.",
+        "recovery": "No automatic recovery is claimed; manually resolve after the approved sharing or volume baseline is restored and validated.",
+    },
+    "aws.api_gateway": {
+        "stage": "6-api-gateway",
+        "status": "rolled_out",
+        "why": "API Gateway authentication, server errors, scanner signals, and new sources need different operator decisions.",
+        "next_steps": "Use the event-specific facts and follow the API Gateway, source-validation, or service runbook as applicable.",
+        "monitoring": "API Gateway access-log normalization and source/error correlation.",
+        "impact": "Impact is limited to the normalized request or aggregate facts reported by the event.",
+        "recovery": "Recovery is event-specific; no automatic recovery is claimed where the producer has no matching detector.",
     },
 }
 
@@ -373,7 +392,7 @@ def _module(key: str, label: str, description: str, *events: dict[str, Any]) -> 
         "description": description,
         "content_status": status,
         "content_rollout_stage": stage,
-        "content_gap_count": sum(item.get("content_status") == "generic" for item in module_events),
+        "content_gap_count": sum(bool(item.get("content_gap")) for item in module_events),
         "events": module_events,
     }
 
@@ -539,13 +558,14 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     ),
     _module(
         "aws.posture", "AWS Posture", "Security posture drift and resource exposure findings.",
-        _event("network.sg.instance_attach", "Security group attached", "A security group attachment changed.", "high"),
-        _event("posture.finding.open", "Posture finding opened", "A posture finding became active.", "high"),
-        _event("aws.posture.finding.new", "New posture finding", "A new posture finding was detected.", "high"),
-        _event("aws.posture.finding.resolved", "Posture finding resolved", "A posture finding was resolved.", "informational"),
+        _event("network.sg.instance_attach", "Security group attached", "A security group attachment changed.", "high", producer_status="producer", producer_keys=["network.sg.instance_attach"]),
+        _event("posture.finding.open", "Posture finding opened", "A posture finding became active.", "high", notification_status="non_notifying", producer_status="future", producer_keys=[]),
+        _event("aws.posture.finding.new", "New posture finding", "A new posture finding was detected.", "high", producer_status="projection", producer_keys=["aws.posture.finding"]),
+        _event("aws.posture.finding.resolved", "Posture finding resolved", "A posture finding was resolved.", "informational", producer_status="projection", producer_keys=["aws.posture.scan.completed"]),
     ),
     _module(
         "aws.backup", "AWS Backup", "Backup recovery-point and vault policy changes.",
+        _event("backup.vault.create", "Backup vault created", "A backup vault was created.", "medium"),
         _event("backup.recovery_point.delete", "Backup recovery point deleted", "A backup recovery point was deleted.", "critical"),
         _event("backup.vault.delete", "Backup vault deleted", "A backup vault was deleted.", "critical"),
         _event("backup.vault.policy.delete", "Backup vault policy deleted", "A backup vault policy was deleted.", "high"),
@@ -554,6 +574,7 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     ),
     _module(
         "aws.efs", "AWS EFS", "File-system policy, mount target, and security-group changes.",
+        _event("efs.filesystem.create", "EFS file system created", "An EFS file system was created.", "medium"),
         _event("efs.filesystem.policy.delete", "EFS policy deleted", "An EFS file-system policy was deleted.", "high"),
         _event("efs.filesystem.policy.put", "EFS policy changed", "An EFS file-system policy changed.", "high"),
         _event("efs.mount_target.create", "EFS mount target created", "An EFS mount target was created.", "medium"),
@@ -570,20 +591,20 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     ),
     _module(
         "aws.secrets", "AWS Secrets", "Secrets creation, update, restore, and deletion.",
-        _event("secrets.secret.create", "Secret created", "A new secret was created.", "medium"),
-        _event("secrets.secret.update", "Secret updated", "A secret value or metadata was updated.", "high"),
-        _event("secrets.secret.restore", "Secret restored", "A deleted secret was restored.", "medium"),
-        _event("secrets.secret.delete", "Secret deleted", "A secret was deleted.", "critical"),
+        _event("secrets.secret.create", "Secret created", "A new secret was created.", "medium", available_fields=["{secret_name}", "{secret_arn}", "{description}", "{kms_key_id}", "{version_stages}", "{change_type}", "{account}", "{region}", "{principal}", "{event_time}"], producer_status="normalized"),
+        _event("secrets.secret.update", "Secret updated", "A secret value or metadata was updated.", "high", available_fields=["{secret_name}", "{secret_arn}", "{description}", "{kms_key_id}", "{version_id}", "{version_stages}", "{rotation_enabled}", "{rotation_days}", "{change_type}", "{account}", "{region}", "{principal}", "{event_time}"], producer_status="normalized"),
+        _event("secrets.secret.restore", "Secret restored", "A deleted secret was restored.", "medium", available_fields=["{secret_name}", "{secret_arn}", "{recovery_window_days}", "{change_type}", "{account}", "{region}", "{principal}", "{event_time}"], producer_status="normalized"),
+        _event("secrets.secret.delete", "Secret deleted", "A secret was deleted.", "critical", available_fields=["{secret_name}", "{secret_arn}", "{recovery_window_days}", "{force_delete}", "{change_type}", "{account}", "{region}", "{principal}", "{event_time}"], producer_status="normalized"),
     ),
     _module(
         "aws.compute", "AWS Compute", "EC2, AMI, and instance security configuration changes.",
-        _event("compute.imds.modify", "EC2 metadata settings changed", "Instance metadata settings changed.", "high"),
-        _event("compute.ami.modify", "AMI sharing changed", "An AMI sharing or visibility setting changed.", "high"),
-        _event("compute.instance.modify", "EC2 instance changed", "An EC2 instance configuration changed.", "medium"),
+        _event("compute.imds.modify", "EC2 metadata settings changed", "Instance metadata settings changed.", "high", available_fields=["{instance_id}", "{http_tokens}", "{http_endpoint}", "{http_put_response_hop_limit}", "{http_protocol_ipv4}", "{http_protocol_ipv6}", "{instance_metadata_tags}", "{imdsv1_enabled}", "{account}", "{region}", "{principal}", "{event_time}"], content_status="rolled_out", producer_status="normalized"),
+        _event("compute.ami.modify", "AMI sharing or visibility changed", "An AMI sharing or visibility setting changed.", "high", available_fields=["{image_id}", "{ami_public}", "{ami_shared_accounts}", "{ami_removed_accounts}", "{ami_made_public}", "{ami_cross_account_share}", "{account}", "{region}", "{principal}", "{event_time}"], content_status="rolled_out", producer_status="normalized"),
+        _event("compute.instance.modify", "EC2 instance configuration changed", "An EC2 instance configuration changed.", "medium", available_fields=["{instance_id}", "{instance_type}", "{source_dest_check}", "{account}", "{region}", "{principal}", "{event_time}"], content_status="rolled_out", producer_status="normalized"),
     ),
     _module(
         "aws.storage", "AWS Storage", "Snapshot, volume, and resource-sharing changes.",
-        _event("storage.snapshot.modify", "Storage snapshot changed", "A storage snapshot sharing or configuration setting changed.", "high"),
+        _event("storage.snapshot.modify", "EBS snapshot sharing changed", "An EBS snapshot sharing permission changed.", "high", available_fields=["{snapshot_id}", "{volume_id}", "{snapshot_share_scope}", "{snapshot_shared_accounts}", "{snapshot_public}", "{snapshot_removed_accounts}", "{snapshot_removed_public}", "{snapshot_share_scope_before}", "{snapshot_share_scope_current}", "{snapshot_shared_accounts_before}", "{snapshot_shared_accounts_current}", "{encrypted}", "{kms_key_id}", "{account}", "{region}", "{principal}", "{event_time}"], content_status="rolled_out", producer_status="normalized"),
     ),
     _module(
         "vpn.openvpn", "OpenVPN", "VPN service, authentication, sessions, and brute-force activity.",
@@ -727,13 +748,72 @@ NOTIFICATION_CATALOG: list[dict[str, Any]] = [
     ),
     _module(
         "ueba", "UEBA", "Behavior baselines and anomaly signals.",
-        _event("ueba.anomaly", "Behavior anomaly detected", "Observed behavior deviated from its baseline.", "high"),
+        _event("<category>.anomaly.first_seen_*", "New behavior value observed", "A UEBA baseline observed a new category-specific value.", "high", producer_status="runtime_pattern"),
     ),
     _module(
         "findings", "Security Findings", "Malware, custom, and externally supplied security findings.",
         _event("finding.malware.detected", "Malware detected", "A malware finding was reported.", "critical"),
+        _event("<finding>.detected", "Security finding detected", "A typed or custom finding/webhook reported a detected condition.", "high", producer_status="runtime_pattern"),
     ),
 ]
+
+# Producer inventory is deliberately exposed to Notification Studio so a
+# producer-only input cannot be mistaken for a separately notifying event.
+_POSTURE_CATALOG = next(item for item in NOTIFICATION_CATALOG if item["key"] == "aws.posture")
+_POSTURE_CATALOG["producer_event_inventory"] = {
+    "network.sg.instance_attach": "producer: notifying",
+    "aws.posture.finding": "producer-only: projection input",
+    "aws.posture.scan.completed": "producer-only: reconciliation input",
+    "posture.finding.open": "future: not emitted by reviewed producer path",
+}
+
+# CloudTrail currently emits these network actions, but BW-027 only gives
+# notifying contracts to the four high-value paths below. Keep every other
+# producer action explicit so coverage cannot silently drift as the adapter
+# grows; these entries are intentionally non-notifying until their contracts
+# are designed and reviewed.
+_NETWORK_CATALOG = next(item for item in NOTIFICATION_CATALOG if item["key"] == "aws.network")
+_NETWORK_CATALOG["producer_event_inventory"] = {
+    "network.sg.egress.add": "future: non-notifying pending contract",
+    "network.sg.ingress.remove": "future: non-notifying pending contract",
+    "network.sg.egress.remove": "future: non-notifying pending contract",
+    "network.sg.create": "future: non-notifying pending contract",
+    "network.sg.delete": "future: non-notifying pending contract",
+    "network.vpc.create": "future: non-notifying pending contract",
+    "network.vpc.delete": "future: non-notifying pending contract",
+    "network.vpc.modify": "future: non-notifying pending contract",
+    "network.subnet.create": "future: non-notifying pending contract",
+    "network.subnet.delete": "future: non-notifying pending contract",
+    "network.igw.create": "future: non-notifying pending contract",
+    "network.igw.delete": "future: non-notifying pending contract",
+    "network.igw.detach": "future: non-notifying pending contract",
+    "network.nat.create": "future: non-notifying pending contract",
+    "network.nat.delete": "future: non-notifying pending contract",
+    "network.route_table.create": "future: non-notifying pending contract",
+    "network.route_table.delete": "future: non-notifying pending contract",
+    "network.route_table.associate": "future: non-notifying pending contract",
+    "network.route.create": "future: non-notifying pending contract",
+    "network.route.delete": "future: non-notifying pending contract",
+    "network.route.replace": "future: non-notifying pending contract",
+    "network.nacl.entry.create": "future: non-notifying pending contract",
+    "network.nacl.entry.replace": "future: non-notifying pending contract",
+    "network.nacl.entry.delete": "future: non-notifying pending contract",
+    "network.peering.create": "future: non-notifying pending contract",
+    "network.peering.delete": "future: non-notifying pending contract",
+    "network.tgw_peering.create": "future: non-notifying pending contract",
+}
+
+_SECRETS_CATALOG = next(item for item in NOTIFICATION_CATALOG if item["key"] == "aws.secrets")
+_SECRETS_CATALOG["producer_event_inventory"] = {
+    "secrets.secret.get_value": "future: non-notifying raw secret access",
+}
+
+_STORAGE_CATALOG = next(item for item in NOTIFICATION_CATALOG if item["key"] == "aws.storage")
+_STORAGE_CATALOG["producer_event_inventory"] = {
+    "storage.volume.modify": "future: non-notifying EBS volume lifecycle/configuration action",
+    "storage.volume.create": "future: non-notifying EBS volume lifecycle action",
+    "storage.snapshot.delete": "future: non-notifying EBS snapshot lifecycle action",
+}
 
 
 # Module-level rollout metadata supplies navigation and backwards-compatible
@@ -752,7 +832,7 @@ _TOKEN_MAP = {
     "{principal}": "{{ event.actor.principal or 'unknown principal' }}",
     "{source_ip}": "{{ event.actor.source_ip or 'unknown source' }}",
     "{event_time}": "{{ event.event_time }}",
-    "{evidence}": "{{ event.extra.error or event.extra.observation or event.extra.message or 'no additional evidence' }}",
+    "{evidence}": "{{ event.extra.evidence or event.extra.error or event.extra.observation or event.extra.message or 'no additional evidence' }}",
     "{monitoring_method}": "{{ event.extra.monitoring_method or 'configured monitor' }}",
     "{impact}": "{{ event.extra.impact or 'impact not specified' }}",
     "{recovery_event}": "{{ event.extra.recovery_event or 'the matching recovery event' }}",
@@ -780,11 +860,48 @@ _TOKEN_MAP = {
     "{window_seconds}": "{{ event.extra.window_seconds or 'not reported' }}",
     "{window_minutes}": "{{ event.extra.window_minutes or 'not reported' }}",
     "{certificate_subject}": "{{ event.extra.subject or 'not reported' }}",
+    "{issuer}": "{{ event.extra.issuer or 'not reported' }}",
+    "{sans}": "{{ event.extra.sans | join(', ') if event.extra.sans else 'not reported' }}",
     "{days_remaining}": "{{ event.extra.days_remaining if event.extra.days_remaining is not none else 'not reported' }}",
     "{not_after}": "{{ event.extra.not_after or 'not reported' }}",
     "{certificate_path}": "{{ event.extra.path or 'not reported' }}",
     "{certificate_error}": "{{ event.extra.error or 'not reported' }}",
+    "{secret_name}": "{{ event.extra.secret_name or event.target.name or event.target.id }}",
+    "{secret_arn}": "{{ event.extra.secret_arn or '' }}",
+    "{description}": "{{ event.extra.description or '' }}",
+    "{kms_key_id}": "{{ event.extra.kms_key_id or '' }}",
+    "{version_id}": "{{ event.extra.version_id or '' }}",
+    "{version_stages}": "{{ event.extra.version_stages | join(', ') if event.extra.version_stages else '' }}",
+    "{rotation_enabled}": "{{ event.extra.rotation_enabled if event.extra.rotation_enabled is not none else '' }}",
+    "{rotation_days}": "{{ event.extra.rotation_days if event.extra.rotation_days is not none else '' }}",
+    "{recovery_window_days}": "{{ event.extra.recovery_window_days if event.extra.recovery_window_days is not none else '' }}",
+    "{force_delete}": "{{ event.extra.force_delete if event.extra.force_delete is not none else '' }}",
+    "{secret_name}": "{{ event.extra.secret_name or event.target.name or event.target.id }}",
+    "{secret_arn}": "{{ event.extra.secret_arn or '' }}",
+    "{description}": "{{ event.extra.description or '' }}",
+    "{kms_key_id}": "{{ event.extra.kms_key_id or '' }}",
+    "{version_id}": "{{ event.extra.version_id or '' }}",
+    "{version_stages}": "{{ event.extra.version_stages | join(', ') if event.extra.version_stages else '' }}",
+    "{rotation_enabled}": "{{ event.extra.rotation_enabled if event.extra.rotation_enabled is not none else '' }}",
+    "{rotation_days}": "{{ event.extra.rotation_days if event.extra.rotation_days is not none else '' }}",
+    "{recovery_window_days}": "{{ event.extra.recovery_window_days if event.extra.recovery_window_days is not none else '' }}",
+    "{force_delete}": "{{ event.extra.force_delete if event.extra.force_delete is not none else '' }}",
     "{instance_id}": "{{ event.extra.instance_id or 'not reported' }}",
+    "{image_id}": "{{ event.extra.image_id or '' }}",
+    "{http_tokens}": "{{ event.extra.http_tokens or '' }}",
+    "{http_endpoint}": "{{ event.extra.http_endpoint or '' }}",
+    "{http_put_response_hop_limit}": "{{ event.extra.http_put_response_hop_limit if event.extra.http_put_response_hop_limit is not none else '' }}",
+    "{http_protocol_ipv4}": "{{ event.extra.http_protocol_ipv4 or '' }}",
+    "{http_protocol_ipv6}": "{{ event.extra.http_protocol_ipv6 or '' }}",
+    "{instance_metadata_tags}": "{{ event.extra.instance_metadata_tags or '' }}",
+    "{imdsv1_enabled}": "{{ event.extra.imdsv1_enabled if event.extra.imdsv1_enabled is not none else '' }}",
+    "{ami_public}": "{{ event.extra.ami_public if event.extra.ami_public is not none else '' }}",
+    "{ami_shared_accounts}": "{{ event.extra.ami_shared_accounts | join(', ') if event.extra.ami_shared_accounts else '' }}",
+    "{ami_removed_accounts}": "{{ event.extra.ami_removed_accounts | join(', ') if event.extra.ami_removed_accounts else '' }}",
+    "{ami_made_public}": "{{ event.extra.ami_made_public if event.extra.ami_made_public is not none else '' }}",
+    "{ami_cross_account_share}": "{{ event.extra.ami_cross_account_share | join(', ') if event.extra.ami_cross_account_share else '' }}",
+    "{instance_type}": "{{ event.extra.instance_type or '' }}",
+    "{source_dest_check}": "{{ event.extra.source_dest_check if event.extra.source_dest_check is not none else '' }}",
     "{last_report}": "{{ event.extra.last_report or 'not reported' }}",
     "{agent_version}": "{{ event.extra.agent_version or 'not reported' }}",
     "{collector}": "{{ event.extra.collector or 'not reported' }}",
@@ -831,6 +948,91 @@ _TOKEN_MAP = {
     "{public_reasons}": "{{ event.extra.public_reasons | join(', ') if event.extra.public_reasons else 'not reported' }}",
     "{encryption}": "{{ event.extra.encryption or 'not reported' }}",
     "{versioning}": "{{ event.extra.versioning or 'not reported' }}",
+    "{api_name}": "{{ event.extra.api_name }}",
+    "{method}": "{{ event.extra.method }}",
+    "{route_key}": "{{ event.extra.route_key }}",
+    "{status}": "{{ event.extra.status if event.extra.status is not none else '' }}",
+    "{integration_status}": "{{ event.extra.integration_status if event.extra.integration_status is not none else '' }}",
+    "{response_length}": "{{ event.extra.response_length if event.extra.response_length is not none else '' }}",
+    "{response_latency_ms}": "{{ event.extra.response_latency_ms if event.extra.response_latency_ms is not none else '' }}",
+    "{request_id}": "{{ event.extra.request_id }}",
+    "{scanner_signature}": "{{ event.extra.scanner_signature }}",
+    "{error_message}": "{{ event.extra.error_message }}",
+    "{dimension}": "{{ event.extra.dimension }}",
+    "{baseline_value}": "{{ event.extra.baseline_value }}",
+    "{principal_type}": "{{ event.extra.principal_type }}",
+    "{source_country}": "{{ event.extra.source_country }}",
+    "{source_asn}": "{{ event.extra.source_asn }}",
+    "{user_agent_family}": "{{ event.extra.user_agent_family }}",
+    "{hour_of_day}": "{{ event.extra.hour_of_day }}",
+    "{trigger_action}": "{{ event.extra.trigger_action }}",
+    "{trigger_event_id}": "{{ event.extra.trigger_event_id }}",
+    "{signature}": "{{ event.extra.signature }}",
+    "{detection}": "{{ event.extra.detection }}",
+    "{resource}": "{{ event.extra.resource or event.target.id or event.target.name }}",
+    "{object_path}": "{{ event.extra.object_path }}",
+    "{file_hash}": "{{ event.extra.file_hash }}",
+    "{scan_time}": "{{ event.extra.scan_time }}",
+    "{engine}": "{{ event.extra.engine }}",
+    "{confidence}": "{{ event.extra.confidence }}",
+    "{containment_state}": "{{ event.extra.containment_state }}",
+    "{owner}": "{{ event.extra.owner }}",
+    "{vendor}": "{{ event.source.vendor }}",
+    "{finding_type}": "{{ event.extra.finding_type }}",
+    "{finding_id}": "{{ event.extra.finding_id }}",
+    "{recovery_point_arn}": "{{ event.extra.recovery_point_arn }}",
+    "{resource_arn}": "{{ event.extra.resource_arn }}",
+    "{vault_name}": "{{ event.extra.vault_name }}",
+    "{vault_arn}": "{{ event.extra.vault_arn }}",
+    "{source_vault_arn}": "{{ event.extra.source_vault_arn }}",
+    "{destination_vault_arn}": "{{ event.extra.destination_vault_arn }}",
+    "{destination_account}": "{{ event.extra.destination_account }}",
+    "{destination_region}": "{{ event.extra.destination_region }}",
+    "{plan_name}": "{{ event.extra.plan_name }}",
+    "{recovery_point_time}": "{{ event.extra.recovery_point_time }}",
+    "{retention_days}": "{{ event.extra.retention_days if event.extra.retention_days is not none else '' }}",
+    "{policy_summary}": "{{ event.extra.policy_summary }}",
+    "{backup_vault_policy_wildcard}": "{{ event.extra.backup_vault_policy_wildcard }}",
+    "{backup_copy_dest_account}": "{{ event.extra.backup_copy_dest_account }}",
+    "{snapshot_id}": "{{ event.extra.snapshot_id or event.target.id }}",
+    "{volume_id}": "{{ event.extra.volume_id }}",
+    "{snapshot_share_scope}": "{{ event.extra.snapshot_share_scope }}",
+    "{snapshot_shared_accounts}": "{{ event.extra.snapshot_shared_accounts | join(', ') if event.extra.snapshot_shared_accounts else '' }}",
+    "{snapshot_public}": "{{ event.extra.snapshot_public if event.extra.snapshot_public is not none else '' }}",
+    "{snapshot_removed_accounts}": "{{ event.extra.snapshot_removed_accounts | join(', ') if event.extra.snapshot_removed_accounts else '' }}",
+    "{snapshot_removed_public}": "{{ 'yes' if event.extra.snapshot_removed_public else '' }}",
+    "{snapshot_share_scope_before}": "{{ event.extra.snapshot_share_scope_before }}",
+    "{snapshot_share_scope_current}": "{{ event.extra.snapshot_share_scope_current }}",
+    "{snapshot_shared_accounts_before}": "{{ event.extra.snapshot_shared_accounts_before | join(', ') if event.extra.snapshot_shared_accounts_before else '' }}",
+    "{snapshot_shared_accounts_current}": "{{ event.extra.snapshot_shared_accounts_current | join(', ') if event.extra.snapshot_shared_accounts_current else '' }}",
+    "{encrypted}": "{{ event.extra.encrypted if event.extra.encrypted is not none else '' }}",
+    "{kms_key_id}": "{{ event.extra.kms_key_id }}",
+    "{vpc_id}": "{{ event.extra.vpc_id }}",
+    "{subnet_id}": "{{ event.extra.subnet_id }}",
+    "{gateway_id}": "{{ event.extra.gateway_id }}",
+    "{peering_id}": "{{ event.extra.peering_id }}",
+    "{source_vpc_id}": "{{ event.extra.source_vpc_id }}",
+    "{destination_vpc_id}": "{{ event.extra.destination_vpc_id }}",
+    "{source_account}": "{{ event.extra.source_account }}",
+    "{destination_account}": "{{ event.extra.destination_account }}",
+    "{source_region}": "{{ event.extra.source_region }}",
+    "{destination_region}": "{{ event.extra.destination_region }}",
+    "{security_group_id}": "{{ event.extra.security_group_id }}",
+    "{protocol}": "{{ event.extra.protocol }}",
+    "{from_port}": "{{ event.extra.from_port }}",
+    "{to_port}": "{{ event.extra.to_port }}",
+    "{cidrs}": "{{ event.extra.cidrs | join(', ') if event.extra.cidrs else '' }}",
+    "{public_exposure}": "{{ event.extra.public_exposure }}",
+    "{risky_exposure}": "{{ event.extra.risky_exposure }}",
+    "{efs_filesystem_id}": "{{ event.extra.efs_filesystem_id }}",
+    "{efs_filesystem_name}": "{{ event.extra.efs_filesystem_name }}",
+    "{efs_mount_target_id}": "{{ event.extra.efs_mount_target_id }}",
+    "{efs_subnet_id}": "{{ event.extra.efs_subnet_id }}",
+    "{efs_availability_zone}": "{{ event.extra.efs_availability_zone }}",
+    "{efs_ip_address}": "{{ event.extra.efs_ip_address }}",
+    "{efs_security_groups}": "{{ event.extra.efs_security_groups | join(', ') if event.extra.efs_security_groups else '' }}",
+    "{efs_policy_summary}": "{{ event.extra.efs_policy_summary }}",
+    "{efs_policy_wildcard}": "{{ event.extra.efs_policy_wildcard }}",
 }
 
 
@@ -838,15 +1040,31 @@ def _event_spec(module: str, event_kind: str) -> dict[str, Any] | None:
     for mod in NOTIFICATION_CATALOG:
         if mod["key"] != module:
             continue
-        return next((event for event in mod["events"] if event["key"] == event_kind), None)
+        for event in mod["events"]:
+            key = str(event.get("key"))
+            if key == event_kind:
+                return event
+            if module == "ueba" and (
+                key == "<category>.anomaly.first_seen_*"
+                and (event_kind == "ueba.anomaly" or ".anomaly.first_seen_" in event_kind)
+            ):
+                return event
+            if module == "findings" and key == "<finding>.detected" and event_kind.startswith("finding.") and event_kind.endswith(".detected"):
+                return event
+        return None
     return None
 
 
 def build_profile_match(module: str, event_kind: str, severities: list[str]) -> dict[str, Any]:
     """Compile a profile's plain-language scope into the existing matcher."""
-    clauses: list[dict[str, Any]] = [
-        {"field": "action", "op": "equals", "value": event_kind},
-    ]
+    action_clause = (
+        {"field": "action", "op": "icontains", "value": ".anomaly.first_seen_"}
+        if module == "ueba" and event_kind in {"ueba.anomaly", "<category>.anomaly.first_seen_*"}
+        else {"field": "action", "op": "regex", "value": r"^finding(?:\..+)?\.detected$"}
+        if module == "findings" and event_kind in {"<finding>.detected", "finding.detected"}
+        else {"field": "action", "op": "equals", "value": event_kind}
+    )
+    clauses: list[dict[str, Any]] = [action_clause]
     valid = [str(value) for value in severities if str(value) in _SEVERITIES]
     if valid:
         clauses.append({"field": "severity", "op": "in", "value": valid})
@@ -877,6 +1095,11 @@ def compile_message_template(content: dict[str, Any]) -> str:
             value = value.replace(token, replacement)
         if key == "title":
             lines.append(value)
+        elif key == "evidence" and value.startswith("{% if "):
+            # Conditional evidence must not leave an empty `Evidence:` row.
+            # Put the label inside the producer's condition instead of
+            # prefixing the whole Jinja expression unconditionally.
+            lines.append(value.replace("%}", "%}Evidence: ", 1))
         else:
             lines.append(f"{labels[key]}: {value}")
     return "\n".join(lines)
@@ -892,6 +1115,8 @@ def normalize_profile(payload: dict[str, Any]) -> dict[str, Any]:
     spec = _event_spec(module, event_kind)
     if spec is None:
         raise ValueError(f"unsupported notification profile: {module}/{event_kind}")
+    if spec.get("notification_status") != "notifying":
+        raise ValueError(f"event is not a notifying profile: {module}/{event_kind}")
 
     raw_content = payload.get("content")
     content = dict(spec.get("defaults") or {})
@@ -951,9 +1176,12 @@ def build_preview_event(profile: dict[str, Any]) -> Event:
         if sample.get(key) is not None:
             extra[key] = sample[key]
 
+    preview_action = str(profile.get("event_kind") or "generic.event")
+    if preview_action in {"ueba.anomaly", "<category>.anomaly.first_seen_*"}:
+        preview_action = "iam.anomaly.first_seen_source_ip"
     return Event(
         source=Source(module=str(profile.get("module") or "unknown")),
-        action=str(profile.get("event_kind") or "generic.event"),
+        action=preview_action,
         event_time=parsed_time or datetime.now().astimezone(),
         severity=severity,
         outcome=outcome,

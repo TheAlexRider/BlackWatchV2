@@ -31,3 +31,10 @@ test("builds the automatic IP intelligence request for an investigation", () => 
     "/api/tools/ip-lookup?ip=8.8.8.8",
   );
 });
+
+test("uses investigations as the contextual destination for an IP action", () => {
+  assert.equal(
+    investigationStartHref("8.8.8.8"),
+    "/investigations?ip=8.8.8.8",
+  );
+});

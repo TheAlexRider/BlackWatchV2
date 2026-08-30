@@ -44,7 +44,14 @@ def canonical_module_keys() -> list[str]:
 
 def module_for_event_kind(event_kind: str) -> str | None:
     for module in NOTIFICATION_CATALOG:
-        if any(event.get("key") == event_kind for event in module.get("events") or []):
+        if any(
+            event.get("key") == event_kind
+            or (module.get("key") == "ueba" and event.get("key") == "<category>.anomaly.first_seen_*"
+                and (event_kind == "ueba.anomaly" or ".anomaly.first_seen_" in str(event_kind)))
+            or (module.get("key") == "findings" and event.get("key") == "<finding>.detected"
+                and str(event_kind).startswith("finding.") and str(event_kind).endswith(".detected"))
+            for event in module.get("events") or []
+        ):
             return str(module["key"])
     return None
 

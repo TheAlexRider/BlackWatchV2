@@ -24,6 +24,7 @@ def _contract(
     impact: str,
     recovery: str,
     preview_extra: dict[str, Any] | None = None,
+    preview_sample: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "title": title,
@@ -37,6 +38,7 @@ def _contract(
         "impact": impact,
         "recovery": recovery,
         "preview_extra": dict(preview_extra or {}),
+        "preview_sample": dict(preview_sample or {}),
     }
 
 
@@ -490,6 +492,106 @@ for _key, _title, _verb, _field, _decision, _steps, _recovery in [
     )
 
 
+_CERT = {
+    "cert.expired": _contract(
+        title="Certificate expired{% if event.extra.subject or event.target.name or event.target.id %} · {{ event.extra.subject or event.target.name or event.target.id }}{% endif %}",
+        what_happened="The monitored certificate is past its not-after time.",
+        facts=("{% if event.extra.host or event.target.name or event.target.id %}Host: {{ event.extra.host or event.target.name or event.target.id }}\n{% endif %}"
+               "{% if event.extra.port is defined and event.extra.port is not none %}Port: {{ event.extra.port }}\n{% endif %}"
+               "{% if event.extra.subject %}Subject: {{ event.extra.subject }}\n{% endif %}"
+               "{% if event.extra.issuer %}Issuer: {{ event.extra.issuer }}\n{% endif %}"
+               "{% if event.extra.sans %}SANs: {{ event.extra.sans | join(', ') }}\n{% endif %}"
+               "{% if event.extra.not_after %}Expired at: {{ event.extra.not_after }}\n{% endif %}"
+               "{% if event.extra.days_remaining is defined and event.extra.days_remaining is not none %}Days remaining: {{ event.extra.days_remaining }}\n{% endif %}"
+               "Detected: {{ event.event_time }}"),
+        decision="Renew and deploy now unless an approved replacement is already active; treat the endpoint as at risk until verified.",
+        next_steps="1. Confirm the expired certificate is the one served by the endpoint.\n2. Renew and deploy the replacement immediately.\n3. Validate the full trust chain and client handshake.\n4. Review failures since expiry and record the owner and change.",
+        why_it_matters="Clients may reject the endpoint, causing an outage or unsafe workarounds.",
+        evidence="The certificate subject, issuer, expiry time, and days remaining are the available expiry evidence.",
+        monitoring_method="Configured TLS certificate inventory and expiry checks.",
+        impact="Secure clients may be unable to connect to the endpoint.",
+        recovery="A later successful probe confirms the endpoint is readable, but renewal and validation remain manual resolution steps.",
+        preview_extra={"host": "api.example.com", "port": 443, "subject": "CN=api.example.com", "issuer": "Example CA", "sans": ["api.example.com"], "not_after": "2026-08-28T00:00:00Z", "days_remaining": -1},
+    ),
+    "cert.expiring.critical": _contract(
+        title="Certificate expires critically soon{% if event.extra.subject or event.target.name or event.target.id %} · {{ event.extra.subject or event.target.name or event.target.id }}{% endif %}",
+        what_happened="The monitored certificate is inside the critical renewal window.",
+        facts=("{% if event.extra.host or event.target.name or event.target.id %}Host: {{ event.extra.host or event.target.name or event.target.id }}\n{% endif %}"
+               "{% if event.extra.port is defined and event.extra.port is not none %}Port: {{ event.extra.port }}\n{% endif %}"
+               "{% if event.extra.subject %}Subject: {{ event.extra.subject }}\n{% endif %}"
+               "{% if event.extra.issuer %}Issuer: {{ event.extra.issuer }}\n{% endif %}"
+               "{% if event.extra.sans %}SANs: {{ event.extra.sans | join(', ') }}\n{% endif %}"
+               "{% if event.extra.not_after %}Expires at: {{ event.extra.not_after }}\n{% endif %}"
+               "{% if event.extra.days_remaining is defined and event.extra.days_remaining is not none %}Days remaining: {{ event.extra.days_remaining }}\n{% endif %}"
+               "Detected: {{ event.event_time }}"),
+        decision="Renew and deploy immediately; do not wait for the next warning window.",
+        next_steps="1. Confirm the live endpoint uses this certificate.\n2. Renew and deploy immediately.\n3. Validate the chain, hostname, and client handshake.\n4. Escalate if ownership or deployment is blocked.",
+        why_it_matters="A near-term expiry can become an avoidable service outage before the next maintenance window.",
+        evidence="The certificate identity, expiry time, and days remaining are the available expiry evidence.",
+        monitoring_method="Configured TLS certificate inventory and expiry checks.",
+        impact="The endpoint may fail secure connection validation within the critical window.",
+        recovery="A successful post-renewal probe confirms reachability; manual renewal and deployment close the expiry risk.",
+        preview_extra={"host": "api.example.com", "port": 443, "subject": "CN=api.example.com", "issuer": "Example CA", "sans": ["api.example.com"], "not_after": "2026-09-02T00:00:00Z", "days_remaining": 4},
+    ),
+    "cert.expiring.high": _contract(
+        title="Certificate expires soon{% if event.extra.subject or event.target.name or event.target.id %} · {{ event.extra.subject or event.target.name or event.target.id }}{% endif %}",
+        what_happened="The monitored certificate is inside the high-risk renewal window.",
+        facts=("{% if event.extra.host or event.target.name or event.target.id %}Host: {{ event.extra.host or event.target.name or event.target.id }}\n{% endif %}"
+               "{% if event.extra.port is defined and event.extra.port is not none %}Port: {{ event.extra.port }}\n{% endif %}"
+               "{% if event.extra.subject %}Subject: {{ event.extra.subject }}\n{% endif %}"
+               "{% if event.extra.issuer %}Issuer: {{ event.extra.issuer }}\n{% endif %}"
+               "{% if event.extra.sans %}SANs: {{ event.extra.sans | join(', ') }}\n{% endif %}"
+               "{% if event.extra.not_after %}Expires at: {{ event.extra.not_after }}\n{% endif %}"
+               "{% if event.extra.days_remaining is defined and event.extra.days_remaining is not none %}Days remaining: {{ event.extra.days_remaining }}\n{% endif %}"
+               "Detected: {{ event.event_time }}"),
+        decision="Assign the renewal owner and schedule deployment before the certificate enters the critical window.",
+        next_steps="1. Confirm the endpoint, owner, and change window.\n2. Assign the renewal owner and schedule deployment.\n3. Validate the full chain after deployment.\n4. Escalate if the schedule cannot meet the remaining lifetime.",
+        why_it_matters="There is still time to plan, but delay can turn renewal into an outage response.",
+        evidence="The certificate identity, expiry time, and days remaining are the available expiry evidence.",
+        monitoring_method="Configured TLS certificate inventory and expiry checks.",
+        impact="The endpoint could lose trusted connectivity if renewal is not completed in time.",
+        recovery="A successful post-renewal probe confirms reachability; the planned renewal must still be recorded manually.",
+        preview_extra={"host": "api.example.com", "port": 443, "subject": "CN=api.example.com", "issuer": "Example CA", "sans": ["api.example.com"], "not_after": "2026-09-10T00:00:00Z", "days_remaining": 12},
+    ),
+    "cert.expiring.warning": _contract(
+        title="Certificate renewal warning{% if event.extra.subject or event.target.name or event.target.id %} · {{ event.extra.subject or event.target.name or event.target.id }}{% endif %}",
+        what_happened="The monitored certificate entered its warning window.",
+        facts=("{% if event.extra.host or event.target.name or event.target.id %}Host: {{ event.extra.host or event.target.name or event.target.id }}\n{% endif %}"
+               "{% if event.extra.port is defined and event.extra.port is not none %}Port: {{ event.extra.port }}\n{% endif %}"
+               "{% if event.extra.subject %}Subject: {{ event.extra.subject }}\n{% endif %}"
+               "{% if event.extra.issuer %}Issuer: {{ event.extra.issuer }}\n{% endif %}"
+               "{% if event.extra.sans %}SANs: {{ event.extra.sans | join(', ') }}\n{% endif %}"
+               "{% if event.extra.not_after %}Expires at: {{ event.extra.not_after }}\n{% endif %}"
+               "{% if event.extra.days_remaining is defined and event.extra.days_remaining is not none %}Days remaining: {{ event.extra.days_remaining }}\n{% endif %}"
+               "Detected: {{ event.event_time }}"),
+        decision="Confirm that renewal is scheduled and owned before the remaining lifetime becomes high risk.",
+        next_steps="1. Identify the certificate owner and renewal method.\n2. Schedule renewal before the next urgency threshold.\n3. Confirm deployment dependencies and a validation check.\n4. Monitor the endpoint until renewal is complete.",
+        why_it_matters="Early action keeps renewal inside a planned change window and reduces outage risk.",
+        evidence="The certificate identity, expiry time, and days remaining are the available expiry evidence.",
+        monitoring_method="Configured TLS certificate inventory and expiry checks.",
+        impact="No outage is inferred, but the endpoint is moving toward a higher renewal risk.",
+        recovery="Record the scheduled or completed renewal and confirm it with a successful probe; no automatic closure is claimed.",
+        preview_extra={"host": "api.example.com", "port": 443, "subject": "CN=api.example.com", "issuer": "Example CA", "sans": ["api.example.com"], "not_after": "2026-09-25T00:00:00Z", "days_remaining": 27},
+    ),
+    "cert.probe.failed": _contract(
+        title="Certificate probe failed{% if event.extra.host or event.target.name or event.target.id %} · {{ event.extra.host or event.target.name or event.target.id }}{% endif %}",
+        what_happened="BlackWatch could not read or evaluate the certificate at the monitored endpoint.",
+        facts=("{% if event.extra.host or event.target.name or event.target.id %}Host: {{ event.extra.host or event.target.name or event.target.id }}\n{% endif %}"
+               "{% if event.extra.port is defined and event.extra.port is not none %}Port: {{ event.extra.port }}\n{% endif %}"
+               "{% if event.extra.error %}Probe error: {{ event.extra.error }}\n{% endif %}"
+               "Detected: {{ event.event_time }}"),
+        decision="Treat certificate health as unknown; do not label the certificate expired until an independent check confirms it.",
+        next_steps="1. Inspect the probe error and endpoint reachability.\n2. Check permissions, DNS, TLS negotiation, and the certificate path.\n3. Run an independent endpoint check.\n4. Repair the probe and verify a successful result.",
+        why_it_matters="A failed check creates a monitoring blind spot and may hide an expiry or endpoint outage.",
+        evidence="{% if event.extra.error %}The producer reported this probe error: {{ event.extra.error }}{% endif %}\n",
+        monitoring_method="Configured TLS endpoint probe and certificate parser.",
+        impact="Certificate health cannot currently be confirmed; connection impact is unknown.",
+        recovery="A later successful probe is the matching recovery signal; it does not imply the certificate was previously expired.",
+        preview_extra={"host": "api.example.com", "port": 443, "subject": "", "issuer": "", "sans": [], "not_after": "", "days_remaining": None, "error": "TLS handshake timeout"},
+    ),
+}
+
+
 _HOST_DETAIL = {
     "host.agent.stale": ("The host agent has not reported within its expected heartbeat window.", "Host: {{ event.target.name or event.target.id or 'unknown host' }}; last report: {{ event.extra.last_report or 'not reported' }}; silence: {{ event.extra.silence_seconds or 'not reported' }} seconds.", "Restore telemetry or explicitly accept the monitoring-coverage gap.", "Check the agent process, host reachability, credentials, and last error; restore the agent; verify a new heartbeat.", "The host is outside reliable monitoring coverage and security changes may be missed."),
     "host.agent.recovered": ("The previously silent host agent reported again.", "Host: {{ event.target.name or event.target.id or 'unknown host' }}; report time: {{ event.event_time }}; version: {{ event.extra.agent_version or 'not reported' }}.", "Confirm the agent is stable before treating the monitoring gap as closed.", "Check consecutive heartbeats and review the silence interval and agent logs for cause.", "Telemetry is available again, but events during the silence window may be missing."),
@@ -578,7 +680,611 @@ def _host_contract(key: str, detail: tuple[str, str, str, str, str]) -> dict[str
 _HOST = {key: _host_contract(key, detail) for key, detail in _HOST_DETAIL.items()}
 
 
-_ALL = {**_VPN, **_HOST, **_RDS, **_SERVICE, **_AWS_IAM, **_AWS_S3}
+_API_GATEWAY = {
+    "api.auth.failure": _contract(
+        title="API authentication failed for {{ event.target.name or event.target.id }}",
+        what_happened="API Gateway rejected one request.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.method %}Method: {{ event.extra.method }}\n{% endif %}"
+               "{% if event.extra.route_key %}Route: {{ event.extra.route_key }}\n{% endif %}"
+               "{% if event.extra.status is defined and event.extra.status is not none %}Status: {{ event.extra.status }}\n{% endif %}"
+               "{% if event.extra.reason %}Reason: {{ event.extra.reason }}\n{% endif %}"
+               "{% if event.extra.integration_status is defined and event.extra.integration_status is not none %}Integration status: {{ event.extra.integration_status }}\n{% endif %}"
+               "{% if event.extra.response_latency_ms is defined and event.extra.response_latency_ms is not none %}Latency: {{ event.extra.response_latency_ms }} ms\n{% endif %}"
+               "{% if event.extra.response_length is defined and event.extra.response_length is not none %}Response length: {{ event.extra.response_length }}\n{% endif %}"
+               "{% if event.extra.request_id %}Request ID: {{ event.extra.request_id }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Decide whether this request was expected; this event does not identify a user or URL path.",
+        next_steps="Verify the source and request context, then investigate repeated failures or protect the affected access path.",
+        why_it_matters="A single rejected request may be benign; repeated failures can indicate misuse of an API access path.",
+        evidence="The normalized API status and authentication reason are the available evidence.",
+        monitoring_method="API Gateway access-log normalization.",
+        impact="This request was rejected; broader impact is not inferred from one event.",
+        recovery="No automatic recovery is claimed; a later request is separate context and requires manual resolution.",
+        preview_extra={"api_name": "payments", "method": "POST", "route_key": "ANY /{proxy+}", "status": 401, "reason": "unauthorized", "request_id": "req-1"},
+    ),
+    "api.auth.burst": _contract(
+        title="API authentication failure burst{{ (' from ' ~ event.actor.source_ip) if event.actor.source_ip else '' }}",
+        what_happened="Repeated API authentication failures reached the detector's burst condition.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.failure_count is defined and event.extra.failure_count is not none %}Failures: {{ event.extra.failure_count }}\n{% endif %}"
+               "{% if event.extra.window_minutes is defined and event.extra.window_minutes is not none %}Window: {{ event.extra.window_minutes }} minutes\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Treat the aggregate as suspicious until the source and activity are explained.",
+        next_steps="Check whether the source is an approved client or gateway, review nearby successes, and contain the source if unauthorized.",
+        why_it_matters="A concentrated failure burst can indicate credential stuffing or a noisy client that needs correction.",
+        evidence="The producer supplied the failure count and window; no additional identity or path is inferred.",
+        monitoring_method="API Gateway authentication-failure correlation by source IP.",
+        impact="Multiple requests were rejected from one source; account impact is not established by this aggregate alone.",
+        recovery="No automatic recovery exists; resolve manually after source validation and containment or approval.",
+        preview_extra={"api_name": "payments", "failure_count": 10, "window_minutes": 5},
+    ),
+    "api.error": _contract(
+        title="API Gateway error on {{ event.target.name or event.target.id }}",
+        what_happened="API Gateway returned a server-side error for one request.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.method %}Method: {{ event.extra.method }}\n{% endif %}"
+               "{% if event.extra.route_key %}Route: {{ event.extra.route_key }}\n{% endif %}"
+               "{% if event.extra.status is defined and event.extra.status is not none %}Status: {{ event.extra.status }}\n{% endif %}"
+               "{% if event.extra.integration_status is defined and event.extra.integration_status is not none %}Integration status: {{ event.extra.integration_status }}\n{% endif %}"
+               "{% if event.extra.reason %}Reason: {{ event.extra.reason }}\n{% endif %}"
+               "{% if event.extra.error_message %}Error: {{ event.extra.error_message }}\n{% endif %}"
+               "{% if event.extra.request_id %}Request ID: {{ event.extra.request_id }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Determine whether this is an isolated request failure or a service or integration condition.",
+        next_steps="Check the integration and API logs for the request ID, correlate nearby errors, and follow the service runbook if the condition persists.",
+        why_it_matters="A server-side API error can affect availability or indicate an unhealthy integration.",
+        evidence="The normalized response status, integration status, reason, and error message are the available evidence.",
+        monitoring_method="API Gateway access-log normalization and server-error detection.",
+        impact="This request failed; wider impact is not inferred from one error.",
+        recovery="Recovery requires a subsequent healthy request or service signal when such a detector exists; otherwise resolve manually.",
+        preview_extra={"api_name": "payments", "method": "GET", "route_key": "ANY /{proxy+}", "status": 502, "integration_status": 500, "reason": "integration_failure", "error_message": "upstream unavailable", "request_id": "req-2"},
+    ),
+    "api.error.burst": _contract(
+        title="API Gateway error burst{{ (' from ' ~ event.actor.source_ip) if event.actor.source_ip else '' }}",
+        what_happened="Repeated API server-side errors reached the detector's burst condition.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.error_count is defined and event.extra.error_count is not none %}Errors: {{ event.extra.error_count }}\n{% endif %}"
+               "{% if event.extra.window_minutes is defined and event.extra.window_minutes is not none %}Window: {{ event.extra.window_minutes }} minutes\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Determine whether the aggregate is a client-specific pattern or a broader backend or integration incident.",
+        next_steps="Correlate the source, request failures, integrations, and deployment timeline; contain the client or escalate the service incident when supported by evidence.",
+        why_it_matters="A burst can indicate a failing backend, targeted probing, or a client repeatedly reaching an error path.",
+        evidence="The producer supplied the error count and window; no threshold, path, or impact is inferred beyond those fields.",
+        monitoring_method="API Gateway server-error correlation by source IP.",
+        impact="Multiple requests returned errors from one source; wider customer impact is not established here.",
+        recovery="Recovery requires a subsequent healthy/error-normalization signal when one exists; otherwise resolve manually after correlation.",
+        preview_extra={"api_name": "payments", "error_count": 25, "window_minutes": 5},
+    ),
+    "api.scanner_ua": _contract(
+        title="Known API scanner user agent detected",
+        what_happened="An API request used a user agent matching a known scanner signature.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.user_agent %}User agent: {{ event.extra.user_agent }}\n{% endif %}"
+               "{% if event.extra.scanner_signature %}Scanner signature: {{ event.extra.scanner_signature }}\n{% endif %}"
+               "{% if event.extra.method %}Method: {{ event.extra.method }}\n{% endif %}"
+               "{% if event.extra.status is defined and event.extra.status is not none %}Status: {{ event.extra.status }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Decide whether the source is an approved scanner or an unapproved client; the signature alone does not prove compromise.",
+        next_steps="Validate the source owner and scanner authorization, then review nearby requests and contain the source if unauthorized.",
+        why_it_matters="Scanner traffic can expose API weaknesses or create noisy failures, even when the request status is successful.",
+        evidence="The normalized user agent and named scanner signature triggered this event.",
+        monitoring_method="API Gateway user-agent signature matching.",
+        impact="One scanner-like request was observed; exploit or customer impact is not inferred.",
+        recovery="There is no automatic recovery; manual resolution is source validation and any required containment.",
+        preview_extra={"api_name": "payments", "user_agent": "sqlmap/1.8", "scanner_signature": "sqlmap", "method": "GET", "status": 404},
+    ),
+    "api.source.new": _contract(
+        title="New API source observed",
+        what_happened="API Gateway observed a source IP not previously recorded for this API.",
+        facts=("{% if event.extra.api_name %}API: {{ event.extra.api_name }}\n{% endif %}"
+               "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+               "{% if event.extra.method %}Method: {{ event.extra.method }}\n{% endif %}"
+               "{% if event.extra.status is defined and event.extra.status is not none %}Status: {{ event.extra.status }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Confirm whether this source belongs to an approved client, gateway, or integration.",
+        next_steps="Identify the source owner, compare the request with expected API traffic, and add or restrict the source through the approved change process.",
+        why_it_matters="A new source may be legitimate onboarding or an unrecognized path into the API.",
+        evidence="The source projection recorded the first observed source IP for this API.",
+        monitoring_method="API Gateway source-IP projection from normalized requests.",
+        impact="A previously unseen source reached the API; authorization and customer impact are not established here.",
+        recovery="No recovery event exists for first-seen source discovery; manual resolution is owner validation and an approved allow or block decision.",
+        preview_extra={
+            "api_name": "payments",
+            "source_ip": "198.51.100.20",
+            "tags": {"env": "prod", "api": "payments"},
+            "message": "payments: new source IP 198.51.100.20 touched the API Gateway — never seen before",
+        },
+        preview_sample={
+            "target_id": "payments",
+            "target_name": "payments",
+            "source_ip": "198.51.100.20",
+            "message": "payments: new source IP 198.51.100.20 touched the API Gateway — never seen before",
+            "extra": {},
+        },
+    ),
+}
+
+
+_AWS_POSTURE = {
+    "network.sg.instance_attach": _contract(
+        title="Security group attached to {{ event.extra.instance_id or event.target.name or event.target.id }}",
+        what_happened="A security group attachment changed for an instance.",
+        facts=("{% if event.extra.instance_id %}Instance: {{ event.extra.instance_id }}\n{% endif %}"
+               "{% if event.extra.sg_ids %}Security groups: {{ event.extra.sg_ids | join(', ') }}\n{% endif %}"
+               "{% if event.target.id %}Target: {{ event.target.id }}\n{% endif %}"
+               "{% if event.actor.principal %}Actor: {{ event.actor.principal }}\n{% endif %}"
+               "{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}"
+               "{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Confirm whether this instance-to-security-group change was approved and matches the intended access boundary.",
+        next_steps="Verify the instance, attached security groups, actor, and change window; reverse the attachment through the approved AWS change process if it is not authorized.",
+        why_it_matters="A security-group attachment changes which network rules apply to an instance; this event alone does not establish exposure or impact.",
+        evidence="The CloudTrail producer supplied the instance target and named security-group identifiers shown above.",
+        monitoring_method="AWS CloudTrail EC2 instance-attribute events.",
+        impact="The applicable network policy changed for the recorded instance; broader impact is not inferred.",
+        recovery="No automatic recovery event is claimed; manual resolution is owner confirmation and an approved reversal when required.",
+        preview_extra={"instance_id": "i-0123", "sg_ids": ["sg-0abc", "sg-0def"]},
+    ),
+    "aws.posture.finding.new": _contract(
+        title="New AWS posture finding · {{ event.extra.finding_id or event.target.id }}",
+        what_happened="The posture projection recorded a finding that is active for the first time or after a prior resolution.",
+        facts=("{% if event.extra.finding_id %}Finding ID: {{ event.extra.finding_id }}\n{% endif %}"
+               "{% if event.extra.resource_id %}Resource: {{ event.extra.resource_id }}{% if event.extra.resource_type %} ({{ event.extra.resource_type }}){% endif %}\n{% endif %}"
+               "{% if event.extra.finding_type %}Control/finding: {{ event.extra.finding_type }}\n{% endif %}"
+               "{% if event.extra.severity %}Severity: {{ event.extra.severity }}\n{% endif %}"
+               "{% if event.extra.account %}Account: {{ event.extra.account }}\n{% endif %}"
+               "{% if event.extra.region %}Region: {{ event.extra.region }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Determine whether the finding is an unauthorized posture condition, an approved exception, or a false positive.",
+        next_steps="Verify the resource and control evidence, identify the owner, preserve the finding ID, and remediate or document the approved exception.",
+        why_it_matters="A posture finding indicates a preventive control or exposure condition that remains traceable until resolved.",
+        evidence="{% if event.extra.evidence is defined and event.extra.evidence %}The producer supplied this evidence: {{ event.extra.evidence }}{% endif %}",
+        monitoring_method="AWS posture scan findings and the posture lifecycle projection.",
+        impact="The recorded control condition may leave the resource exposed or outside the intended posture; broader impact is not inferred.",
+        recovery="Pair a later aws.posture.finding.resolved event by finding ID; manual resolution is remediation or an owner-approved exception.",
+        preview_extra={"finding_id": "finding-1", "resource_id": "sg-0abc", "resource_type": "sg", "finding_type": "public_ingress_risky_port", "severity": "critical", "account": "111122223333", "region": "us-west-1", "evidence": {"ports": [22], "cidrs": ["0.0.0.0/0"]}},
+    ),
+    "aws.posture.finding.resolved": _contract(
+        title="AWS posture finding resolved · {{ event.extra.finding_id or event.target.id }}",
+        what_happened="The posture projection no longer observed this finding in a completed scan and marked it resolved.",
+        facts=("{% if event.extra.finding_id %}Finding ID: {{ event.extra.finding_id }}\n{% endif %}"
+               "{% if event.extra.resource_id %}Resource: {{ event.extra.resource_id }}{% if event.extra.resource_type %} ({{ event.extra.resource_type }}){% endif %}\n{% endif %}"
+               "{% if event.extra.finding_type %}Control/finding: {{ event.extra.finding_type }}\n{% endif %}"
+               "{% if event.extra.account %}Account: {{ event.extra.account }}\n{% endif %}"
+               "{% if event.extra.region %}Region: {{ event.extra.region }}\n{% endif %}"
+               "Resolved at: {{ event.event_time }}"),
+        decision="Confirm that the finding ID was resolved by the expected posture change or approved exception; do not treat this as a security-group attachment recovery.",
+        next_steps="Review the resolution evidence and scan context, then close the finding trail only after the owner confirms the condition is understood.",
+        why_it_matters="Resolution restores the finding lifecycle state, but it does not by itself prove why the condition changed or that related network changes were approved.",
+        evidence="{% if event.extra.evidence is defined and event.extra.evidence %}The retained finding evidence was: {{ event.extra.evidence }}{% endif %}",
+        monitoring_method="Completed AWS posture scans and finding-ID reconciliation.",
+        impact="The finding is no longer open in the completed scan; impact from the prior condition is not inferred.",
+        recovery="This is the recovery event for the matching new finding ID. Manual resolution is owner confirmation and closure of the finding trail; security-group attachment events remain separate.",
+        preview_extra={"finding_id": "finding-1", "resource_id": "sg-0abc", "resource_type": "sg", "finding_type": "public_ingress_risky_port", "account": "111122223333", "region": "us-west-1", "evidence": {"ports": [22], "cidrs": ["0.0.0.0/0"]}},
+    ),
+}
+
+
+_FINDINGS = {
+    "finding.malware.detected": _contract(
+        title="Malware detected{% if event.extra.signature %} · {{ event.extra.signature }}{% endif %}{% if event.target.name or event.target.id %} · {{ event.target.name or event.target.id }}{% endif %}",
+        what_happened="A detector reported a malware signature or malicious detection on the affected resource.",
+        facts=("{% if event.extra.signature %}Signature: {{ event.extra.signature }}\n{% endif %}"
+               "{% if event.extra.detection %}Detection: {{ event.extra.detection }}\n{% endif %}"
+               "{% if event.extra.resource or event.target.id or event.target.name %}Resource: {{ event.extra.resource or event.target.id or event.target.name }}\n{% endif %}"
+               "{% if event.extra.object_path %}Object/path: {{ event.extra.object_path }}\n{% endif %}"
+               "{% if event.extra.file_hash %}Hash: {{ event.extra.file_hash }}\n{% endif %}"
+               "{% if event.extra.scan_time %}Scan time: {{ event.extra.scan_time }}\n{% endif %}"
+               "{% if event.extra.engine %}Engine: {{ event.extra.engine }}\n{% endif %}"
+               "{% if event.extra.confidence %}Confidence: {{ event.extra.confidence }}\n{% endif %}"
+               "{% if event.extra.containment_state %}Containment: {{ event.extra.containment_state }}\n{% endif %}"
+               "{% if event.extra.owner %}Owner: {{ event.extra.owner }}\n{% endif %}"
+               "{% if event.source.vendor %}Vendor: {{ event.source.vendor }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Contain the affected resource before opening or distributing it, then confirm whether the detection is malicious or a documented false positive.",
+        next_steps="1. Isolate or quarantine the affected object, host, or workload using the approved response process.\n2. Preserve the signature, hash, source payload, and scan evidence.\n3. Notify the owner and security responder; do not delete evidence before review.\n4. Re-scan after containment and document the disposition.",
+        why_it_matters="A malware detection may expose users or systems to execution, credential theft, or data loss; the exact impact depends on the evidence provided.",
+        evidence="{% if event.extra.evidence is defined and event.extra.evidence %}{{ event.extra.evidence }}{% endif %}",
+        monitoring_method="Configured malware scanner, finding detector, or security webhook.",
+        impact="Potential compromise of the affected resource; no broader scope is inferred without supporting evidence.",
+        recovery="No automatic recovery is claimed. Resolve manually after containment, investigation, disposition, and a validating re-scan; use a resolved action only when the producer supplies one.",
+        preview_extra={"signature": "Win.Trojan.Foo", "detection": "Eicar-Test-Signature", "resource": "s3://uploads/invoice.xlsx", "object_path": "uploads/invoice.xlsx", "file_hash": "sha256:abc123", "scan_time": "2026-08-29T09:59:00Z", "engine": "ClamAV 1.4", "confidence": "high", "containment_state": "not_contained", "owner": "finance-platform", "evidence": {"rule": "malware-signature"}},
+    ),
+    "<finding>.detected": _contract(
+        title="Security finding detected{% if event.extra.finding_type %} · {{ event.extra.finding_type }}{% endif %}{% if event.target.name or event.target.id %} · {{ event.target.name or event.target.id }}{% endif %}",
+        what_happened="A security finding or webhook reported a detected condition on the affected resource.",
+        facts=("{% if event.extra.finding_type %}Finding type: {{ event.extra.finding_type }}\n{% endif %}"
+               "{% if event.extra.finding_id %}Finding ID: {{ event.extra.finding_id }}\n{% endif %}"
+               "{% if event.extra.resource or event.target.id or event.target.name %}Resource: {{ event.extra.resource or event.target.id or event.target.name }}\n{% endif %}"
+               "{% if event.source.vendor %}Vendor: {{ event.source.vendor }}\n{% endif %}"
+               "{% if event.extra.owner %}Owner: {{ event.extra.owner }}\n{% endif %}"
+               "When: {{ event.event_time }}"),
+        decision="Determine whether the finding is actionable, expected, or a false positive using the supplied evidence; do not apply malware-specific assumptions to other finding types.",
+        next_steps="1. Review the finding type, affected resource, owner, and supplied evidence.\n2. Preserve the source payload and finding identifier.\n3. Apply the relevant runbook for this finding type or assign it to the owner.\n4. Record the disposition and validation result.",
+        why_it_matters="A security finding identifies a potentially unsafe condition, but its impact depends on the finding type and evidence.",
+        evidence="{% if event.extra.evidence is defined and event.extra.evidence %}{{ event.extra.evidence }}{% endif %}",
+        monitoring_method="Configured security-finding detector or webhook source.",
+        impact="Impact is determined by the finding type, affected resource, and evidence supplied by the producer.",
+        recovery="No automatic recovery is claimed. Resolve manually unless the producer supplies a matching resolved action; retain arbitrary source evidence through the investigation.",
+        preview_extra={"finding_type": "suspicious.login", "finding_id": "CASE-42", "resource": "production-account", "owner": "security-team", "evidence": {"source": "provider", "confidence": "medium"}},
+    ),
+}
+
+
+_UEBA_DYNAMIC = _contract(
+    title="New {{ ((event.extra.dimension or 'behavior') | replace('_', ' ') | title) | replace('Ip', 'IP') }} observed · {{ event.actor.principal or event.target.name or event.target.id or 'unidentified entity' }}",
+    what_happened="The UEBA baseline observed a value that had not previously been associated with this principal after the warm-up period.",
+    facts=("{% if event.actor.principal %}Principal: {{ event.actor.principal }}\n{% endif %}"
+           "{% if event.actor.type %}Principal type: {{ event.actor.type }}\n{% endif %}"
+           "{% if event.extra.dimension %}Dimension: {{ event.extra.dimension }}\n{% endif %}"
+           "{% if event.extra.baseline_value is defined and event.extra.baseline_value is not none %}Value: {{ event.extra.baseline_value }}\n{% endif %}"
+           "{% if event.actor.source_ip %}Source IP: {{ event.actor.source_ip }}\n{% endif %}"
+           "{% if event.extra.source_country %}Source country: {{ event.extra.source_country }}\n{% endif %}"
+           "{% if event.extra.source_asn %}Source ASN: {{ event.extra.source_asn }}\n{% endif %}"
+           "{% if event.extra.user_agent_family %}User-agent family: {{ event.extra.user_agent_family }}\n{% endif %}"
+           "{% if event.extra.hour_of_day is defined and event.extra.hour_of_day is not none %}UTC hour: {{ event.extra.hour_of_day }}\n{% endif %}"
+           "When: {{ event.event_time }}"),
+    decision="Do not treat a first-seen value as proof of compromise. Confirm whether the principal and this behavior are expected.",
+    next_steps="1. Review the principal's recent access and the trigger event.\n2. Compare the new value with approved devices, locations, automation, and change records.\n3. If unexplained, validate the account, preserve evidence, and follow the credential or access-response runbook.",
+    why_it_matters="A new value may be a legitimate workflow change, but it can also indicate credential misuse or an unreviewed access path.",
+    evidence="{% if event.extra.trigger_action %}Trigger action: {{ event.extra.trigger_action }}\n{% endif %}{% if event.extra.trigger_event_id %}Trigger event ID: {{ event.extra.trigger_event_id }}\n{% endif %}",
+    monitoring_method="UEBA per-principal behavioral baselines after the configured warm-up period.",
+    impact="The event identifies an unusual behavior dimension; account compromise or business impact is not inferred from first-seen activity alone.",
+    recovery="There is no automatic recovery event. Resolve manually after owner validation, baseline normalization, or credential action when required.",
+    preview_extra={
+        "dimension": "source_ip", "baseline_value": "203.0.113.7",
+        "principal_id": "alice", "principal_type": "user",
+        "trigger_action": "iam.role.assume", "trigger_event_id": "evt-ueba-1",
+        "source_country": "IN", "source_asn": "AS64500", "user_agent_family": "aws-cli",
+        "hour_of_day": 10,
+    },
+)
+
+
+_AWS_COMPUTE = {
+    "compute.imds.modify": _contract(
+        title="EC2 metadata protection changed{{ (' · ' ~ (event.extra.instance_id or event.target.id)) if (event.extra.instance_id or event.target.id) else '' }}",
+        what_happened="The instance metadata service configuration changed.",
+        facts="{% if event.extra.instance_id %}Instance: {{ event.extra.instance_id }}\n{% endif %}{% if event.extra.http_tokens %}IMDS tokens: {{ event.extra.http_tokens }}\n{% endif %}{% if event.extra.http_endpoint %}IMDS endpoint: {{ event.extra.http_endpoint }}\n{% endif %}{% if event.extra.http_put_response_hop_limit is defined and event.extra.http_put_response_hop_limit is not none %}Hop limit: {{ event.extra.http_put_response_hop_limit }}\n{% endif %}{% if event.extra.imdsv1_enabled %}IMDSv1: enabled\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the metadata setting matches the approved instance-hardening baseline; treat IMDSv1 availability as a credential-theft risk until explained.",
+        next_steps="Verify the instance owner and change ticket; require IMDSv2 where approved; review recent instance-role use and investigate unexpected metadata access.",
+        why_it_matters="Metadata settings control whether workloads can reach instance credentials and other metadata.",
+        evidence="CloudTrail supplied the instance and metadata-option values shown above; no credential access is inferred.",
+        monitoring_method="AWS CloudTrail EC2 ModifyInstanceMetadataOptions events.",
+        impact="The instance credential-access boundary changed; compromise or impact is not established by this event alone.",
+        recovery="No automatic recovery is claimed; manual resolution requires the approved metadata baseline and review of recent role-credential activity.",
+        preview_extra={"instance_id": "i-0123", "http_tokens": "optional", "http_endpoint": "enabled", "http_put_response_hop_limit": 1, "imdsv1_enabled": True},
+    ),
+    "compute.ami.modify": _contract(
+        title="AMI exposure changed{{ (' · ' ~ (event.extra.image_id or event.target.id)) if (event.extra.image_id or event.target.id) else '' }}",
+        what_happened="An EC2 image launch-permission or visibility setting changed.",
+        facts="{% if event.extra.image_id %}AMI: {{ event.extra.image_id }}\n{% endif %}{% if event.extra.ami_public %}Public visibility: enabled\n{% endif %}{% if event.extra.ami_shared_accounts %}Shared accounts: {{ event.extra.ami_shared_accounts | join(', ') }}\n{% endif %}{% if event.extra.ami_removed_accounts %}Access removed for accounts: {{ event.extra.ami_removed_accounts | join(', ') }}\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the image exposure is intentional and that the image contains no credentials or sensitive data; public sharing is high risk until proven approved.",
+        next_steps="Review the image contents and owner; compare the permission change with the release ticket; remove unintended public or cross-account access and rotate exposed credentials.",
+        why_it_matters="AMI permissions can expose machine images, embedded secrets, and trusted software to unintended accounts.",
+        evidence="CloudTrail supplied the image identifier and launch-permission change shown above; image contents are not inspected by this alert.",
+        monitoring_method="AWS CloudTrail EC2 ModifyImageAttribute events.",
+        impact="The image's distribution boundary changed; exposure depends on the resulting permissions and image contents.",
+        recovery="No automatic recovery is claimed; manual resolution requires a verified approved permission set and credential review when exposure occurred.",
+        preview_extra={"image_id": "ami-0123", "ami_public": True, "ami_shared_accounts": ["222222222222"]},
+    ),
+    "compute.instance.modify": _contract(
+        title="EC2 instance configuration changed{{ (' · ' ~ (event.extra.instance_id or event.target.id)) if (event.extra.instance_id or event.target.id) else '' }}",
+        what_happened="An EC2 instance attribute changed.",
+        facts="{% if event.extra.instance_id %}Instance: {{ event.extra.instance_id }}\n{% endif %}{% if event.extra.instance_type %}Instance type: {{ event.extra.instance_type }}\n{% endif %}{% if event.extra.source_dest_check is defined and event.extra.source_dest_check is not none %}Source/destination check: {{ event.extra.source_dest_check }}\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the changed instance attribute is approved and does not alter routing, workload capacity, or host security unexpectedly.",
+        next_steps="Review the before/after attribute and owner; validate application health and network behavior; revert through the approved change process if unauthorized.",
+        why_it_matters="Instance attributes can change workload capacity or network behavior even when no security finding is raised.",
+        evidence="CloudTrail supplied the instance attribute values shown above; unavailable before/after values are intentionally omitted.",
+        monitoring_method="AWS CloudTrail EC2 ModifyInstanceAttribute events.",
+        impact="The instance configuration differs from its prior state; operational impact depends on the changed attribute.",
+        recovery="No automatic rollback is claimed; manual resolution is a verified approved configuration or a follow-up corrective change.",
+        preview_extra={"instance_id": "i-0123", "instance_type": "m7g.large", "source_dest_check": False},
+    ),
+}
+
+
+_AWS_BACKUP = {
+    "backup.vault.create": _contract(
+        title="Backup vault created{% if event.target.name or event.target.id %} · {{ event.target.name or event.target.id }}{% endif %}",
+        what_happened="A new AWS Backup vault was created.",
+        facts="{% if event.target.name or event.target.id %}Vault: {{ event.target.name or event.target.id }}\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the vault is expected, owned, and governed by the approved retention and access policy.",
+        next_steps="Verify the owner, encryption, retention, immutability, logging, and cross-account access; record the intended backup scope.",
+        why_it_matters="An unmanaged vault can create retention, access, or recovery gaps.",
+        evidence="The CloudTrail vault-creation event and normalized account, region, and actor fields are shown above.",
+        monitoring_method="AWS CloudTrail Backup API events.",
+        impact="The account now has a backup destination whose controls and ownership require confirmation.",
+        recovery="No automatic recovery; document the approved vault or remove it through the controlled AWS change process.",
+        preview_extra={"vault_name": "critical", "account": "111111111111", "region": "us-east-1"},
+    ),
+    "backup.recovery_point.delete": _contract(
+        title="Backup recovery point deleted{% if event.extra.recovery_point_arn %} · {{ event.extra.recovery_point_arn.split(':')[-1] }}{% endif %}",
+        what_happened="An AWS Backup recovery point was deleted.",
+        facts=("{% if event.extra.recovery_point_arn %}Recovery point: {{ event.extra.recovery_point_arn }}\n{% endif %}"
+               "{% if event.extra.resource_arn %}Protected resource: {{ event.extra.resource_arn }}\n{% endif %}"
+               "{% if event.extra.vault_name %}Vault: {{ event.extra.vault_name }}\n{% endif %}"
+               "{% if event.extra.plan_name %}Backup plan: {{ event.extra.plan_name }}\n{% endif %}"
+               "{% if event.extra.recovery_point_time %}Recovery point time: {{ event.extra.recovery_point_time }}\n{% endif %}"
+               "{% if event.extra.retention_days is defined and event.extra.retention_days is not none %}Retention at deletion: {{ event.extra.retention_days }} days\n{% endif %}"
+               "Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}"),
+        decision="Treat the deletion as destructive; do not assume recovery until the owner confirms it was approved and coverage remains sufficient.",
+        next_steps="1. Verify the last known-good recovery point still exists and is restorable.\n2. Check the vault retention policy, immutability controls, and backup plan.\n3. Confirm the resource owner and approved change or incident.\n4. Restore or create replacement protection if coverage was reduced.",
+        why_it_matters="Deleting a recovery point can remove the ability to restore a protected resource.",
+        evidence="The CloudTrail event records the deleted recovery point and the protected resource when supplied.",
+        monitoring_method="AWS CloudTrail normalization for AWS Backup recovery-point actions.",
+        impact="Recovery coverage may be reduced; no data loss beyond the deleted recovery point is inferred.",
+        recovery="There is no automatic recovery. Close manually only after a later verified backup or operator restoration confirms coverage.",
+        preview_extra={"recovery_point_arn": "arn:aws:backup:us-east-1:111111111111:recovery-point:rp-42", "resource_arn": "arn:aws:rds:us-east-1:111111111111:db:prod", "vault_name": "critical", "plan_name": "nightly-prod", "recovery_point_time": "2026-08-28T03:00:00Z", "retention_days": 35},
+    ),
+    "backup.vault.delete": _contract(
+        title="Backup vault deleted{% if event.extra.vault_name %} · {{ event.extra.vault_name }}{% endif %}",
+        what_happened="An AWS Backup vault was deleted.",
+        facts=("{% if event.extra.vault_name %}Vault: {{ event.extra.vault_name }}\n{% endif %}{% if event.extra.vault_arn %}Vault ARN: {{ event.extra.vault_arn }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}"),
+        decision="Escalate as a destructive backup-control change until retention and alternate recovery coverage are verified.",
+        next_steps="1. Verify the last known-good recovery point and its restore location.\n2. Check retention, immutability, and alternate vault or account copies.\n3. Confirm the owner and approved change.\n4. Recreate protected coverage if the deletion was unauthorized.",
+        why_it_matters="A deleted vault can remove multiple recovery points and weaken disaster recovery.",
+        evidence="The CloudTrail event records the vault deletion; coverage impact must be confirmed from AWS Backup inventory.",
+        monitoring_method="AWS CloudTrail normalization for AWS Backup vault actions.",
+        impact="Multiple recovery points may be unavailable; the full scope is not inferred from this event alone.",
+        recovery="There is no automatic recovery. Close manually after the vault or equivalent recovery coverage is restored and verified.",
+        preview_extra={"vault_name": "critical", "vault_arn": "arn:aws:backup:us-east-1:111111111111:backup-vault:critical", "region": "us-east-1"},
+    ),
+    "backup.vault.policy.delete": _contract(
+        title="Backup vault access policy deleted{% if event.extra.vault_name %} · {{ event.extra.vault_name }}{% endif %}",
+        what_happened="An AWS Backup vault access policy was deleted.",
+        facts=("{% if event.extra.vault_name %}Vault: {{ event.extra.vault_name }}\n{% endif %}{% if event.extra.vault_arn %}Vault ARN: {{ event.extra.vault_arn }}\n{% endif %}{% if event.extra.policy_summary %}Policy summary: {{ event.extra.policy_summary }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}"),
+        decision="Determine whether cross-account backup access was intentionally removed and whether copies or restores depend on it.",
+        next_steps="1. Compare the current vault policy with the approved baseline.\n2. Verify the last known-good recovery point and retention policy.\n3. Check copy jobs, delegated backup accounts, and restore permissions.\n4. Restore the approved policy if the change was unauthorized.",
+        why_it_matters="Removing a vault policy can interrupt cross-account backup copies or restore operations.",
+        evidence="The CloudTrail event identifies the policy deletion; the prior policy document may require a separate audit lookup.",
+        monitoring_method="AWS CloudTrail normalization for AWS Backup vault policy actions.",
+        impact="Backup copy or restore access may be reduced; availability is not inferred without policy comparison.",
+        recovery="There is no automatic recovery. Close manually after the intended policy and a permitted backup/restore check are verified.",
+        preview_extra={"vault_name": "critical", "vault_arn": "arn:aws:backup:us-east-1:111111111111:backup-vault:critical", "policy_summary": "Cross-account copy access"},
+    ),
+    "backup.vault.policy.put": _contract(
+        title="Backup vault access policy changed{% if event.extra.vault_name %} · {{ event.extra.vault_name }}{% endif %}",
+        what_happened="An AWS Backup vault access policy was added or replaced.",
+        facts=("{% if event.extra.vault_name %}Vault: {{ event.extra.vault_name }}\n{% endif %}{% if event.extra.vault_arn %}Vault ARN: {{ event.extra.vault_arn }}\n{% endif %}{% if event.extra.policy_summary %}Policy summary: {{ event.extra.policy_summary }}\n{% endif %}{% if event.extra.backup_vault_policy_wildcard %}Wildcard principal: yes\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}"),
+        decision="Approve only if the principals, conditions, and cross-account purpose match the backup design; otherwise remove or restrict the policy.",
+        next_steps="1. Review every principal, action, resource, and condition in the new policy.\n2. Verify the last known-good recovery point and retention policy.\n3. Test intended copy and restore paths without granting unnecessary access.\n4. Revert or narrow wildcard access if it is not explicitly approved.",
+        why_it_matters="A vault policy controls who can copy, delete, or restore backup data.",
+        evidence="The CloudTrail event records the policy change; a wildcard principal is highlighted when detected by normalization.",
+        monitoring_method="AWS CloudTrail normalization and backup vault policy signal checks.",
+        impact="Backup data may become overexposed or inaccessible to intended accounts depending on the policy change.",
+        recovery="There is no automatic recovery. Close manually after the approved policy is present and backup/restore access is verified.",
+        preview_extra={"vault_name": "critical", "vault_arn": "arn:aws:backup:us-east-1:111111111111:backup-vault:critical", "policy_summary": "Cross-account copy access", "backup_vault_policy_wildcard": True},
+    ),
+    "backup.copy_job.start": _contract(
+        title="Backup copy job started{% if event.extra.destination_account %} · account {{ event.extra.destination_account }}{% endif %}",
+        what_happened="An AWS Backup copy job started.",
+        facts=("{% if event.extra.job_id %}Job ID: {{ event.extra.job_id }}\n{% endif %}{% if event.extra.source_vault_arn %}Source vault: {{ event.extra.source_vault_arn }}\n{% endif %}{% if event.extra.destination_vault_arn %}Destination vault: {{ event.extra.destination_vault_arn }}\n{% endif %}{% if event.extra.destination_account %}Destination account: {{ event.extra.destination_account }}\n{% endif %}{% if event.extra.destination_region %}Destination region: {{ event.extra.destination_region }}\n{% endif %}{% if event.extra.backup_copy_dest_account %}Cross-account copy: yes\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}"),
+        decision="Confirm the destination, account, region, and retention meet the approved recovery design; investigate unexpected cross-account copies.",
+        next_steps="1. Verify the source recovery point and destination vault.\n2. Confirm destination-account ownership, retention, encryption, and immutability.\n3. Check the copy job reaches a completed state and is restorable.\n4. Escalate or stop unauthorized cross-account activity according to the runbook.",
+        why_it_matters="A copy job can improve resilience, but an unexpected destination can expose or misplace backup data.",
+        evidence="The CloudTrail event records the copy-job request and destination fields when supplied.",
+        monitoring_method="AWS CloudTrail normalization for AWS Backup copy-job actions.",
+        impact="Recovery coverage may increase or backup data may cross a trust boundary; completion is not assumed.",
+        recovery="This is not a recovery event. Close manually after the copy completes and the destination recovery point is verified.",
+        preview_extra={"job_id": "copy-42", "source_vault_arn": "arn:aws:backup:us-east-1:111111111111:backup-vault:critical", "destination_vault_arn": "arn:aws:backup:us-west-2:222222222222:backup-vault:dr", "destination_account": "222222222222", "destination_region": "us-west-2", "backup_copy_dest_account": "222222222222"},
+    ),
+}
+
+_AWS_EFS = {
+    "efs.filesystem.create": _contract(
+        title="EFS file system created{% if event.extra.efs_filesystem_id or event.target.name or event.target.id %} · {{ event.extra.efs_filesystem_id or event.target.name or event.target.id }}{% endif %}",
+        what_happened="A new EFS file system was created.",
+        facts="{% if event.extra.efs_filesystem_id or event.target.name or event.target.id %}File system: {{ event.extra.efs_filesystem_id or event.target.name or event.target.id }}\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the file system is expected, owned, encrypted, and reachable only through approved network paths.",
+        next_steps="Verify encryption, lifecycle, backup, mount-target security groups, owner, and dependent workload; record the approved purpose.",
+        why_it_matters="An unmanaged shared file system can expose data or create an untracked dependency.",
+        evidence="The CloudTrail creation event and normalized resource, account, region, and actor fields are shown above.",
+        monitoring_method="AWS CloudTrail EFS API events.",
+        impact="A new shared storage resource is available until its controls and ownership are confirmed.",
+        recovery="No automatic recovery; document the approved system or remove it through the controlled AWS change process.",
+        preview_extra={"efs_filesystem_id": "fs-0123"},
+    ),
+    "efs.filesystem.policy.put": _contract(
+        title="EFS policy changed",
+        what_happened="An EFS file-system policy was changed.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}{% if event.extra.efs_policy_summary %}Policy: {{ event.extra.efs_policy_summary }}\n{% endif %}{% if event.extra.efs_policy_wildcard %}Wildcard principal: yes\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the policy is approved and grants only the intended principals; treat a wildcard principal as an urgent review.",
+        next_steps="1. Compare the policy with the approved access design.\n2. Remove unintended principals or conditions.\n3. Test application access and document the change.",
+        why_it_matters="An EFS policy controls who can access shared file data.",
+        evidence="The CloudTrail policy-change request and policy fields are shown when supplied.",
+        monitoring_method="AWS CloudTrail normalization for EFS policy actions.",
+        impact="Shared data may become exposed or inaccessible to intended workloads.",
+        recovery="Restore the last approved policy deliberately; this event is not itself a recovery confirmation.",
+        preview_extra={"efs_filesystem_id": "fs-0123", "efs_policy_summary": "Allow application role", "efs_policy_wildcard": True},
+    ),
+    "efs.filesystem.policy.delete": _contract(
+        title="EFS policy deleted",
+        what_happened="The policy attached to an EFS file system was deleted.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm whether policy removal was approved and whether the resulting access behavior is safe.",
+        next_steps="1. Check the change ticket and current access behavior.\n2. Restore the approved policy if removal was unauthorized.\n3. Validate dependent workloads and record the owner decision.",
+        why_it_matters="Removing a file-system policy can change who may access shared data.",
+        evidence="CloudTrail recorded an EFS policy deletion.", monitoring_method="AWS CloudTrail EFS policy events.",
+        impact="Access may broaden, narrow, or fail for dependent workloads.",
+        recovery="Recovery requires deliberate restoration of the approved EFS policy; do not mark recovered from a later mount event.",
+        preview_extra={"efs_filesystem_id": "fs-0123"},
+    ),
+    "efs.mount_target.create": _contract(
+        title="EFS mount target created",
+        what_happened="A new network mount target was created for an EFS file system.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}{% if event.extra.efs_mount_target_id %}Mount target: {{ event.extra.efs_mount_target_id }}\n{% endif %}{% if event.extra.efs_subnet_id %}Subnet: {{ event.extra.efs_subnet_id }}\n{% endif %}{% if event.extra.efs_availability_zone %}Availability zone: {{ event.extra.efs_availability_zone }}\n{% endif %}{% if event.extra.efs_ip_address %}IP address: {{ event.extra.efs_ip_address }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the subnet, availability zone, and security boundaries are part of the approved design.",
+        next_steps="1. Verify the subnet and NFS security groups.\n2. Confirm only intended workloads can reach port 2049.\n3. Check the mount target becomes healthy and is used as expected.",
+        why_it_matters="A mount target creates a new network path to shared file data.", evidence="CloudTrail recorded the mount-target creation and available placement fields.", monitoring_method="AWS CloudTrail EFS mount-target events.", impact="Data may become reachable from an unintended network segment.", recovery="Remove the mount target deliberately if unauthorized; creation alone is not a recovery event.", preview_extra={"efs_filesystem_id": "fs-0123", "efs_mount_target_id": "fsmt-1", "efs_subnet_id": "subnet-1", "efs_availability_zone": "us-east-1a", "efs_ip_address": "10.0.2.15"},
+    ),
+    "efs.mount_target.delete": _contract(
+        title="EFS mount target deleted",
+        what_happened="An EFS mount target was deleted.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}{% if event.extra.efs_mount_target_id %}Mount target: {{ event.extra.efs_mount_target_id }}\n{% endif %}{% if event.extra.efs_availability_zone %}Availability zone: {{ event.extra.efs_availability_zone }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the deletion was approved and identify workloads that depended on this mount path.", next_steps="1. Check application mount errors and affected subnets.\n2. Recreate the mount target in the approved subnet if needed.\n3. Validate application recovery and connectivity.", why_it_matters="Deleting a mount target can interrupt workloads even when the file system still exists.", evidence="CloudTrail recorded an EFS mount-target deletion.", monitoring_method="AWS CloudTrail EFS mount-target events.", impact="Dependent workloads may lose access to shared files.", recovery="Recovery requires deliberate recreation and health validation of the mount target; no automatic recovery is assumed.", preview_extra={"efs_filesystem_id": "fs-0123", "efs_mount_target_id": "fsmt-1", "efs_availability_zone": "us-east-1a"},
+    ),
+    "efs.mount_target.sg.modify": _contract(
+        title="EFS mount security groups changed",
+        what_happened="The security groups applied to an EFS mount target changed.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}{% if event.extra.efs_mount_target_id %}Mount target: {{ event.extra.efs_mount_target_id }}\n{% endif %}{% if event.extra.efs_security_groups %}Security groups: {{ event.extra.efs_security_groups | join(', ') }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the security groups permit only intended NFS clients and do not expose port 2049 broadly.", next_steps="1. Review inbound and outbound rules for each listed group.\n2. Test intended mounts and reject public or unintended sources.\n3. Record the approved group set.", why_it_matters="Mount-target security groups define who can reach shared file data over NFS.", evidence="CloudTrail recorded the security-group replacement and listed groups when supplied.", monitoring_method="AWS CloudTrail EFS security-group modification events.", impact="Workloads may lose access or shared data may become reachable by unintended clients.", recovery="Restore the approved security-group set deliberately and validate mounts; a later access event is not recovery confirmation.", preview_extra={"efs_filesystem_id": "fs-0123", "efs_mount_target_id": "fsmt-1", "efs_security_groups": ["sg-1", "sg-2"]},
+    ),
+    "efs.filesystem.delete": _contract(
+        title="EFS file system deleted",
+        what_happened="An EFS file system was deleted.",
+        facts="{% if event.extra.efs_filesystem_id %}File system: {{ event.extra.efs_filesystem_id }}\n{% endif %}{% if event.extra.efs_filesystem_name %}Name: {{ event.extra.efs_filesystem_name }}\n{% endif %}Actor: {{ event.actor.principal }}\nWhen: {{ event.event_time }}",
+        decision="Treat this as a critical destructive change and confirm the deletion, backup coverage, and owner immediately.", next_steps="1. Verify the deletion request and last known-good backup.\n2. Check dependent workload failures and data-retention obligations.\n3. Escalate restoration from backup according to the runbook.", why_it_matters="Deleting an EFS file system can remove shared data and break every dependent workload.", evidence="CloudTrail recorded an EFS file-system deletion.", monitoring_method="AWS CloudTrail EFS file-system lifecycle events.", impact="Shared data may be unavailable or permanently lost if no recoverable copy exists.", recovery="Recovery requires deliberate restore from an available backup or snapshot; no automatic recovery is claimed.", preview_extra={"efs_filesystem_id": "fs-0123", "efs_filesystem_name": "prod-files"},
+    ),
+}
+
+
+def _network_contract(key: str, title: str, happened: str, facts: str, decision: str, steps: str, why: str, impact: str, preview: dict[str, Any]) -> dict[str, Any]:
+    return _contract(
+        title=title,
+        what_happened=happened,
+        facts=facts,
+        decision=decision,
+        next_steps=steps,
+        why_it_matters=why,
+        evidence="CloudTrail supplied the network identifiers and provider fields shown above when available.",
+        monitoring_method="AWS CloudTrail VPC, peering, transit-gateway, and security-group events.",
+        impact=impact,
+        recovery="No automatic recovery is claimed; manual resolution requires an approved network change followed by connectivity and exposure validation.",
+        preview_extra=preview,
+    )
+
+
+_AWS_NETWORK = {
+    "network.igw.attach": _network_contract(
+        "network.igw.attach", "Internet gateway attached",
+        "An internet gateway was attached to a VPC, creating a potential internet path.",
+        "{% if event.extra.gateway_id %}Gateway: {{ event.extra.gateway_id }}\n{% endif %}{% if event.extra.vpc_id %}VPC: {{ event.extra.vpc_id }}\n{% endif %}{% if event.source.account %}Account: {{ event.source.account }}\n{% endif %}{% if event.source.region %}Region: {{ event.source.region }}\n{% endif %}When: {{ event.event_time }}",
+        "Confirm the VPC is intended to have internet connectivity and the attachment is approved.",
+        "Validate route tables and public subnets; confirm the owner and change ticket; check for newly reachable workloads; detach through the approved process if unauthorized.",
+        "An internet gateway can expose a VPC when routes and public addressing permit it.",
+        "Connectivity or exposure may have changed; exposure is not inferred without route validation.", {"gateway_id": "igw-123", "vpc_id": "vpc-123"},
+    ),
+    "network.peering.accept": _network_contract(
+        "network.peering.accept", "VPC peering accepted",
+        "A VPC peering request was accepted, creating a potential cross-VPC path.",
+        "{% if event.extra.peering_id %}Peering: {{ event.extra.peering_id }}\n{% endif %}{% if event.extra.source_vpc_id %}Source VPC: {{ event.extra.source_vpc_id }}\n{% endif %}{% if event.extra.destination_vpc_id %}Destination VPC: {{ event.extra.destination_vpc_id }}\n{% endif %}{% if event.extra.source_account %}Source account: {{ event.extra.source_account }}\n{% endif %}{% if event.extra.destination_account %}Destination account: {{ event.extra.destination_account }}\n{% endif %}When: {{ event.event_time }}",
+        "Confirm both VPC owners approved the peering and that routes and security groups allow only intended connectivity.",
+        "Validate both accounts and owners; review routes, DNS, and security-group reachability; confirm the change ticket; delete the peering through the approved process if unauthorized.",
+        "Peering can bypass assumptions that the two VPCs are isolated.",
+        "Cross-VPC connectivity may be available; actual reachability depends on routes and controls.", {"peering_id": "pcx-123", "source_vpc_id": "vpc-a", "destination_vpc_id": "vpc-b", "source_account": "222222222222", "destination_account": "111111111111"},
+    ),
+    "network.tgw_peering.accept": _network_contract(
+        "network.tgw_peering.accept", "Transit gateway peering accepted",
+        "A transit gateway peering request was accepted, creating a potential routed cross-network path.",
+        "{% if event.extra.peering_id %}Attachment: {{ event.extra.peering_id }}\n{% endif %}{% if event.extra.source_vpc_id %}Source transit gateway: {{ event.extra.source_vpc_id }}\n{% endif %}{% if event.extra.destination_vpc_id %}Destination transit gateway: {{ event.extra.destination_vpc_id }}\n{% endif %}{% if event.extra.source_account %}Source account: {{ event.extra.source_account }}\n{% endif %}{% if event.extra.destination_account %}Destination account: {{ event.extra.destination_account }}\n{% endif %}When: {{ event.event_time }}",
+        "Confirm both gateway owners approved the connection and that route propagation is intentional.",
+        "Verify gateway owners and change ticket; review propagated routes and reachable CIDRs; test only intended connectivity; delete the peering through the approved process if unauthorized.",
+        "Transit-gateway peering can expand the blast radius of a route mistake across multiple networks.",
+        "Additional routed networks may become reachable; actual exposure depends on route propagation and controls.", {"peering_id": "tgw-attach-123", "source_account": "222222222222", "destination_account": "111111111111"},
+    ),
+    "network.sg.ingress.add": _network_contract(
+        "network.sg.ingress.add", "Security-group ingress rule added",
+        "An inbound security-group rule was added.",
+        "{% if event.extra.security_group_id %}Security group: {{ event.extra.security_group_id }}\n{% endif %}{% if event.extra.protocol %}Protocol: {{ event.extra.protocol }}\n{% endif %}{% if event.extra.port_range %}Ports: {{ event.extra.port_range }}\n{% endif %}{% if event.extra.cidrs %}CIDRs: {{ event.extra.cidrs | join(', ') }}\n{% endif %}{% if event.extra.exposure_summary %}Public exposure: {{ event.extra.exposure_summary }}\n{% endif %}When: {{ event.event_time }}",
+        "Confirm the rule provides only intended connectivity; treat public or risky exposure as unauthorized until proven otherwise.",
+        "Validate CIDR, protocol, and ports against the design; confirm owner and ticket; test intended connectivity and public reachability; revoke through the approved process if unnecessary.",
+        "Ingress rules directly define who can reach a workload.",
+        "Inbound reachability changed; public or risky exposure is called out only when supported by the provider rule.", {"security_group_id": "sg-123", "protocol": "tcp", "from_port": 22, "to_port": 22, "cidrs": ["0.0.0.0/0"], "public_exposure": True, "risky_exposure": True},
+    ),
+}
+
+
+_AWS_SECRETS = {
+    "secrets.secret.create": _contract(
+        title="Secret created · {{ event.extra.secret_name or event.target.name or event.target.id }}",
+        what_happened="A new AWS Secrets Manager secret was created.",
+        facts="{% if event.extra.secret_name %}Secret: {{ event.extra.secret_name }}\n{% endif %}{% if event.extra.secret_arn %}ARN: {{ event.extra.secret_arn }}\n{% endif %}{% if event.extra.kms_key_id %}KMS key: {{ event.extra.kms_key_id }}\n{% endif %}{% if event.extra.version_stages %}Stages: {{ event.extra.version_stages | join(', ') }}\n{% endif %}{% if event.extra.description %}Description: {{ event.extra.description }}\n{% endif %}Actor: {{ event.actor.principal }}\nAccount: {{ event.source.account }}\nRegion: {{ event.source.region }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the secret, owner, encryption key, and consuming services were approved for creation.",
+        next_steps="1. Verify the owner and change ticket.\n2. Confirm the KMS key and resource policy restrict access.\n3. Identify consumers and confirm the initial version was delivered through an approved channel.",
+        why_it_matters="A newly created credential can enable access to production systems if ownership or permissions are wrong.",
+        evidence="CloudTrail supplied the lifecycle action and the available secret metadata; no secret value is collected.",
+        monitoring_method="AWS CloudTrail Secrets Manager lifecycle events.",
+        impact="A new credential may change how workloads authenticate to dependent systems.",
+        recovery="No automatic recovery is claimed; manual resolution requires owner confirmation and permission review.",
+        preview_extra={"secret_name": "prod/db", "secret_arn": "arn:aws:secretsmanager:us-east-1:111111111111:secret:prod/db", "kms_key_id": "key-123", "version_stages": ["AWSCURRENT"], "description": "database credential"},
+    ),
+    "secrets.secret.update": _contract(
+        title="Secret updated · {{ event.extra.secret_name or event.target.name or event.target.id }}",
+        what_happened="An AWS Secrets Manager secret or its metadata was updated.",
+        facts="{% if event.extra.secret_name %}Secret: {{ event.extra.secret_name }}\n{% endif %}{% if event.extra.secret_arn %}ARN: {{ event.extra.secret_arn }}\n{% endif %}{% if event.extra.change_type %}Change: {{ event.extra.change_type }}\n{% endif %}{% if event.extra.version_id %}Version: {{ event.extra.version_id }}\n{% endif %}{% if event.extra.version_stages %}Stages: {{ event.extra.version_stages | join(', ') }}\n{% endif %}{% if event.extra.kms_key_id %}KMS key: {{ event.extra.kms_key_id }}\n{% endif %}Actor: {{ event.actor.principal }}\nAccount: {{ event.source.account }}\nRegion: {{ event.source.region }}\nWhen: {{ event.event_time }}",
+        decision="Determine whether the change was an approved rotation, metadata change, or unauthorized credential replacement.",
+        next_steps="1. Confirm the actor and change ticket.\n2. Check consumers for authentication failures and verify the intended version stage.\n3. If unauthorized, revoke access, rotate through the approved process, and review recent secret reads.",
+        why_it_matters="A secret update can invalidate workloads or replace a credential trusted by multiple systems.",
+        evidence="CloudTrail supplied the change metadata shown above; secret values are intentionally excluded.",
+        monitoring_method="AWS CloudTrail Secrets Manager update and version events.",
+        impact="Consumers may fail authentication, or an unauthorized actor may have changed a trusted credential.",
+        recovery="Recovery requires a confirmed approved version and healthy consumer authentication; no automatic recovery is claimed.",
+        preview_extra={"secret_name": "prod/db", "secret_arn": "arn:secret:prod/db", "change_type": "value or metadata updated", "version_id": "v2", "version_stages": ["AWSCURRENT"], "kms_key_id": "key-123"},
+    ),
+    "secrets.secret.restore": _contract(
+        title="Secret deletion cancelled · {{ event.extra.secret_name or event.target.name or event.target.id }}",
+        what_happened="A previously scheduled AWS Secrets Manager deletion was cancelled and the secret was restored.",
+        facts="{% if event.extra.secret_name %}Secret: {{ event.extra.secret_name }}\n{% endif %}{% if event.extra.secret_arn %}ARN: {{ event.extra.secret_arn }}\n{% endif %}{% if event.extra.recovery_window_days is not none %}Deletion window: {{ event.extra.recovery_window_days }} days\n{% endif %}Actor: {{ event.actor.principal }}\nAccount: {{ event.source.account }}\nRegion: {{ event.source.region }}\nWhen: {{ event.event_time }}",
+        decision="Confirm the restore was intended and that consumers should continue using this secret.",
+        next_steps="1. Verify the owner and deletion ticket.\n2. Confirm the active version, resource policy, and consuming workloads.\n3. Close the deletion incident only after consumer health is confirmed.",
+        why_it_matters="Restoring a secret preserves access to a credential that may have been scheduled for removal.",
+        evidence="CloudTrail supplied the restore action and available identifiers; no secret value is collected.",
+        monitoring_method="AWS CloudTrail Secrets Manager restore events.",
+        impact="Consumers retain access to the restored credential; an unintended restore may preserve unnecessary access.",
+        recovery="This is itself a restore event; consumer recovery is valid only when matching healthy authentication is observed.",
+        preview_extra={"secret_name": "prod/db", "secret_arn": "arn:secret:prod/db", "recovery_window_days": 7},
+    ),
+    "secrets.secret.delete": _contract(
+        title="Secret scheduled for deletion · {{ event.extra.secret_name or event.target.name or event.target.id }}",
+        what_happened="An AWS Secrets Manager secret was scheduled for deletion or force-deleted.",
+        facts="{% if event.extra.secret_name %}Secret: {{ event.extra.secret_name }}\n{% endif %}{% if event.extra.secret_arn %}ARN: {{ event.extra.secret_arn }}\n{% endif %}{% if event.extra.recovery_window_days is not none %}Recovery window: {{ event.extra.recovery_window_days }} days\n{% endif %}{% if event.extra.force_delete is not none %}Force delete: {{ event.extra.force_delete }}\n{% endif %}Actor: {{ event.actor.principal }}\nAccount: {{ event.source.account }}\nRegion: {{ event.source.region }}\nWhen: {{ event.event_time }}",
+        decision="Treat this as high risk until the owner confirms the deletion and all consumers have been assessed.",
+        next_steps="1. Identify every consumer and the last known-good credential version.\n2. Confirm the recovery window and whether force deletion was used.\n3. Cancel deletion or restore through the approved process; rotate dependents if the deletion was unauthorized.",
+        why_it_matters="Deletion can break production authentication and may remove the recovery path for a trusted credential.",
+        evidence="CloudTrail supplied the deletion metadata shown above; secret values are never included.",
+        monitoring_method="AWS CloudTrail Secrets Manager deletion events.",
+        impact="Dependent workloads may lose authentication, and force deletion can remove the recovery window.",
+        recovery="No automatic recovery is claimed; manual resolution requires a matching restore event and verified healthy consumers.",
+        preview_extra={"secret_name": "prod/db", "secret_arn": "arn:secret:prod/db", "recovery_window_days": 7, "force_delete": False},
+    ),
+}
+
+
+_AWS_STORAGE = {
+    "storage.snapshot.modify": _contract(
+        title="EBS snapshot sharing changed{{ (' · ' ~ (event.extra.snapshot_id or event.target.id)) if (event.extra.snapshot_id or event.target.id) else '' }}",
+        what_happened="An EBS snapshot sharing permission changed.",
+        facts=("{% if event.extra.snapshot_id or event.target.id %}Snapshot: {{ event.extra.snapshot_id or event.target.id }}\n{% endif %}"
+               "{% if event.extra.volume_id %}Volume: {{ event.extra.volume_id }}\n{% endif %}"
+               "{% if event.extra.snapshot_share_scope %}Sharing scope: {{ event.extra.snapshot_share_scope }}\n{% endif %}"
+               "{% if event.extra.snapshot_shared_accounts %}Shared accounts: {{ event.extra.snapshot_shared_accounts | join(', ') }}\n{% endif %}"
+               "{% if event.extra.snapshot_public %}Public access: yes\n{% endif %}"
+               "{% if event.extra.snapshot_removed_accounts %}Removed accounts: {{ event.extra.snapshot_removed_accounts | join(', ') }}\n{% endif %}"
+               "{% if event.extra.snapshot_removed_public %}Removed public access: yes\n{% endif %}"
+               "{% if event.extra.snapshot_share_scope_before %}Sharing before: {{ event.extra.snapshot_share_scope_before }}\n{% endif %}"
+               "{% if event.extra.snapshot_share_scope_current %}Sharing now: {{ event.extra.snapshot_share_scope_current }}\n{% endif %}"
+               "{% if event.extra.encrypted is defined and event.extra.encrypted is not none %}Encrypted: {{ event.extra.encrypted }}\n{% endif %}"
+               "{% if event.extra.kms_key_id %}KMS key: {{ event.extra.kms_key_id }}\n{% endif %}"
+               "Actor: {{ event.actor.principal }}\nAccount: {{ event.source.account }}\nRegion: {{ event.source.region }}\nWhen: {{ event.event_time }}"),
+        decision="Treat public exposure as urgent; confirm the permission change is approved before relying on this snapshot for recovery.",
+        next_steps="Remove public access immediately if unauthorized; review every shared account, snapshot contents, encryption, retention, and restore permissions; preserve the CloudTrail evidence and approved baseline.",
+        why_it_matters="EBS snapshots can contain recoverable copies of sensitive workloads and are directly restorable by permitted principals.",
+        evidence="CloudTrail supplied the snapshot permission change and the sharing scope shown above; data access is not inferred from this event alone.",
+        monitoring_method="AWS CloudTrail EC2 ModifySnapshotAttribute events.",
+        impact="The snapshot's restore boundary changed; public or cross-account access may expose stored data.",
+        recovery="No automatic recovery is claimed; manually resolve only after unintended sharing is removed and an approved, restorable snapshot configuration is verified.",
+        preview_extra={"snapshot_id": "snap-0123", "volume_id": "vol-0456", "snapshot_share_scope": "public and cross-account", "snapshot_shared_accounts": ["222222222222"], "snapshot_public": True, "encrypted": True},
+    ),
+}
+
+_ALL = {**_VPN, **_CERT, **_HOST, **_RDS, **_SERVICE, **_AWS_IAM, **_AWS_S3, **_API_GATEWAY, **_AWS_POSTURE, **_AWS_NETWORK, **_AWS_COMPUTE, **_AWS_BACKUP, **_AWS_STORAGE, **_AWS_EFS, **_AWS_SECRETS, **_FINDINGS}
 
 
 def field_guidance(event_key: str) -> list[str]:
@@ -594,6 +1300,8 @@ def field_guidance(event_key: str) -> list[str]:
             base += ["{count_in_window}", "{threshold}", "{window_seconds}"]
         elif event_key.startswith("vpn.cert."):
             base += ["{certificate_subject}", "{days_remaining}", "{not_after}", "{certificate_path}", "{certificate_error}"]
+    elif event_key.startswith("cert."):
+        base += ["{certificate_subject}", "{issuer}", "{sans}", "{days_remaining}", "{not_after}", "{certificate_path}", "{certificate_error}", "{port}"]
     elif event_key.startswith("service.") or event_key.startswith("probe.agent."):
         base += ["{service_name}", "{vpc}", "{monitor_tier}", "{error_signal}", "{latency_ms}", "{consecutive_failures}", "{consecutive_successes}", "{downtime}", "{unknown_duration}", "{age_seconds}", "{last_report}", "{agent_version}", "{monitoring_impact}"]
     elif event_key.startswith(("iam.", "kms.", "cloudtrail.", "auth.")):
@@ -640,6 +1348,40 @@ def field_guidance(event_key: str) -> list[str]:
             base += ["{error}"]
         elif event_key == "rds.user.unknown":
             base += ["{user}", "{trigger}"]
+    elif event_key.startswith("api."):
+        base += ["{api_name}", "{source_ip}", "{method}", "{route_key}", "{status}", "{integration_status}", "{response_length}", "{response_latency_ms}", "{request_id}"]
+        if event_key == "api.auth.failure":
+            base += ["{reason}", "{error_message}"]
+        elif event_key == "api.auth.burst":
+            base += ["{failure_count}", "{window_minutes}"]
+        elif event_key == "api.error":
+            base += ["{reason}", "{error_message}"]
+        elif event_key == "api.error.burst":
+            base += ["{error_count}", "{window_minutes}"]
+        elif event_key == "api.scanner_ua":
+            base += ["{user_agent}", "{scanner_signature}"]
+    elif event_key == "network.sg.instance_attach":
+        base += ["{account}", "{region}", "{instance_id}", "{sg_ids}"]
+    elif event_key.startswith("network."):
+        base += ["{vpc_id}", "{subnet_id}", "{gateway_id}", "{peering_id}", "{source_vpc_id}", "{destination_vpc_id}", "{source_account}", "{destination_account}", "{source_region}", "{destination_region}", "{security_group_id}", "{protocol}", "{from_port}", "{to_port}", "{cidrs}", "{public_exposure}", "{risky_exposure}"]
+    elif event_key.startswith("backup."):
+        base += ["{account}", "{region}", "{job_id}", "{recovery_point_arn}", "{resource_arn}", "{vault_name}", "{vault_arn}", "{source_vault_arn}", "{destination_vault_arn}", "{destination_account}", "{destination_region}", "{plan_name}", "{recovery_point_time}", "{retention_days}", "{policy_summary}", "{backup_vault_policy_wildcard}", "{backup_copy_dest_account}"]
+    elif event_key.startswith("storage."):
+        base += ["{snapshot_id}", "{volume_id}", "{snapshot_share_scope}", "{snapshot_shared_accounts}", "{snapshot_public}", "{encrypted}", "{kms_key_id}", "{account}", "{region}"]
+    elif event_key.startswith("efs."):
+        base += ["{account}", "{region}", "{efs_filesystem_id}", "{efs_filesystem_name}", "{efs_mount_target_id}", "{efs_subnet_id}", "{efs_availability_zone}", "{efs_ip_address}", "{efs_security_groups}", "{efs_policy_summary}", "{efs_policy_wildcard}"]
+    elif event_key.startswith("secrets.secret."):
+        base += ["{secret_name}", "{secret_arn}", "{description}", "{kms_key_id}", "{version_id}", "{version_stages}", "{rotation_enabled}", "{rotation_days}", "{recovery_window_days}", "{force_delete}", "{change_type}", "{account}", "{region}"]
+    elif event_key.startswith("aws.posture.finding."):
+        base += ["{account}", "{region}", "{finding_id}", "{resource_id}", "{resource_type}", "{finding_type}", "{resolved_at}"]
+    elif event_key == "ueba.anomaly" or ".anomaly.first_seen_" in event_key:
+        base += ["{principal}", "{source_ip}", "{dimension}", "{baseline_value}", "{principal_type}", "{source_country}", "{source_asn}", "{user_agent_family}", "{hour_of_day}", "{trigger_action}", "{trigger_event_id}"]
+    elif event_key == "finding.malware.detected":
+        base += ["{signature}", "{detection}", "{resource}", "{object_path}", "{file_hash}", "{scan_time}", "{engine}", "{confidence}", "{containment_state}", "{owner}", "{vendor}"]
+    elif event_key == "<finding>.detected" or event_key.startswith("finding."):
+        base += ["{finding_type}", "{finding_id}", "{resource}", "{owner}", "{vendor}"]
+    if event_key.startswith("aws.posture.finding"):
+        base += ["{evidence}"]
     return list(dict.fromkeys(base))
 
 
@@ -648,19 +1390,33 @@ def apply_event_contracts(catalog: Iterable[dict[str, Any]], content_fields: Ite
     fields = list(content_fields)
     for module in catalog:
         for event in module.get("events") or []:
-            contract = _ALL.get(str(event.get("key")))
+            event_key = str(event.get("key"))
+            contract = _ALL.get(event_key)
+            if contract is None and (event_key == "<category>.anomaly.first_seen_*" or event_key == "ueba.anomaly"):
+                contract = _UEBA_DYNAMIC
+            if contract is None and event_key == "<finding>.detected":
+                contract = _FINDINGS["<finding>.detected"]
             if not contract:
                 continue
             defaults = event.setdefault("defaults", {})
-            defaults.update({key: value for key, value in contract.items() if key != "preview_extra"})
+            defaults.update({key: value for key, value in contract.items() if key not in {"preview_extra", "preview_sample"}})
             event["content_fields"] = list(fields)
             event["content_status"] = "rolled_out"
+            event["content_gap"] = False
             event["available_fields"] = field_guidance(str(event.get("key")))
             sample = dict(event.get("preview_sample") or {})
+            sample.update(contract.get("preview_sample") or {})
             extra = dict(sample.get("extra") or {})
             extra.update(contract.get("preview_extra") or {})
             sample["extra"] = extra
             event["preview_sample"] = sample
-        if module.get("key") in {"vpn.openvpn", "ec2.host", "aws.rds"}:
+        if module.get("events") and all(
+            event.get("notification_status") != "notifying"
+            or (
+                (str(event.get("key")) in _ALL or str(event.get("key")) in {"<category>.anomaly.first_seen_*", "<finding>.detected"})
+                and event.get("content_status") == "rolled_out"
+            )
+            for event in module.get("events") or []
+        ):
             module["content_status"] = "rolled_out"
-            module["content_gap_count"] = sum(item.get("content_status") == "generic" for item in module.get("events") or [])
+            module["content_gap_count"] = sum(bool(item.get("content_gap")) for item in module.get("events") or [])

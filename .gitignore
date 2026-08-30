@@ -25,3 +25,4 @@ PRODUCT.md
 /graphify-out
 /.claude
 /.agents
+/.pnpm-store

@@ -1,0 +1,30 @@
+id: BW-033
+status: approved
+title: "Consolidate notification navigation and retire internal legacy paths"
+area: ui
+source: research
+severity: medium
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/app/notifications/routing/page.tsx"
+    location: "entire page"
+    observation: "The page is redirect-only to /notifications."
+  - file: "blackwatch-ui/app/notifications/perf-alerts/quick/page.tsx"
+    location: "entire page"
+    observation: "The page is redirect-only to /notifications."
+impact: "The product route tree contains obsolete internal destinations and inconsistent navigation cues."
+acceptance_criteria:
+  - "Make /notifications the only internal landing destination for notification management."
+  - "Remove internal links to /notifications/routing and /notifications/perf-alerts/quick."
+  - "Retain bookmark-safe redirects or document an explicit deprecation/removal decision."
+  - "Add tests for legacy redirects and canonical destinations."
+  - "Preserve notification configuration, delivery, audit, and data."
+dependencies:
+  - BW-031
+  - BW-032
+risks:
+  - "Deleting compatibility pages too early can break external bookmarks."
+proposed_role: "coder-ui + coder-tests"
+approved_by: user
+notes: "Explicitly approved and implemented. Internal navigation remains on /notifications while legacy routes remain bookmark-safe redirects."

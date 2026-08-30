@@ -83,6 +83,7 @@ def _project_scan_completed(event: Event) -> list[Event]:
             "severity": prev["severity"],
             "region": prev["region"],
             "account": prev["account"],
+            "evidence": prev.get("evidence"),
         }, when))
     return derived
 

@@ -5,7 +5,10 @@ import clsx from "clsx";
 import { Search, Copy, Check, ExternalLink, ClipboardPlus } from "lucide-react";
 
 import { IpLookupModal } from "./IpLookupModal";
-import { investigationDetailHref } from "@/lib/investigation-flow";
+import {
+  investigationDetailHref,
+  investigationStartHref,
+} from "@/lib/investigation-flow";
 
 // Renders an IP (or hostname) with a right-click context menu offering
 // "Lookup IP" (opens a modal in-place) plus "Copy" and "Open in IP tool"
@@ -71,6 +74,11 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
     setMenu(null);
     // Navigate via plain anchor so middle-click / cmd-click work too
     window.location.href = `/tools/ip-lookup?ip=${encodeURIComponent(value)}`;
+  };
+
+  const handleInvestigate = () => {
+    setMenu(null);
+    window.location.href = investigationStartHref(value);
   };
 
   const handleCopy = async () => {
@@ -165,6 +173,9 @@ export function IpCell({ value, className, fallback = "—" }: IpCellProps) {
             </MenuItem>
             <MenuItem onClick={handleAddToInvestigation} icon={ClipboardPlus}>
               Add to investigation
+            </MenuItem>
+            <MenuItem onClick={handleInvestigate} icon={ClipboardPlus}>
+              Investigate IP
             </MenuItem>
             <MenuItem onClick={handleOpenInTool} icon={ExternalLink}>
               Open in IP tool

@@ -1,0 +1,29 @@
+id: BW-032
+status: approved
+title: "Unify notification rule create and edit destinations"
+area: ui
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/app/notifications/rules/[id]/page.tsx and blackwatch-ui/app/notifications/rules/[id]/edit/page.tsx"
+    location: "page renderers"
+    observation: "Two routes render editors for the same rule ID using different fetch and presentation flows."
+  - file: "blackwatch-ui/app/notifications/page.tsx"
+    location: "rule table edit link"
+    observation: "The primary edit action targets the nested /edit route."
+impact: "Users can encounter inconsistent rule editing experiences and duplicated maintenance paths."
+acceptance_criteria:
+  - "Define one canonical create/edit renderer for simple and custom rules with consistent title, breadcrumbs, back link, loading, not-found, and error behavior."
+  - "Preserve existing rule IDs, conditions, channels, throttle, silence, templates, and audit history."
+  - "Redirect or compatibility-wrap the non-canonical existing route without breaking saved bookmarks."
+  - "Add route and rendering tests proving create and edit use the intended destination."
+  - "Preserve notification configuration and database data."
+dependencies:
+  - BW-031
+risks:
+  - "Changing routes may invalidate bookmarked URLs if compatibility redirects are omitted."
+proposed_role: "coder-ui + coder-tests"
+approved_by: user
+notes: "Explicitly approved and implemented. /notifications/rules/[id]/edit is canonical; the former detail route remains a bookmark-safe compatibility redirect."
