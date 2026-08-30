@@ -1,0 +1,27 @@
+id: BW-044
+status: proposed
+title: "Harden RBAC, audit export, and sensitive-evidence handling"
+area: full-stack
+source: qa
+severity: critical
+confidence: medium
+implementation_allowed: false
+evidence:
+  - file: "blackwatch/auth.py, blackwatch/api.py, and blackwatch/sql/035_rbac_audit.sql"
+    location: "authentication and audit paths"
+    observation: "RBAC and audit persistence exist, but the next audit should verify every mutating route, export boundary, and sensitive field handling consistently."
+  - file: "blackwatch/notify/channels.py and blackwatch-ui/lib/ip-intelligence-server.ts"
+    location: "provider/channel secrets"
+    observation: "Secrets are intended to remain server-side/env-referenced; this needs regression coverage across logs and previews."
+impact: "An overlooked route or verbose evidence path could permit unauthorized changes or expose credentials/sensitive security data."
+acceptance_criteria:
+  - "Create a route-by-route authorization matrix for viewer/operator/admin actions and test it."
+  - "Add tamper-evident audit export with actor, time, before/after, and filter scope."
+  - "Prove secrets, tokens, provider keys, and sensitive raw payloads do not appear in UI, notifications, or logs."
+  - "Preserve existing users, sessions, audit history, and all database data."
+dependencies: [BW-037]
+risks: ["Tightening permissions can break existing operator workflows; provide explicit migration/backward-compatibility behavior."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Security review task; no credential rotation or production access changes by default."
+

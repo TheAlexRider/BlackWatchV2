@@ -1,0 +1,28 @@
+id: BW-043
+status: proposed
+title: "Create a unified connector and queue-health control plane"
+area: full-stack
+source: qa
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch/coverage.py and blackwatch/connectors/scheduler.py"
+    location: "coverage and scheduling"
+    observation: "Connector freshness exists, but queue lag, dead-letter volume, retry pressure, and failure ownership are not unified in one operator view."
+  - file: "docs/ec2-agent.md and docs/vpn-agent.md"
+    location: "agent operations"
+    observation: "Operational troubleshooting repeatedly depends on manual queue/IAM/heartbeat checks."
+impact: "A healthy-looking page can hide a growing ingestion blind spot or an agent backlog."
+acceptance_criteria:
+  - "Expose last success, last error, lag, retry count, DLQ count, heartbeat freshness, and permission status per connector."
+  - "Add actionable stale/failing connector alerts with deduplication and recovery semantics."
+  - "Provide safe test/run controls and preserve connector configuration/data."
+  - "Add mocked queue and scheduler tests for outage, recovery, duplicate delivery, and DLQ cases."
+dependencies: [BW-040]
+risks: ["Health checks must not generate alert storms or leak provider credentials."
+]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Observability first; no automatic destructive queue purging."
+

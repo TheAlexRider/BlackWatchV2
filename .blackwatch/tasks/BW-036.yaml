@@ -1,0 +1,27 @@
+id: BW-036
+status: proposed
+title: "Make notification rollout status truthful and producer-aligned"
+area: full-stack
+source: research
+severity: critical
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch/notify/catalog.py and blackwatch/notify/profiles.py"
+    location: "catalog ownership and rollout metadata"
+    observation: "Catalog grouping and rollout labels can diverge from runtime source modules and event actions."
+  - file: "blackwatch/ueba/check.py and blackwatch/posture/projection.py"
+    location: "event emission"
+    observation: "UEBA actions are dynamic and posture emits aws.posture.finding.new/resolved, so literal or aliased profiles need explicit ownership."
+impact: "Operators may configure alerts that never match or believe an event is covered when its contract is generic."
+acceptance_criteria:
+  - "Build producer-to-catalog parity checks for every notification event and dynamic event family."
+  - "Expose honest per-event rollout states: verified, partial, planned, or unsupported."
+  - "Preserve existing IDs, routes, channels, templates, audit history, and database data."
+  - "Add complete, partial, recovery, and non-match tests for each corrected family."
+dependencies: [BW-031]
+risks: ["Renaming ownership can affect existing rules; aliases must remain explicit and compatible."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Do not mark an event verified from generic module prose alone."
+

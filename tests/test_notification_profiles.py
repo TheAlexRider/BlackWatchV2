@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 import unittest
+from unittest.mock import patch
 
+from blackwatch.notify import profile_service
 from blackwatch.notify.profiles import (
     NOTIFICATION_CATALOG,
     build_profile_match,
@@ -10,6 +12,14 @@ from blackwatch.notify.profiles import (
 
 
 class NotificationProfileTests(unittest.TestCase):
+    def test_profile_listing_skips_non_notifying_catalog_events(self):
+        with patch.object(profile_service.storage, "list_notification_profiles", return_value=[]):
+            profiles = profile_service.list_profiles()
+
+        event_keys = {profile["event_kind"] for profile in profiles}
+        self.assertNotIn("posture.finding.open", event_keys)
+        self.assertIn("aws.posture.finding.new", event_keys)
+
     def test_catalog_covers_the_product_modules(self):
         modules = {entry["key"] for entry in NOTIFICATION_CATALOG}
         self.assertTrue(

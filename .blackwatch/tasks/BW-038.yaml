@@ -1,0 +1,27 @@
+id: BW-038
+status: proposed
+title: "Finish the canonical route inventory and safe page-retirement workflow"
+area: ui
+source: qa
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch-ui/lib/route-manifest.ts and blackwatch-ui/lib/route-manifest.test.ts"
+    location: "route safety layer"
+    observation: "A first manifest exists, but it does not yet cover every internal href, server redirect, form action, and dynamic destination."
+  - file: "blackwatch-ui/app"
+    location: "route tree"
+    observation: "Detail, compatibility, and canonical routes coexist across modules."
+impact: "Deleting pages or changing links can break deep links and bookmarked operator workflows."
+acceptance_criteria:
+  - "Inventory every route as canonical, detail, compatibility, or removal candidate."
+  - "Test static hrefs, redirects, form actions, breadcrumbs, and dynamic-link builders."
+  - "Remove only proven internal dead paths and retain safe redirects for plausible bookmarks."
+  - "Add a review report listing each proposed deletion and its evidence."
+dependencies: [BW-035]
+risks: ["Static analysis can miss runtime-composed URLs; pair it with route-level tests."]
+proposed_role: "coder-ui + coder-tests"
+approved_by: null
+notes: "No route deletion without an explicit compatibility decision."
+

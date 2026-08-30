@@ -50,6 +50,8 @@ def list_profiles() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for module in profile_model.NOTIFICATION_CATALOG:
         for event in module["events"]:
+            if event.get("notification_status", "notifying") != "notifying":
+                continue
             pid = profile_model.profile_id(module["key"], event["key"])
             row = saved.get(pid)
             if row is None:

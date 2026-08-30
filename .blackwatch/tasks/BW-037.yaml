@@ -1,0 +1,27 @@
+id: BW-037
+status: proposed
+title: "Create a reproducible CI and local verification environment"
+area: infrastructure
+source: qa
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch-ui/package-lock.json and blackwatch-ui/node_modules"
+    location: "dependency installation"
+    observation: "The current workspace has broken/missing Next.js and TypeScript package links, preventing trustworthy UI checks."
+  - file: "blackwatch/notify/channels.py"
+    location: "test imports"
+    observation: "Notification integration verification depends on jinja2 and psycopg, which were unavailable in the bundled runtime."
+impact: "Regressions can reach deployment because the same build/test gates cannot be reproduced reliably."
+acceptance_criteria:
+  - "Provide one documented, lockfile-based CI command for Python tests, UI tests, typecheck, and production build."
+  - "Fail clearly when required dependencies are absent; do not silently downgrade coverage."
+  - "Verify the clean-install path without changing application data or database volumes."
+  - "Keep secrets out of logs and preserve data-safety checks as a mandatory gate."
+dependencies: []
+risks: ["Changing package tooling can affect Docker build caching and deployment time."]
+proposed_role: "coder-infrastructure + coder-tests"
+approved_by: null
+notes: "Environment/release reliability only; no database reset or destructive cleanup."
+

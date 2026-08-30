@@ -1,0 +1,28 @@
+id: BW-042
+status: proposed
+title: "Add Route 53 query-log monitoring as an additive DNS module"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch/connectors/aws_sqs.py and docs/rds.md"
+    location: "CloudWatch Logs to SQS ingestion pattern"
+    observation: "The repository already has a reusable CloudWatch/SQS forwarding pattern."
+  - file: "blackwatch-ui/app/api/tools/dns-lookup/route.ts"
+    location: "DNS parsing capability"
+    observation: "The UI already presents DNS record results, but there is no durable Route 53 query-event module."
+impact: "Operators lack visibility into anomalous domains, NXDOMAIN spikes, unexpected resolvers, and DNS exfiltration-like patterns."
+acceptance_criteria:
+  - "Ingest Route 53 Resolver/query logs through a configurable CloudWatch/SQS connector without replacing existing connectors."
+  - "Normalize query name/type/rcode/protocol/resolver source/account/region and preserve raw evidence safely."
+  - "Add detections for NXDOMAIN bursts, newly observed domains, suspicious TLDs, resolver drift, and high-volume clients with tunable thresholds."
+  - "Add a DNS events page, notification contracts, missing-field tests, and retention/cost guidance."
+  - "Never store query payloads containing secrets or PHI beyond the configured evidence policy."
+dependencies: [BW-037]
+risks: ["DNS logs can be high volume and may contain sensitive hostnames; sampling and retention controls are required."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Additive module; do not alter existing event tables destructively."
+

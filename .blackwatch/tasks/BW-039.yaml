@@ -1,0 +1,24 @@
+id: BW-039
+status: proposed
+title: "Unify notification creation into one guided studio"
+area: ui
+source: research
+severity: high
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "blackwatch-ui/app/notifications/create/page.tsx, create/event/page.tsx, and rules/new/page.tsx"
+    location: "creation flows"
+    observation: "Users can enter different notification creation experiences for event rules, presets, and advanced rules."
+impact: "New operators may choose the wrong creation path and receive inconsistent previews, breadcrumbs, and defaults."
+acceptance_criteria:
+  - "Provide one canonical entry point that explains simple, event-specific, advanced, and performance alert choices."
+  - "Reuse the existing forms without losing channels, templates, throttles, or match conditions."
+  - "Preserve old creation URLs through compatibility redirects where needed."
+  - "Add route/render tests for each creation choice and cancel/back path."
+dependencies: [BW-032, BW-033, BW-038]
+risks: ["Over-unifying can hide advanced controls; keep an explicit advanced path."]
+proposed_role: "coder-ui + coder-tests"
+approved_by: null
+notes: "UX consolidation only; preserve notification configuration and audit history."
+

@@ -1,0 +1,27 @@
+id: BW-041
+status: proposed
+title: "Extend Threat Hunter to cross-account and live-tail investigations"
+area: full-stack
+source: research
+severity: medium
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "docs/threat-hunter.md"
+    location: "deferred phases"
+    observation: "Cross-account observability and CloudWatch Live Tail are explicitly deferred."
+  - file: "blackwatch/iam and threat-hunter documentation"
+    location: "read-only query architecture"
+    observation: "The existing design already uses CloudWatch Logs Insights and can be extended without duplicating ingestion."
+impact: "Investigations cannot correlate evidence across accounts or watch an active query stream from one operator surface."
+acceptance_criteria:
+  - "Add explicit allowlisted account/role configuration with least-privilege validation."
+  - "Add live-tail filters, bounded session duration, cost warnings, and cancellation."
+  - "Keep query results read-only, redact secrets/PHI, and audit every cross-account action."
+  - "Add mocked provider tests for permission failure, cancellation, timeout, and partial results."
+dependencies: [BW-037, BW-040]
+risks: ["CloudWatch Live Tail and cross-account access can add cost and sensitive-data exposure."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Do not enable cross-account access by default."
+

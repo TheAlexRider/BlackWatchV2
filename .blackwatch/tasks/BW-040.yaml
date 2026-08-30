@@ -1,0 +1,27 @@
+id: BW-040
+status: proposed
+title: "Add live incident updates with safe refresh and stale-state indicators"
+area: full-stack
+source: research
+severity: high
+confidence: medium
+implementation_allowed: false
+evidence:
+  - file: "docs/ui-design.md"
+    location: "live updates section"
+    observation: "Real-time updates are explicitly deferred and pages currently rely on navigation/manual refresh."
+  - file: "blackwatch-ui/app/investigations/InvestigationNotebook.tsx"
+    location: "scan polling"
+    observation: "Investigation detail polls while scanning, but there is no shared live event/update mechanism across the product."
+impact: "Analysts can miss new evidence, alert delivery changes, or collector failures during an active incident."
+acceptance_criteria:
+  - "Add a bounded SSE or equivalent update channel for events, investigations, notifications, and connector health."
+  - "Show connection, stale, reconnecting, and last-updated states."
+  - "Keep manual refresh and fail-safe behavior when live transport is unavailable."
+  - "Avoid duplicate events and preserve stored history/data."
+dependencies: [BW-037]
+risks: ["Long-lived connections can multiply server resource usage; enforce limits and backoff."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Start with read-only updates; no automated remediation."
+

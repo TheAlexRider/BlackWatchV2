@@ -1,0 +1,26 @@
+id: BW-045
+status: proposed
+title: "Make deployment rebuilds backup-aware and volume-identity safe"
+area: infrastructure
+source: qa
+severity: critical
+confidence: high
+implementation_allowed: false
+evidence:
+  - file: "AGENTS.md, blackwatch/db_safety.py, and docker-compose.yml"
+    location: "data-safety contract"
+    observation: "The project requires named-volume preservation and rejects destructive migrations, but operator rebuild workflows still need explicit preflight verification."
+  - file: "docs/wazuh-archival.md and docs/cloudtrail-archival.md"
+    location: "backup/archival operations"
+    observation: "Backups and archival are documented separately from normal application builds."
+impact: "A compose/project-name or migration mistake could disconnect the expected volume or destroy irreplaceable evidence."
+acceptance_criteria:
+  - "Add a non-destructive preflight that verifies compose project, named volume, database identity, migration safety, and recent backup status."
+  - "Require explicit operator confirmation before any storage or migration change outside additive operations."
+  - "Make normal build/restart scripts incapable of invoking volume deletion."
+  - "Add dry-run tests and recovery documentation without touching production data."
+dependencies: [BW-037]
+risks: ["Overly strict preflight can block emergency fixes; provide a clearly logged, operator-controlled override without automatic deletion."]
+proposed_role: "coder-infrastructure + coder-tests"
+approved_by: null
+notes: "Data preservation is the first priority; deployment and migration changes remain separate decisions."
