@@ -24,6 +24,19 @@ async function postForm(path: string, body: Record<string, string>): Promise<voi
   }
 }
 
+async function postJson(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`${path} failed: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
 function connectorsRedirect(msg: string): never {
   redirect(`/connectors?msg=${encodeURIComponent(msg)}`);
 }
@@ -33,7 +46,7 @@ function connectorsRedirect(msg: string): never {
 export async function testConnectorAction(formData: FormData): Promise<void> {
   const id = String(formData.get("connector_id") ?? "");
   if (!id) return;
-  await postForm(`/ui/connectors/${encodeURIComponent(id)}/test`, {});
+  await postJson(`/api/connectors/${encodeURIComponent(id)}/test`, {});
   revalidatePath("/connectors");
   connectorsRedirect(`tested ${id}`);
 }
@@ -41,9 +54,49 @@ export async function testConnectorAction(formData: FormData): Promise<void> {
 export async function runConnectorAction(formData: FormData): Promise<void> {
   const id = String(formData.get("connector_id") ?? "");
   if (!id) return;
-  await postForm(`/ui/connectors/${encodeURIComponent(id)}/run`, {});
+  await postJson(`/api/connectors/${encodeURIComponent(id)}/run`, {});
   revalidatePath("/connectors");
   connectorsRedirect(`ran ${id}`);
+}
+
+export async function startConnectorOperationAction(
+  connectorId: string,
+  kind: "manual" | "test" = "manual",
+): Promise<Record<string, unknown>> {
+  try {
+    return await postJson(`/api/connectors/${encodeURIComponent(connectorId)}/run`, { kind });
+  } catch (error) {
+    return {
+      accepted: false,
+      status: "rejected",
+      error: error instanceof Error ? error.message : "operation could not be queued",
+    };
+  }
+}
+
+export async function getConnectorOperationAction(
+  operationId: string,
+): Promise<Record<string, unknown> | null> {
+  const res = await apiFetch(`/api/connector-operations/${encodeURIComponent(operationId)}`, {
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function retryAllConnectorsAction(
+  scope: "eligible" | "all" = "eligible",
+): Promise<Record<string, unknown>> {
+  try {
+    return await postJson("/api/connectors/retry-all", { scope });
+  } catch (error) {
+    return {
+      accepted: false,
+      status: "rejected",
+      error: error instanceof Error ? error.message : "Retry All could not be queued",
+    };
+  }
 }
 
 export async function toggleConnectorAction(formData: FormData): Promise<void> {

@@ -1,0 +1,26 @@
+id: BW-048
+status: review
+title: "Add aggregate Retry All with per-connector progress"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/app/connectors/page.tsx"
+    location: "Connectors actions"
+    observation: "Only per-row actions exist; there is no Retry All control."
+  - file: "blackwatch/api.py"
+    location: "POST /modules/refresh"
+    observation: "The existing refresh endpoint is type-based, synchronous, and has no aggregate operation status."
+impact: "Recovery requires manual row-by-row action and gives no aggregate outcome."
+acceptance_criteria:
+  - "Provide an admin-only Retry eligible/all action with explicit scope and duplicate protection."
+  - "Return an aggregate operation ID and per-connector queued/running/succeeded/failed/skipped/timed-out states."
+  - "Show aggregate progress and link failures to diagnostics."
+  - "Do not alter configuration or remove events/data."
+dependencies: [BW-046, BW-047]
+risks: ["Concurrent remote runs can exhaust pools or provider quotas; enforce limits and stop semantics."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Share the execution-operation contract with Run now and automatic retry."

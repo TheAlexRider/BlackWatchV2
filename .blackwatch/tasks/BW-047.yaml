@@ -1,0 +1,27 @@
+id: BW-047
+status: review
+title: "Add bounded automatic stale-connector retries"
+area: backend
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/connectors/scheduler.py"
+    location: "_due and _loop"
+    observation: "The scheduler ticks every 10 seconds but has no explicit stale/error retry policy or visible heartbeat."
+  - file: "blackwatch/connectors/runner.py"
+    location: "exception path"
+    observation: "Failed attempts update last_run_at and last_error, delaying retries by the normal interval."
+impact: "Stale or failing connectors can remain silent and operators cannot tell whether automatic recovery is occurring."
+acceptance_criteria:
+  - "Define stale separately from failed, disabled, unverified, never-run, and running."
+  - "Retry eligible connectors at a bounded approximately one-minute policy with timeout, backoff/jitter, and concurrency limits."
+  - "Expose scheduler heartbeat, next attempt, retry count, and reason."
+  - "Preserve cursor/deduplication behavior and never delete evidence."
+  - "Test success, failure, stale, overlap, disabled, unverified, and restart/recovery cases."
+dependencies: [BW-046]
+risks: ["Aggressive retries can increase provider load or duplicate work; defaults must be conservative and idempotent."]
+proposed_role: "coder-backend + coder-tests"
+approved_by: null
+notes: "This concerns connector collection retries, not notification delivery retries."

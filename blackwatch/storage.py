@@ -520,7 +520,8 @@ def upsert_vpn_clients(
 # --- Connectors ----------------------------------------------------------------
 
 _CONNECTOR_COLS = (
-    "id, name, type, enabled, verified, config, last_run_at, last_status, last_error"
+    "id, name, type, enabled, verified, config, last_run_at, last_status, last_error, "
+    "retry_count, next_attempt_at, scheduler_reason"
 )
 
 
@@ -535,6 +536,9 @@ def _connector_row(row: tuple[Any, ...]) -> dict[str, Any]:
         "last_run_at": row[6],
         "last_status": row[7],
         "last_error": row[8],
+        "retry_count": row[9],
+        "next_attempt_at": row[10],
+        "scheduler_reason": row[11],
     }
 
 
@@ -601,6 +605,234 @@ def set_connector_status(
                 "UPDATE connectors SET last_status=%s, last_error=%s, last_run_at=%s, verified=%s WHERE id=%s",
                 (last_status, last_error, last_run_at, verified, connector_id),
             )
+
+
+def set_connector_retry(
+    connector_id: str,
+    *,
+    retry_count: int,
+    next_attempt_at: datetime | None,
+    reason: str | None,
+) -> None:
+    """Update scheduler metadata without changing connector configuration."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            UPDATE connectors
+               SET retry_count=%s, next_attempt_at=%s, scheduler_reason=%s,
+                   updated_at=now()
+             WHERE id=%s
+            """,
+            (max(0, int(retry_count)), next_attempt_at, reason, connector_id),
+        )
+
+
+# --- Connector operation history --------------------------------------------
+
+_OPERATION_COLS = (
+    "operation_id, kind, connector_id, parent_operation_id, status, "
+    "correlation_id, requested_at, started_at, finished_at, updated_at, "
+    "next_attempt_at, retry_count, attempt, duration_ms, outcome, "
+    "error_category, error_message, created_by"
+)
+
+
+def _operation_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "operation_id": row[0],
+        "kind": row[1],
+        "connector_id": row[2],
+        "parent_operation_id": row[3],
+        "status": row[4],
+        "correlation_id": row[5],
+        "requested_at": row[6],
+        "started_at": row[7],
+        "finished_at": row[8],
+        "updated_at": row[9],
+        "next_attempt_at": row[10],
+        "retry_count": row[11],
+        "attempt": row[12],
+        "duration_ms": row[13],
+        "outcome": row[14] or {},
+        "error_category": row[15],
+        "error_message": row[16],
+        "created_by": row[17],
+    }
+
+
+def create_connector_operation(
+    operation_id: str,
+    *,
+    kind: str,
+    connector_id: str | None,
+    correlation_id: str,
+    parent_operation_id: str | None = None,
+    status: str = "queued",
+    requested_at: datetime | None = None,
+    next_attempt_at: datetime | None = None,
+    retry_count: int = 0,
+    attempt: int = 0,
+    outcome: dict[str, Any] | None = None,
+    created_by: str | None = None,
+) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO connector_operations (
+                operation_id, kind, connector_id, parent_operation_id, status,
+                correlation_id, requested_at, next_attempt_at, retry_count,
+                attempt, outcome, created_by
+            ) VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s, %s, %s, %s, %s)
+            """,
+            (
+                operation_id, kind, connector_id, parent_operation_id, status,
+                correlation_id, requested_at, next_attempt_at, max(0, retry_count),
+                max(0, attempt), Jsonb(outcome or {}), created_by,
+            ),
+        )
+
+
+def get_connector_operation(operation_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"SELECT {_OPERATION_COLS} FROM connector_operations WHERE operation_id=%s",
+            (operation_id,),
+        ).fetchone()
+    return _operation_row(row) if row else None
+
+
+def list_connector_operations(
+    *,
+    connector_id: str | None = None,
+    parent_operation_id: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 100))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if connector_id is not None:
+        clauses.append("connector_id=%s")
+        params.append(connector_id)
+    if parent_operation_id is not None:
+        clauses.append("parent_operation_id=%s")
+        params.append(parent_operation_id)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"SELECT {_OPERATION_COLS} FROM connector_operations{where} "
+            "ORDER BY requested_at DESC LIMIT %s",
+            tuple(params),
+        ).fetchall()
+    return [_operation_row(row) for row in rows]
+
+
+def get_latest_connector_operations(
+    connector_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    if not connector_ids:
+        return {}
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT ON (connector_id) {_OPERATION_COLS}
+              FROM connector_operations
+             WHERE connector_id = ANY(%s)
+             ORDER BY connector_id, requested_at DESC
+            """,
+            (connector_ids,),
+        ).fetchall()
+    return {row[2]: _operation_row(row) for row in rows}
+
+
+def find_active_connector_operation(connector_id: str) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            f"""
+            SELECT {_OPERATION_COLS} FROM connector_operations
+             WHERE connector_id=%s AND status IN ('queued', 'running')
+             ORDER BY requested_at DESC LIMIT 1
+            """,
+            (connector_id,),
+        ).fetchone()
+    return _operation_row(row) if row else None
+
+
+def update_connector_operation(
+    operation_id: str,
+    *,
+    status: str,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+    next_attempt_at: datetime | None = None,
+    retry_count: int | None = None,
+    attempt: int | None = None,
+    duration_ms: int | None = None,
+    outcome: dict[str, Any] | None = None,
+    error_category: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    """Persist an operation transition. NULL values intentionally clear
+    optional fields; this table is operational history and never deletes rows."""
+    fields = ["status=%s", "updated_at=now()"]
+    params: list[Any] = [status]
+    optional = (
+        ("started_at", started_at), ("finished_at", finished_at),
+        ("next_attempt_at", next_attempt_at), ("retry_count", retry_count),
+        ("attempt", attempt), ("duration_ms", duration_ms),
+        ("error_category", error_category), ("error_message", error_message),
+    )
+    for field, value in optional:
+        if value is not None:
+            fields.append(f"{field}=%s")
+            params.append(value)
+    if outcome is not None:
+        fields.append("outcome=%s")
+        params.append(Jsonb(outcome))
+    params.append(operation_id)
+    with get_pool().connection() as conn:
+        conn.execute(
+            f"UPDATE connector_operations SET {', '.join(fields)} WHERE operation_id=%s",
+            tuple(params),
+        )
+
+
+def upsert_connector_scheduler_state(
+    *,
+    heartbeat_at: datetime,
+    last_tick_at: datetime | None,
+    next_tick_at: datetime | None,
+    last_error: str | None,
+) -> None:
+    with get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO connector_scheduler_state
+                (id, heartbeat_at, last_tick_at, next_tick_at, last_error)
+            VALUES ('default', %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                heartbeat_at=EXCLUDED.heartbeat_at,
+                last_tick_at=EXCLUDED.last_tick_at,
+                next_tick_at=EXCLUDED.next_tick_at,
+                last_error=EXCLUDED.last_error,
+                updated_at=now()
+            """,
+            (heartbeat_at, last_tick_at, next_tick_at, last_error),
+        )
+
+
+def get_connector_scheduler_state() -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """SELECT heartbeat_at, last_tick_at, next_tick_at, last_error, updated_at
+               FROM connector_scheduler_state WHERE id='default'"""
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "heartbeat_at": row[0], "last_tick_at": row[1],
+        "next_tick_at": row[2], "last_error": row[3], "updated_at": row[4],
+    }
 
 
 def delete_connector(connector_id: str) -> None:

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from . import auth, coverage, investigation_flow, noise, storage
 from .intel import db as intel_db
 from .intel import enrich as intel_enrich
+from .connectors import operations as connector_operations
 from .connectors import runner as connector_runner
 from .config import settings
 from .notify import router as notify_router
@@ -514,6 +515,14 @@ class ModulesRefreshBody(BaseModel):
     connector_types: list[str]
 
 
+class ConnectorRunBody(BaseModel):
+    kind: Literal["manual", "test"] = "manual"
+
+
+class RetryAllBody(BaseModel):
+    scope: Literal["eligible", "all"] = "eligible"
+
+
 @router.post("/modules/refresh", dependencies=[Depends(require_role("admin"))])
 def modules_refresh(body: ModulesRefreshBody) -> dict[str, Any]:
     """Trigger a one-shot run of every enabled connector whose type is in
@@ -547,8 +556,10 @@ def connectors_list() -> dict[str, Any]:
     """All configured connectors with their schedule/status. The Next.js UI
     renders this at /connectors with Test / Run / Toggle / Delete actions."""
     rows = storage.list_connectors()
+    latest = connector_operations.get_latest_connector_operations([r["id"] for r in rows])
     out = []
     for r in rows:
+        operation = latest.get(r["id"])
         out.append({
             "id": r["id"],
             "name": r["name"],
@@ -559,8 +570,90 @@ def connectors_list() -> dict[str, Any]:
             "last_run_at": r["last_run_at"].isoformat() if r.get("last_run_at") else None,
             "last_status": r.get("last_status"),
             "last_error": r.get("last_error"),
+            "retry_count": r.get("retry_count", 0),
+            "next_attempt_at": r.get("next_attempt_at").isoformat()
+            if r.get("next_attempt_at") else None,
+            "scheduler_reason": r.get("scheduler_reason"),
+            "health_state": _connector_health_state(r, operation),
+            "latest_operation": connector_operations.serialize_operation(operation),
         })
-    return {"count": len(out), "connectors": out}
+    scheduler = storage.get_connector_scheduler_state()
+    return {
+        "count": len(out), "connectors": out,
+        "scheduler": {
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in (scheduler or {}).items()
+        },
+    }
+
+
+def _connector_health_state(
+    connector: dict[str, Any], operation: dict[str, Any] | None,
+) -> str:
+    from .connectors.scheduler import connector_health_state
+
+    row = dict(connector)
+    row["operation_status"] = operation.get("status") if operation else None
+    return connector_health_state(row)
+
+
+@router.post("/connectors/{connector_id}/run", status_code=202,
+             dependencies=[Depends(require_role("admin"))])
+def connector_run_now(
+    connector_id: str,
+    body: ConnectorRunBody | None = None,
+    actor: tuple[str, str] = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    result = connector_operations.start_connector_operation(
+        connector_id,
+        kind=(body.kind if body else "manual"),
+        created_by=actor[0],
+    )
+    if result.get("status") == "rejected" and result.get("error") == "connector not found":
+        raise HTTPException(status_code=404, detail="connector not found")
+    return result
+
+
+@router.post("/connectors/{connector_id}/test", status_code=202,
+             dependencies=[Depends(require_role("admin"))])
+def connector_test_now(
+    connector_id: str,
+    actor: tuple[str, str] = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    result = connector_operations.start_connector_operation(
+        connector_id, kind="test", created_by=actor[0],
+    )
+    if result.get("status") == "rejected" and result.get("error") == "connector not found":
+        raise HTTPException(status_code=404, detail="connector not found")
+    return result
+
+
+@router.get("/connector-operations/{operation_id}")
+def connector_operation_get(operation_id: str) -> dict[str, Any]:
+    result = connector_operations.operation_details(operation_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="operation not found")
+    return result
+
+
+@router.post("/connectors/retry-all", status_code=202,
+             dependencies=[Depends(require_role("admin"))])
+def connectors_retry_all(
+    body: RetryAllBody | None = None,
+    actor: tuple[str, str] = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    return connector_operations.start_retry_all(
+        scope=body.scope if body else "eligible", created_by=actor[0],
+    )
+
+
+@router.get("/connectors/scheduler")
+def connectors_scheduler_status() -> dict[str, Any]:
+    state = storage.get_connector_scheduler_state()
+    return {
+        key: value.isoformat() if isinstance(value, datetime) else value
+        for key, value in (state or {}).items()
+    }
 
 
 @router.get("/coverage")

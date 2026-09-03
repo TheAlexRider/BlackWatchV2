@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { TimestampCell } from "@/components/domain/TimestampCell";
 import { StatusPill as SharedStatusPill } from "@/components/ui/StatusPill";
+import { RequireAdmin } from "@/components/auth/RequireAdmin";
+import { ConnectorActionButton } from "@/components/domain/connectors/ConnectorActionButton";
+import { RetryAllButton } from "@/components/domain/connectors/RetryAllButton";
 import {
-  testConnectorAction,
-  runConnectorAction,
   toggleConnectorAction,
   deleteConnectorAction,
 } from "./actions";
@@ -26,7 +27,7 @@ export default async function ConnectorsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const { msg } = await searchParams;
-  const { count, connectors } = await fetchConnectors();
+  const { count, connectors, scheduler } = await fetchConnectors();
 
   return (
     <>
@@ -34,17 +35,28 @@ export default async function ConnectorsPage({
         title="Connectors"
         subtitle={`${count} configured · poll AWS, SQS, and probe targets on a schedule`}
         actions={
-          <Button asChild variant="primary" size="sm">
-            <Link href="/connectors/new">
-              <Plus size={14} /> Add connector
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <RequireAdmin>
+              <RetryAllButton />
+            </RequireAdmin>
+            <Button asChild variant="primary" size="sm">
+              <Link href="/connectors/new">
+                <Plus size={14} /> Add connector
+              </Link>
+            </Button>
+          </div>
         }
       />
 
       {msg && (
         <div className="mb-4 border-l-2 border-signal bg-surface-1 px-3 py-2 text-xs text-fg-muted">
           <span className="text-signal">·</span> {msg}
+        </div>
+      )}
+
+      {scheduler?.heartbeat_at && (
+        <div className="mb-4 text-[11px] text-fg-subtle" role="status">
+          scheduler heartbeat <TimestampCell value={scheduler.heartbeat_at} />
         </div>
       )}
 
@@ -126,16 +138,20 @@ function ConnectorRow({ connector: c }: { connector: Connector }) {
           )}
         </td>
         <td className="px-4 py-2.5">
-          <StatusPill status={c.last_status} error={c.last_error} />
+          <StatusPill connector={c} />
         </td>
         <td className="whitespace-nowrap px-4 py-2.5 text-right">
           <Actions connector={c} />
         </td>
       </tr>
-      {c.last_status === "error" && c.last_error && (
+      {(c.last_error || c.latest_operation?.error_message) && (
         <tr className="border-b border-line-soft">
           <td colSpan={8} className="bg-surface-1 px-4 py-1.5 font-mono text-[11px] text-sev-critical">
-            last error: {c.last_error}
+            {c.latest_operation?.error_category ? `${c.latest_operation.error_category}: ` : "last error: "}
+            {c.latest_operation?.error_message ?? c.last_error}
+            {c.latest_operation?.correlation_id && (
+              <span className="ml-2 text-fg-subtle">ref {c.latest_operation.correlation_id.slice(0, 8)}</span>
+            )}
           </td>
         </tr>
       )}
@@ -147,58 +163,31 @@ function ConnectorRow({ connector: c }: { connector: Connector }) {
 
 function Actions({ connector: c }: { connector: Connector }) {
   return (
-    <div className="inline-flex items-center gap-1.5">
-      <form action={testConnectorAction} className="inline">
-        <input type="hidden" name="connector_id" value={c.id} />
-        <Button type="submit" size="sm" variant="secondary">
-          Test
+    <RequireAdmin>
+      <div className="inline-flex items-center gap-1.5">
+        <ConnectorActionButton connectorId={c.id} kind="test" />
+        <ConnectorActionButton connectorId={c.id} kind="manual" disabled={!c.verified} />
+
+        <form action={toggleConnectorAction} className="inline">
+          <input type="hidden" name="connector_id" value={c.id} />
+          <input type="hidden" name="enabled" value={c.enabled ? "off" : "on"} />
+          <Button type="submit" size="sm" variant="secondary" disabled={!c.verified} title={!c.verified ? "Test successfully first" : ""}>
+            {c.enabled ? "Disable" : "Enable"}
+          </Button>
+        </form>
+
+        <Button asChild size="sm" variant="ghost">
+          <Link href={`/connectors/${c.id}`} title="Edit"><Pencil size={12} /></Link>
         </Button>
-      </form>
 
-      <form action={runConnectorAction} className="inline">
-        <input type="hidden" name="connector_id" value={c.id} />
-        <Button
-          type="submit"
-          size="sm"
-          variant="secondary"
-          disabled={!c.verified}
-          title={!c.verified ? "Test successfully first" : "Run once now"}
-        >
-          Run now
-        </Button>
-      </form>
-
-      <form action={toggleConnectorAction} className="inline">
-        <input type="hidden" name="connector_id" value={c.id} />
-        <input type="hidden" name="enabled" value={c.enabled ? "off" : "on"} />
-        <Button
-          type="submit"
-          size="sm"
-          variant="secondary"
-          disabled={!c.verified}
-          title={!c.verified ? "Test successfully first" : ""}
-        >
-          {c.enabled ? "Disable" : "Enable"}
-        </Button>
-      </form>
-
-      <Button asChild size="sm" variant="ghost">
-        <Link href={`/connectors/${c.id}`} title="Edit">
-          <Pencil size={12} />
-        </Link>
-      </Button>
-
-      <form action={deleteConnectorAction} className="inline">
-        <input type="hidden" name="connector_id" value={c.id} />
-        <ConfirmSubmitButton
-          size="sm"
-          variant="danger"
-          confirmMessage={`Delete connector “${c.name}”? This cannot be undone.`}
-        >
-          Delete
-        </ConfirmSubmitButton>
-      </form>
-    </div>
+        <form action={deleteConnectorAction} className="inline">
+          <input type="hidden" name="connector_id" value={c.id} />
+          <ConfirmSubmitButton size="sm" variant="danger" confirmMessage={`Delete connector “${c.name}”? This cannot be undone.`}>
+            Delete
+          </ConfirmSubmitButton>
+        </form>
+      </div>
+    </RequireAdmin>
   );
 }
 
@@ -258,19 +247,23 @@ function ConnectorDetails({ connector: c }: { connector: Connector }) {
 // --- pills ----------------------------------------------------------------
 
 function StatusPill({
-  status,
-  error,
+  connector,
 }: {
-  status: string | null;
-  error: string | null;
+  connector: Connector;
 }) {
-  if (status === "ok") return <SharedStatusPill severity="resolved" label="ok" />;
-  if (status === "error") {
-    return (
-      <span title={error ?? ""}>
-        <SharedStatusPill severity="critical" label="error" />
-      </span>
-    );
+  const operation = connector.latest_operation;
+  if (operation?.status === "queued" || operation?.status === "running") {
+    return <SharedStatusPill severity="neutral" label={operation.status} />;
   }
-  return <SharedStatusPill severity="neutral" label="never" />;
+  const state = connector.health_state ?? connector.last_status;
+  if (state === "healthy" || state === "ok") {
+    return <SharedStatusPill severity="resolved" label="healthy" />;
+  }
+  if (state === "failing" || state === "error" || operation?.status === "failed" || operation?.status === "timed_out") {
+    return <SharedStatusPill severity="critical" label={operation?.status === "timed_out" ? "timed out" : "failing"} />;
+  }
+  if (state === "stale") return <SharedStatusPill severity="medium" label="stale" />;
+  if (state === "disabled") return <SharedStatusPill severity="neutral" label="disabled" />;
+  if (state === "unverified") return <SharedStatusPill severity="neutral" label="unverified" />;
+  return <SharedStatusPill severity="neutral" label="never run" />;
 }

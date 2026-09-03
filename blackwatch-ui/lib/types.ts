@@ -1291,11 +1291,50 @@ export interface Connector {
   last_run_at: string | null;
   last_status: "ok" | "error" | null | string;
   last_error: string | null;
+  retry_count?: number;
+  next_attempt_at?: string | null;
+  scheduler_reason?: string | null;
+  health_state?: "disabled" | "unverified" | "never_run" | "running" | "healthy" | "stale" | "failing" | string;
+  latest_operation?: ConnectorOperation | null;
+}
+
+export type ConnectorOperationStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "timed_out";
+
+export interface ConnectorOperation {
+  operation_id: string;
+  kind: string;
+  connector_id: string | null;
+  parent_operation_id: string | null;
+  status: ConnectorOperationStatus | string;
+  correlation_id: string;
+  requested_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string | null;
+  next_attempt_at: string | null;
+  retry_count: number;
+  attempt: number;
+  duration_ms: number | null;
+  outcome: Record<string, unknown>;
+  error_category: string | null;
+  error_message: string | null;
 }
 
 export interface ConnectorsListResponse {
   count: number;
   connectors: Connector[];
+  scheduler?: {
+    heartbeat_at?: string | null;
+    last_tick_at?: string | null;
+    next_tick_at?: string | null;
+    last_error?: string | null;
+  };
 }
 
 export type CoverageStatus = "healthy" | "stale" | "failing" | "unverified" | "disabled";

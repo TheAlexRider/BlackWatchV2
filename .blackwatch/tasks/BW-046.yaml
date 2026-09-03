@@ -1,0 +1,26 @@
+id: BW-046
+status: review
+title: "Make connector actions visibly tracked and non-duplicating"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch-ui/app/connectors/page.tsx and blackwatch-ui/app/connectors/actions.ts"
+    location: "Test and Run now actions"
+    observation: "Actions wait for a server-side redirect and have no immediate or durable in-flight state."
+  - file: "blackwatch/connectors/runner.py"
+    location: "run_connector"
+    observation: "Runs are synchronous and persist only last status, error, and timestamp."
+impact: "Operators cannot tell whether a click registered and can accidentally start duplicate polls."
+acceptance_criteria:
+  - "Show accessible pending feedback and disable duplicate execution."
+  - "Expose a safe operation identifier and queued/running/succeeded/failed/timed-out state."
+  - "Show outcome counts and redacted actionable errors."
+  - "Preserve connector configuration, evidence, and all Postgres data."
+dependencies: []
+risks: ["Asynchronous work must not hold database connections open for its entire remote operation."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Foundational contract for automatic retries and Retry All."

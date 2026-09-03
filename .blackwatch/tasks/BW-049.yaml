@@ -1,0 +1,27 @@
+id: BW-049
+status: review
+title: "Build connector diagnostics and bounded run history"
+area: full-stack
+source: research
+severity: high
+confidence: high
+implementation_allowed: true
+evidence:
+  - file: "blackwatch/storage.py and blackwatch/api.py"
+    location: "connector persistence/API contract"
+    observation: "Only last_run_at, last_status, and last_error are exposed; no history, duration, stage, retry, or correlation ID exists."
+  - file: "blackwatch-ui/app/connectors/page.tsx"
+    location: "StatusPill and last-error row"
+    observation: "Errors are shown as compact text or a tooltip without troubleshooting workflow."
+impact: "Operators cannot identify whether a connector is running, stale, blocked, misconfigured, rate-limited, or failing at a particular stage."
+acceptance_criteria:
+  - "Show state, last attempt/success, duration, next run, retry/backoff, scheduler heartbeat, and bounded recent history."
+  - "Classify failures safely with redaction and correlation IDs; never expose secrets or sensitive payloads."
+  - "Explain likely cause and safe next action for common failure categories."
+  - "Make stale, disabled, unverified, never-run, running, healthy, and failing states distinct."
+  - "Add API/UI tests for loading, success, failure, timeout, stale, retrying, and unavailable diagnostics."
+dependencies: [BW-046]
+risks: ["History must have bounded retention and remain separate from immutable evidence/audit data."]
+proposed_role: "coder-backend + coder-ui + coder-tests"
+approved_by: null
+notes: "Diagnostics are read-only with respect to collected evidence and production data."
