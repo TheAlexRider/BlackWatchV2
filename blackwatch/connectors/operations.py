@@ -8,8 +8,10 @@ callers request a bounded recent window when rendering diagnostics.
 
 from __future__ import annotations
 
+import random
 import re
 import threading
+import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -27,6 +29,7 @@ _executor = ThreadPoolExecutor(
     thread_name_prefix="connector-operation",
 )
 _state_lock = threading.RLock()
+_operation_slots = threading.BoundedSemaphore(MAX_CONCURRENT_OPERATIONS)
 _connector_locks: dict[str, threading.Lock] = {}
 _active: dict[str, tuple[str, threading.Lock, Future[Any], threading.Timer]] = {}
 
@@ -178,6 +181,11 @@ def compute_retry_delay(retry_count: int, *, jitter: int | None = None) -> int:
     return min(MAX_RETRY_DELAY_SECONDS, base + max(0, min(int(jitter), 30)))
 
 
+def _scheduled_retry_delay(retry_count: int) -> int:
+    """Return bounded backoff with a small spread between connectors."""
+    return compute_retry_delay(retry_count, jitter=random.randint(0, 30))
+
+
 def aggregate_progress(children: list[dict[str, Any]]) -> dict[str, Any]:
     counts = {
         "queued": 0, "running": 0, "succeeded": 0, "failed": 0,
@@ -216,6 +224,50 @@ def _active_result(connector_id: str) -> dict[str, Any] | None:
     return None
 
 
+def _active_count_locked() -> int:
+    return sum(1 for current in _active.values() if not current[2].done())
+
+
+def active_operation_count() -> int:
+    """Return the number of live workers for scheduler diagnostics."""
+    with _state_lock:
+        return _active_count_locked()
+
+
+def _prune_completed_operations() -> None:
+    """Repair the tiny submit/register race for very fast connector runs."""
+    with _state_lock:
+        completed = [
+            (operation_id, current)
+            for operation_id, current in _active.items()
+            if current[2].done()
+        ]
+    for operation_id, current in completed:
+        _finish(operation_id, current[0], current[1])
+
+
+def _detach_active_operation(operation_id: str, lock: threading.Lock) -> bool:
+    """Detach a timed-out worker without allowing its finally block to
+    release a lock belonging to a newer retry.
+
+    Python threads cannot be force-killed. The future is cancelled when
+    possible, while the operation row prevents the late worker from writing a
+    second terminal state. Queue/event deduplication remains the source of
+    truth for any provider work that was already in flight.
+    """
+    with _state_lock:
+        current = _active.get(operation_id)
+        if current is None or current[1] is not lock:
+            return False
+        _active.pop(operation_id, None)
+    current[3].cancel()
+    current[2].cancel()
+    _operation_slots.release()
+    if lock.locked():
+        lock.release()
+    return True
+
+
 def start_connector_operation(
     connector_id: str,
     *,
@@ -239,11 +291,31 @@ def start_connector_operation(
             "connector_id": connector_id,
         }
 
+    _prune_completed_operations()
     duplicate = _active_result(connector_id)
     if duplicate:
         return duplicate
+    if not _operation_slots.acquire(blocking=False):
+        return {
+            "accepted": False,
+            "duplicate": False,
+            "reason": "concurrency_limit",
+            "status": "queued",
+            "connector_id": connector_id,
+        }
+    with _state_lock:
+        if _active_count_locked() >= MAX_CONCURRENT_OPERATIONS:
+            _operation_slots.release()
+            return {
+                "accepted": False,
+                "duplicate": False,
+                "reason": "concurrency_limit",
+                "status": "queued",
+                "connector_id": connector_id,
+            }
     lock = _lock_for(connector_id)
     if not lock.acquire(blocking=False):
+        _operation_slots.release()
         duplicate = _active_result(connector_id)
         return duplicate or {
             "accepted": False, "duplicate": True, "reason": "operation already running",
@@ -280,7 +352,12 @@ def start_connector_operation(
         with _state_lock:
             _active[operation_id] = (connector_id, lock, future, timer)
         timer.start()
+        # A fast worker can finish between submit() and registration in
+        # _active. Clean that entry immediately so it cannot block retries.
+        if future.done():
+            _finish(operation_id, connector_id, lock)
     except Exception:
+        _operation_slots.release()
         lock.release()
         raise
     operation = storage.get_connector_operation(operation_id)
@@ -293,9 +370,12 @@ def start_connector_operation(
 
 def _finish(operation_id: str, connector_id: str, lock: threading.Lock) -> None:
     with _state_lock:
-        current = _active.pop(operation_id, None)
-    if current:
-        current[3].cancel()
+        current = _active.get(operation_id)
+        if current is None or current[1] is not lock:
+            return
+        _active.pop(operation_id, None)
+    current[3].cancel()
+    _operation_slots.release()
     if lock.locked():
         lock.release()
 
@@ -308,26 +388,29 @@ def _execute(
     timeout_seconds: int,
 ) -> None:
     started = _now()
-    storage.update_connector_operation(
-        operation_id, status="running", started_at=started, attempt=1
-    )
+    if not storage.mark_connector_operation_running(
+        operation_id, started_at=started
+    ):
+        _finish(operation_id, connector_id, lock)
+        return
     try:
-        result = runner.run_connector(connector_id)
+        result = runner.run_connector(connector_id, operation_id=operation_id)
         current = storage.get_connector_operation(operation_id)
         if current and current.get("status") == "timed_out":
             return
         duration_ms = int((_now() - started).total_seconds() * 1000)
         if result.get("status") == "ok":
-            storage.update_connector_operation(
+            if storage.update_connector_operation(
                 operation_id,
                 status="succeeded",
                 finished_at=_now(),
                 duration_ms=duration_ms,
                 outcome=_safe_outcome(result),
-            )
-            storage.set_connector_retry(
-                connector_id, retry_count=0, next_attempt_at=None, reason=None
-            )
+                require_active=True,
+            ) is not False:
+                storage.set_connector_retry(
+                    connector_id, retry_count=0, next_attempt_at=None, reason=None
+                )
         else:
             _record_failure(operation_id, connector_id, result.get("error", "connector failed"),
                             kind=kind, started=started, duration_ms=duration_ms)
@@ -359,8 +442,10 @@ def _record_failure(
     # retry_count is incremented for the failure being recorded. Calculate
     # the delay from the number of failures already seen so the first retry
     # is approximately one minute, then back off exponentially.
-    next_attempt = _now() + timedelta(seconds=compute_retry_delay(max(0, retry_count - 1)))
-    storage.update_connector_operation(
+    next_attempt = _now() + timedelta(
+        seconds=_scheduled_retry_delay(max(0, retry_count - 1))
+    )
+    if storage.update_connector_operation(
         operation_id,
         status="failed",
         finished_at=_now(),
@@ -370,13 +455,14 @@ def _record_failure(
         outcome={"status": "error"},
         error_category=category,
         error_message=safe["message"],
-    )
-    storage.set_connector_retry(
-        connector_id,
-        retry_count=retry_count,
-        next_attempt_at=next_attempt,
-        reason=category,
-    )
+        require_active=True,
+    ) is not False:
+        storage.set_connector_retry(
+            connector_id,
+            retry_count=retry_count,
+            next_attempt_at=next_attempt,
+            reason=category,
+        )
 
 
 def _timeout_operation(
@@ -384,32 +470,44 @@ def _timeout_operation(
     connector_id: str,
     lock: threading.Lock,
     retry_count: int,
-) -> None:
+) -> bool:
     with _state_lock:
         current = _active.get(operation_id)
     if not current or current[2].done():
-        return
+        return False
     operation = storage.get_connector_operation(operation_id)
     if not operation or operation.get("status") not in {"queued", "running"}:
-        return
+        return False
     safe = redact_error(TimeoutError("connector operation timed out"), "timeout")
-    next_attempt = _now() + timedelta(seconds=compute_retry_delay(retry_count + 1))
-    storage.update_connector_operation(
+    now = _now()
+    next_attempt = now + timedelta(seconds=_scheduled_retry_delay(retry_count))
+    transitioned = storage.mark_connector_operation_timed_out(
         operation_id,
-        status="timed_out",
-        finished_at=_now(),
+        finished_at=now,
         next_attempt_at=next_attempt,
         retry_count=retry_count + 1,
         error_category="timeout",
         error_message=safe["message"],
         outcome={"status": "timed_out"},
     )
-    storage.set_connector_retry(
-        connector_id,
-        retry_count=retry_count + 1,
-        next_attempt_at=next_attempt,
-        reason="timeout",
-    )
+    if not transitioned:
+        return False
+    try:
+        storage.set_connector_retry(
+            connector_id,
+            retry_count=retry_count + 1,
+            next_attempt_at=next_attempt,
+            reason="timeout",
+        )
+    except Exception:
+        # The terminal operation is authoritative. Retry metadata is repaired
+        # from operation history by the scheduler on its next tick.
+        pass
+    finally:
+        # The operation row is already terminal. Always free the local slot;
+        # the scheduler can repair connector retry metadata on its next tick.
+        _detach_active_operation(operation_id, lock)
+    return True
 
 
 def start_retry_all(
@@ -516,20 +614,80 @@ def operation_details(operation_id: str) -> dict[str, Any] | None:
     return result
 
 
+def wait_for_operation(
+    operation_id: str,
+    *,
+    timeout_seconds: int = DEFAULT_OPERATION_TIMEOUT_SECONDS + 5,
+) -> dict[str, Any] | None:
+    """Wait briefly for compatibility callers that historically ran
+    connectors synchronously. The operation itself remains bounded and
+    persisted, so a caller timeout never cancels or deletes its history."""
+    deadline = time.monotonic() + max(0, int(timeout_seconds))
+    while True:
+        operation = storage.get_connector_operation(operation_id)
+        if operation is None or operation.get("status") not in {"queued", "running"}:
+            return operation
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return operation
+        threading.Event().wait(min(0.25, remaining))
+
+
 def recover_stale_operations(max_age_seconds: int = DEFAULT_OPERATION_TIMEOUT_SECONDS) -> int:
     """Close orphaned queued/running rows after a process restart."""
-    cutoff = _now() - timedelta(seconds=max_age_seconds)
+    now = _now()
+    cutoff = now - timedelta(seconds=max_age_seconds)
     recovered = 0
-    for operation in storage.list_connector_operations(limit=100):
-        if operation.get("status") not in {"queued", "running"}:
-            continue
-        if (operation.get("updated_at") or operation.get("requested_at") or _now()) > cutoff:
-            continue
+    for operation in storage.list_stale_connector_operations(cutoff):
         safe = redact_error(TimeoutError("orphaned connector operation"), "timeout")
-        storage.update_connector_operation(
-            operation["operation_id"], status="timed_out", finished_at=_now(),
+        retry_count = int(operation.get("retry_count") or 0) + 1
+        next_attempt = now + timedelta(
+            seconds=_scheduled_retry_delay(max(0, retry_count - 1))
+        )
+        transitioned = storage.mark_connector_operation_timed_out(
+            operation["operation_id"], finished_at=now,
+            next_attempt_at=next_attempt, retry_count=retry_count,
             error_category="timeout", error_message=safe["message"],
             outcome={"status": "timed_out", "reason": "process_restart"},
         )
+        if not transitioned:
+            continue
+        if operation.get("connector_id"):
+            storage.set_connector_retry(
+                operation["connector_id"], retry_count=retry_count,
+                next_attempt_at=next_attempt, reason="process_restart",
+            )
         recovered += 1
     return recovered
+
+
+def reap_stale_operations(
+    max_age_seconds: int = DEFAULT_OPERATION_TIMEOUT_SECONDS,
+) -> int:
+    """Reconcile live workers and persisted rows on every scheduler tick."""
+    now = _now()
+    cutoff = now - timedelta(seconds=max_age_seconds)
+    active: list[tuple[str, tuple[str, threading.Lock, Future[Any], threading.Timer]]]
+    with _state_lock:
+        active = list(_active.items())
+    reaped = 0
+    for operation_id, current in active:
+        if current[2].done():
+            _finish(operation_id, current[0], current[1])
+            continue
+        operation = storage.get_connector_operation(operation_id)
+        if not operation or operation.get("status") not in {"queued", "running"}:
+            continue
+        timestamp = operation.get("started_at") or operation.get("requested_at")
+        if isinstance(timestamp, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                timestamp = None
+        if timestamp is not None and timestamp <= cutoff:
+            if _timeout_operation(
+                operation_id, current[0], current[1],
+                int(operation.get("retry_count") or 0),
+            ):
+                reaped += 1
+    return reaped + recover_stale_operations(max_age_seconds)

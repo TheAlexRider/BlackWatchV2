@@ -19,7 +19,23 @@ from .models import (
 )
 
 
-def run_connector(connector_id: str) -> dict[str, Any]:
+def _operation_is_live(operation_id: str | None) -> bool:
+    """Prevent a late provider response from overwriting a timed-out run."""
+    if operation_id is None:
+        return True
+    try:
+        operation = storage.get_connector_operation(operation_id)
+    except Exception:
+        # A transient diagnostics read must not turn a successful provider
+        # call into a connector failure. The operation manager still owns the
+        # terminal transition.
+        return True
+    return bool(operation and operation.get("status") in {"queued", "running"})
+
+
+def run_connector(
+    connector_id: str, *, operation_id: str | None = None
+) -> dict[str, Any]:
     connector = storage.get_connector(connector_id)
     if connector is None:
         return {"status": "error", "error": "connector not found"}
@@ -77,12 +93,16 @@ def run_connector(connector_id: str) -> dict[str, Any]:
         else:
             raise RuntimeError(f"unknown connector type: {ctype}")
 
-        storage.set_connector_status(
-            connector_id, last_status="ok", last_error=None, last_run_at=now, verified=True
-        )
+        if _operation_is_live(operation_id):
+            storage.set_connector_status(
+                connector_id, last_status="ok", last_error=None,
+                last_run_at=now, verified=True, operation_id=operation_id,
+            )
         return {"status": "ok", **outcome}
     except Exception as exc:
-        storage.set_connector_status(
-            connector_id, last_status="error", last_error=str(exc), last_run_at=now
-        )
+        if _operation_is_live(operation_id):
+            storage.set_connector_status(
+                connector_id, last_status="error", last_error=str(exc),
+                last_run_at=now, operation_id=operation_id,
+            )
         return {"status": "error", "error": str(exc)}

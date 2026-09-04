@@ -593,17 +593,36 @@ def set_connector_status(
     last_error: str | None,
     last_run_at: datetime,
     verified: bool | None = None,
+    operation_id: str | None = None,
 ) -> None:
+    operation_guard = ""
+    guard_params: tuple[Any, ...] = ()
+    if operation_id is not None:
+        operation_guard = """
+          AND EXISTS (
+                SELECT 1 FROM connector_operations
+                 WHERE operation_id = %s AND status IN ('queued', 'running')
+          )
+        """
+        guard_params = (operation_id,)
     with get_pool().connection() as conn:
         if verified is None:
             conn.execute(
-                "UPDATE connectors SET last_status=%s, last_error=%s, last_run_at=%s WHERE id=%s",
-                (last_status, last_error, last_run_at, connector_id),
+                """
+                UPDATE connectors
+                   SET last_status=%s, last_error=%s, last_run_at=%s
+                 WHERE id=%s
+                """ + operation_guard,
+                (last_status, last_error, last_run_at, connector_id) + guard_params,
             )
         else:
             conn.execute(
-                "UPDATE connectors SET last_status=%s, last_error=%s, last_run_at=%s, verified=%s WHERE id=%s",
-                (last_status, last_error, last_run_at, verified, connector_id),
+                """
+                UPDATE connectors
+                   SET last_status=%s, last_error=%s, last_run_at=%s, verified=%s
+                 WHERE id=%s
+                """ + operation_guard,
+                (last_status, last_error, last_run_at, verified, connector_id) + guard_params,
             )
 
 
@@ -727,6 +746,27 @@ def list_connector_operations(
     return [_operation_row(row) for row in rows]
 
 
+def list_stale_connector_operations(before: datetime) -> list[dict[str, Any]]:
+    """Return every orphanable active operation older than ``before``.
+
+    This is intentionally separate from the bounded history reader: restart
+    recovery must not miss old active rows merely because newer history has
+    filled the normal 100-row diagnostics window.
+    """
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {_OPERATION_COLS}
+              FROM connector_operations
+             WHERE status IN ('queued', 'running')
+               AND COALESCE(started_at, requested_at, updated_at) <= %s
+             ORDER BY requested_at
+            """,
+            (before,),
+        ).fetchall()
+    return [_operation_row(row) for row in rows]
+
+
 def get_latest_connector_operations(
     connector_ids: list[str],
 ) -> dict[str, dict[str, Any]]:
@@ -771,9 +811,12 @@ def update_connector_operation(
     outcome: dict[str, Any] | None = None,
     error_category: str | None = None,
     error_message: str | None = None,
-) -> None:
+    require_active: bool = False,
+) -> bool:
     """Persist an operation transition. NULL values intentionally clear
-    optional fields; this table is operational history and never deletes rows."""
+    optional fields; this table is operational history and never deletes rows.
+    When ``require_active`` is set, the transition is compare-and-set against
+    the queued/running states and the return value reports whether it won."""
     fields = ["status=%s", "updated_at=now()"]
     params: list[Any] = [status]
     optional = (
@@ -790,11 +833,65 @@ def update_connector_operation(
         fields.append("outcome=%s")
         params.append(Jsonb(outcome))
     params.append(operation_id)
+    where = " WHERE operation_id=%s"
+    if require_active:
+        where += " AND status IN ('queued', 'running')"
     with get_pool().connection() as conn:
-        conn.execute(
-            f"UPDATE connector_operations SET {', '.join(fields)} WHERE operation_id=%s",
+        result = conn.execute(
+            f"UPDATE connector_operations SET {', '.join(fields)}{where}",
             tuple(params),
         )
+    return result.rowcount == 1
+
+
+def mark_connector_operation_timed_out(
+    operation_id: str,
+    *,
+    finished_at: datetime,
+    next_attempt_at: datetime,
+    retry_count: int,
+    error_category: str,
+    error_message: str,
+    outcome: dict[str, Any],
+) -> bool:
+    """Atomically time out an active operation.
+
+    The status predicate makes a late timeout callback harmless when the
+    worker has already completed. Operation history remains append-only.
+    """
+    with get_pool().connection() as conn:
+        result = conn.execute(
+            """
+            UPDATE connector_operations
+               SET status='timed_out', finished_at=%s, updated_at=now(),
+                   next_attempt_at=%s, retry_count=%s,
+                   error_category=%s, error_message=%s, outcome=%s
+             WHERE operation_id=%s AND status IN ('queued', 'running')
+            """,
+            (
+                finished_at, next_attempt_at, max(0, int(retry_count)),
+                error_category, error_message, Jsonb(outcome), operation_id,
+            ),
+        )
+    return result.rowcount == 1
+
+
+def mark_connector_operation_running(
+    operation_id: str,
+    *,
+    started_at: datetime,
+) -> bool:
+    """Atomically claim a queued operation for a worker thread."""
+    with get_pool().connection() as conn:
+        result = conn.execute(
+            """
+            UPDATE connector_operations
+               SET status='running', started_at=%s, attempt=1, updated_at=now()
+             WHERE operation_id=%s AND status='queued'
+            """,
+            (started_at, operation_id),
+        )
+    return result.rowcount == 1
 
 
 def upsert_connector_scheduler_state(

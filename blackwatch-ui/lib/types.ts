@@ -1334,6 +1334,8 @@ export interface ConnectorsListResponse {
     last_tick_at?: string | null;
     next_tick_at?: string | null;
     last_error?: string | null;
+    active_operations?: number;
+    max_concurrent_operations?: number;
   };
 }
 

@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .. import noise, storage
-from ..connectors import runner as connector_runner
+from ..connectors import operations as connector_operations
 from ..connectors.models import (
     AwsCloudtrailSqsConfig, AwsEcsHealthConfig,
     AwsPostureDriftConfig, AwsS3AccessLogsConfig, AwsS3DriftConfig,
@@ -943,18 +943,29 @@ def aws_posture(request: Request) -> Any:
 
 @router.post("/ui/connectors/{connector_id}/test")
 def connector_test(connector_id: str) -> RedirectResponse:
-    result = connector_runner.run_connector(connector_id)
-    if result.get("status") == "ok":
+    result = connector_operations.start_connector_operation(connector_id, kind="test")
+    operation = result.get("operation") or {}
+    if operation.get("operation_id"):
+        operation = connector_operations.wait_for_operation(operation["operation_id"]) or operation
+    if operation.get("status") == "succeeded":
         return _settings_redirect("test ok - connector verified")
-    return _settings_redirect(f"test failed: {result.get('error', 'unknown')}")
+    return _settings_redirect(
+        f"test failed: {operation.get('error_message') or result.get('reason') or result.get('error', 'unknown')}"
+    )
 
 
 @router.post("/ui/connectors/{connector_id}/run")
 def connector_run(connector_id: str) -> RedirectResponse:
-    result = connector_runner.run_connector(connector_id)
-    if result.get("status") == "ok":
-        return _settings_redirect(f"ran ok - ingested {result.get('ingested', 0)} event(s)")
-    return _settings_redirect(f"run failed: {result.get('error', 'unknown')}")
+    result = connector_operations.start_connector_operation(connector_id, kind="manual")
+    operation = result.get("operation") or {}
+    if operation.get("operation_id"):
+        operation = connector_operations.wait_for_operation(operation["operation_id"]) or operation
+    if operation.get("status") == "succeeded":
+        outcome = operation.get("outcome") or {}
+        return _settings_redirect(f"ran ok - ingested {outcome.get('ingested', 0)} event(s)")
+    return _settings_redirect(
+        f"run failed: {operation.get('error_message') or result.get('reason') or result.get('error', 'unknown')}"
+    )
 
 
 @router.post("/ui/connectors/{connector_id}/toggle")

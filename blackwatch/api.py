@@ -17,7 +17,6 @@ from . import auth, coverage, investigation_flow, noise, storage
 from .intel import db as intel_db
 from .intel import enrich as intel_enrich
 from .connectors import operations as connector_operations
-from .connectors import runner as connector_runner
 from .config import settings
 from .notify import router as notify_router
 from .pipeline import NormalizationError, ingest_payload
@@ -536,15 +535,30 @@ def modules_refresh(body: ModulesRefreshBody) -> dict[str, Any]:
     for c in storage.list_connectors():
         if c["type"] not in wanted or not c.get("enabled"):
             continue
-        result = connector_runner.run_connector(c["id"])
-        ingested = result.get("ingested")
+        result = connector_operations.start_connector_operation(
+            c["id"], kind="manual"
+        )
+        operation = result.get("operation") or {}
+        operation_id = operation.get("operation_id")
+        if operation_id:
+            completed = connector_operations.wait_for_operation(operation_id)
+            operation = completed or operation
+        outcome = operation.get("outcome") or {}
+        operation_status = operation.get("status")
+        status = (
+            "ok" if operation_status == "succeeded"
+            else "error" if operation_status in {"failed", "timed_out"}
+            else operation_status or result.get("status")
+        )
+        ingested = outcome.get("ingested")
+        error = operation.get("error_message") or result.get("error")
         ran.append({
             "connector_id": c["id"],
             "connector_name": c.get("name"),
             "type": c["type"],
-            "status": result.get("status"),
+            "status": status,
             "ingested": ingested if isinstance(ingested, int) else 0,
-            "error": result.get("error"),
+            "error": error,
         })
         if isinstance(ingested, int):
             total += ingested
@@ -583,6 +597,9 @@ def connectors_list() -> dict[str, Any]:
         "scheduler": {
             key: value.isoformat() if isinstance(value, datetime) else value
             for key, value in (scheduler or {}).items()
+        } | {
+            "active_operations": connector_operations.active_operation_count(),
+            "max_concurrent_operations": connector_operations.MAX_CONCURRENT_OPERATIONS,
         },
     }
 
@@ -653,6 +670,9 @@ def connectors_scheduler_status() -> dict[str, Any]:
     return {
         key: value.isoformat() if isinstance(value, datetime) else value
         for key, value in (state or {}).items()
+    } | {
+        "active_operations": connector_operations.active_operation_count(),
+        "max_concurrent_operations": connector_operations.MAX_CONCURRENT_OPERATIONS,
     }
 
 
