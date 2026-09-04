@@ -29,7 +29,7 @@ export function ConnectorActionButton({
 
   useEffect(() => {
     const status = operation?.status;
-    if (!operation || !["queued", "running"].includes(status)) return;
+    if (!operation || (status !== "queued" && status !== "running")) return;
     const timer = window.setInterval(() => {
       void getConnectorOperationAction(operation.operation_id).then((result) => {
         const next = result?.operation as ConnectorOperation | undefined;
