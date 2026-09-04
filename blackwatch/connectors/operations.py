@@ -41,8 +41,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+def _iso(value: datetime | str | None) -> str | None:
+    """Normalize timestamps from both psycopg rows and compatibility rows."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return value.isoformat()
 
 
 def serialize_operation(operation: dict[str, Any] | None) -> dict[str, Any] | None:

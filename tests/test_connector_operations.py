@@ -32,6 +32,14 @@ def test_latest_connector_operations_delegates_and_serializes(monkeypatch):
     assert result["c1"]["requested_at"] == NOW.isoformat()
 
 
+def test_serializer_accepts_string_timestamps():
+    from blackwatch.connectors.operations import serialize_operation
+
+    result = serialize_operation({"requested_at": "2026-09-04T00:00:00+00:00"})
+
+    assert result["requested_at"] == "2026-09-04T00:00:00+00:00"
+
+
 def test_failure_details_are_safe_and_actionable():
     category = classify_failure(ValueError("token=super-secret queue is invalid"))
     safe = redact_error(ValueError("token=super-secret queue is invalid"), category)
