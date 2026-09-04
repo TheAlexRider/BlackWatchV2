@@ -81,6 +81,23 @@ def _public_operation(operation: dict[str, Any] | None) -> dict[str, Any] | None
     return serialize_operation(operation)
 
 
+def get_latest_connector_operations(
+    connector_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Return the most recent persisted operation for each connector.
+
+    The API uses this read helper to decorate the connector list. Keep the
+    storage boundary here so callers do not need to know how operation rows
+    are selected or serialized.
+    """
+    rows = storage.get_latest_connector_operations(connector_ids)
+    return {
+        connector_id: serialized
+        for connector_id, row in rows.items()
+        if (serialized := _public_operation(row)) is not None
+    }
+
+
 def classify_failure(exc: BaseException) -> str:
     """Return a stable, non-sensitive category for operator diagnostics."""
     text = str(exc).lower()

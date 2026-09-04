@@ -4,12 +4,32 @@ from blackwatch.connectors.operations import (
     aggregate_progress,
     classify_failure,
     compute_retry_delay,
+    get_latest_connector_operations,
     redact_error,
 )
 from blackwatch.connectors.scheduler import connector_health_state, retry_due
 
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc)
+
+
+def test_latest_connector_operations_delegates_and_serializes(monkeypatch):
+    row = {
+        "connector_id": "c1",
+        "requested_at": NOW,
+        "started_at": None,
+        "finished_at": None,
+        "updated_at": NOW,
+        "next_attempt_at": None,
+    }
+    monkeypatch.setattr(
+        "blackwatch.connectors.operations.storage.get_latest_connector_operations",
+        lambda ids: {"c1": row} if ids == ["c1"] else {},
+    )
+
+    result = get_latest_connector_operations(["c1"])
+
+    assert result["c1"]["requested_at"] == NOW.isoformat()
 
 
 def test_failure_details_are_safe_and_actionable():
